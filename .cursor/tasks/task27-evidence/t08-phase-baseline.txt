@@ -1,8 +1,0 @@
---- FAIL: TestPipelinePhaseLabelsMatchExecutionContract (0.00s)
-    pipeline_panic_contract_test.go:193: phase labels = [fast policy slow], err = <nil>
-FAIL
-FAIL	github.com/skosovsky/guardy	0.945s
-ok  	github.com/skosovsky/guardy/ext	(cached) [no tests to run]
-ok  	github.com/skosovsky/guardy/guardytest	(cached) [no tests to run]
-ok  	github.com/skosovsky/guardy/internal/jsondoc	(cached) [no tests to run]
-FAIL

@@ -1,7 +1,0 @@
-MODULE .
-ok  	github.com/skosovsky/guardy	1.561s
-ok  	github.com/skosovsky/guardy/ext	1.494s
-ok  	github.com/skosovsky/guardy/guardytest	1.433s [no tests to run]
-ok  	github.com/skosovsky/guardy/internal/jsondoc	1.413s [no tests to run]
-MODULE build
-ok  	github.com/skosovsky/guardy/build	1.483s

@@ -1,2 +1,4 @@
+github.com/skosovsky/guardy v0.13.0 h1:E0ni/keFzdXyKGGu/9E7JvE5FOtCfK9sW7S/PZT858A=
+github.com/skosovsky/guardy v0.13.0/go.mod h1:0GsoX+tIgV4db13nGQmp1n4EQRHM2RCJcr/c0UQcn0w=
 golang.org/x/sync v0.23.0 h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=
 golang.org/x/sync v0.23.0/go.mod h1:sUUOizhqBxiL6pEWpqNLUiaJn1ShEbZ6BBqskPbjZm0=
