@@ -1,7 +1,0 @@
---- FAIL: TestT10HTTPBaselineOwnershipAndLimit (0.01s)
-    http_ownership_baseline_test.go:16: consumed wrapper not closed
-    http_ownership_baseline_test.go:16: consumed wrapper not closed
-    http_ownership_baseline_test.go:17: oversized status=400 want413
-FAIL
-FAIL	github.com/skosovsky/guardy	0.436s
-FAIL

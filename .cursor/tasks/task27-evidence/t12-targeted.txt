@@ -1,4 +1,0 @@
-ok  	github.com/skosovsky/guardy	22.351s
-ok  	github.com/skosovsky/guardy/ext	1.308s [no tests to run]
-ok  	github.com/skosovsky/guardy/guardytest	1.290s [no tests to run]
-ok  	github.com/skosovsky/guardy/internal/jsondoc	1.252s [no tests to run]

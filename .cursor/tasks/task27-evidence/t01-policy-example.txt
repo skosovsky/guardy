@@ -1,8 +1,0 @@
---- policy mismatch ---
-Action: block
-Code: ATTRIBUTE_MISMATCH
-Message: You do not have permission to run this action.
-Disposition: terminal_deny
---- missing scope ---
-ErrScopeIncomplete: guardy: validator failed
-Missing: [principal.role]

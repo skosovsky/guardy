@@ -1,5 +1,0 @@
---- FAIL: TestT08NegativeRoutingBaseline (0.00s)
-    route_negative_baseline_test.go:9: negative attempt admitted as retry
-FAIL
-FAIL	github.com/skosovsky/guardy	0.465s
-FAIL

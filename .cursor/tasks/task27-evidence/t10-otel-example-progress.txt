@@ -1,1 +1,0 @@
-ok  	github.com/skosovsky/guardy/examples/otel_integration	1.822s
