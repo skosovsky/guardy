@@ -3,8 +3,8 @@ module github.com/skosovsky/guardy/examples/otel_integration
 go 1.27.1
 
 require (
-	github.com/skosovsky/guardy v0.11.1
-	github.com/skosovsky/guardy/ext/guardyotel v0.11.1
+	github.com/skosovsky/guardy v0.14.1
+	github.com/skosovsky/guardy/ext/guardyotel v0.14.1
 )
 
 require (
@@ -18,7 +18,3 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 )
-
-replace github.com/skosovsky/guardy => ../..
-
-replace github.com/skosovsky/guardy/ext/guardyotel => ../../ext/guardyotel

@@ -3,8 +3,8 @@ module github.com/skosovsky/guardy/integration/downstream
 go 1.27.1
 
 require (
-	github.com/skosovsky/guardy v0.13.0
-	github.com/skosovsky/guardy/ext/jsonschema v0.13.0
+	github.com/skosovsky/guardy v0.14.1
+	github.com/skosovsky/guardy/ext/jsonschema v0.14.1
 	github.com/skosovsky/prompty v0.15.0
 	github.com/skosovsky/toolsy v0.18.0
 )

@@ -3,9 +3,9 @@ module github.com/skosovsky/guardy/integration
 go 1.27.1
 
 require (
-	github.com/skosovsky/guardy v0.11.1
-	github.com/skosovsky/guardy/ext/jsonredact v0.11.1
-	github.com/skosovsky/guardy/ext/jsonschema v0.11.1
+	github.com/skosovsky/guardy v0.14.1
+	github.com/skosovsky/guardy/ext/jsonredact v0.14.1
+	github.com/skosovsky/guardy/ext/jsonschema v0.14.1
 )
 
 require (
@@ -18,10 +18,4 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-)
-
-replace (
-	github.com/skosovsky/guardy => ..
-	github.com/skosovsky/guardy/ext/jsonredact => ../ext/jsonredact
-	github.com/skosovsky/guardy/ext/jsonschema => ../ext/jsonschema
 )
