@@ -107,3 +107,17 @@ func TestInputBuilder(t *testing.T) {
 		t.Errorf("Documents = %v", in.Documents)
 	}
 }
+
+func TestInputBuilder_Messages(t *testing.T) {
+	msgs := []guardy.Message{
+		{Role: "system", Content: "You are helpful."},
+		{Role: "user", Content: "Hello"},
+	}
+	in := NewInputBuilder().Text("Hi").Messages(msgs).Build()
+	if in.Text != "Hi" {
+		t.Errorf("Text = %q", in.Text)
+	}
+	if len(in.Messages) != 2 || in.Messages[0].Role != "system" || in.Messages[1].Content != "Hello" {
+		t.Errorf("Messages = %v", in.Messages)
+	}
+}

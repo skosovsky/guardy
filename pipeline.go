@@ -167,6 +167,10 @@ func (p *Pipeline) runTier(ctx context.Context, tier []Validator, input Input) (
 	results := make([]pair, len(tier))
 	var wg sync.WaitGroup
 	for i, v := range tier {
+		if err := ctx.Err(); err != nil {
+			results[i] = pair{err: err}
+			continue
+		}
 		wg.Add(1)
 		go func(i int, v Validator) {
 			defer wg.Done()
@@ -183,7 +187,14 @@ func (p *Pipeline) runTier(ctx context.Context, tier []Validator, input Input) (
 				err = fmt.Errorf("%w: %w", ErrValidatorFailed, err)
 			}
 			if p.onResult != nil {
-				p.onResult(name, r, d)
+				go func() {
+					defer func() {
+						if rec := recover(); rec != nil && p.logger != nil {
+							p.logger.ErrorContext(ctx, "onResult callback panicked", "validator", name, "panic", rec)
+						}
+					}()
+					p.onResult(name, r, d)
+				}()
 			}
 			if p.logger != nil {
 				if err != nil {

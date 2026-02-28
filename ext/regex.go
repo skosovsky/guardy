@@ -69,9 +69,6 @@ func MustRegex(pattern string, action guardy.Action, code string, opts ...RegexO
 
 // Validate runs the regex against input.Text.
 func (r *Regex) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	if ctx.Err() != nil {
-		return guardy.Result{}, ctx.Err()
-	}
 	text := input.Text
 	if !r.re.MatchString(text) {
 		return guardy.Result{Passed: true, Action: guardy.Pass}, nil

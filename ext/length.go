@@ -57,9 +57,6 @@ func MustLength(minLen, maxLen int, action guardy.Action, code string, opts ...L
 
 // Validate checks the rune length of input.Text.
 func (l *Length) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	if ctx.Err() != nil {
-		return guardy.Result{}, ctx.Err()
-	}
 	n := utf8.RuneCountInString(input.Text)
 	if l.min > 0 && n < l.min {
 		return guardy.Result{

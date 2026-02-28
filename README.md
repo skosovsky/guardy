@@ -4,7 +4,7 @@ Universal AI Guardrails — pipeline engine for validation, intervention actions
 
 ## Description
 
-Guardy is an agnostic, business-logic-free pipeline for filtering and protecting AI systems. It orchestrates validators (regex, wordlists, length, JSON, or custom) in tiers, aggregates results, and applies standardized intervention strategies.
+Guardy is an agnostic, business-logic-free pipeline for filtering and protecting AI systems. It orchestrates validators (regex, wordlists, length, JSON Schema, or custom) in tiers, aggregates results, and applies standardized intervention strategies.
 
 ## Requirements
 
@@ -79,18 +79,25 @@ _ = gw.Close()
 ## Packages
 
 - **guardy** — core types, Validator interface, Pipeline, middleware, GuardWriter
-- **guardy/ext** — built-in validators: Regex, Wordlist, Length, JSON
+- **guardy/ext** — built-in validators: Regex, Wordlist, Length, JSONSchema (google/jsonschema-go; always Retry with Guidance on mismatch). Naming options: `WithRegexName`, `WithLengthName`, `WithWordlistName`, `WithJSONName` (alias `WithJSONSchemaName`).
 - **guardy/guardytest** — test helpers: FakeValidator(name, *guardy.Result) (nil yields zero Result), FailingValidator, MustPass, MustBlock, InputBuilder
 
 ## API overview
 
 - **Action**: Pass, Redact, Override, Retry, Block
+- **Input**: Text, Messages ([]Message for conversation context), Metadata, Documents
 - **Result**: Passed, Action, Code; feedback triad (Reason, Evidence, Guidance — optional, key for Retry/self-correction); CleanText, OverrideText
 - **Validator**: `Validate(ctx, input) (Result, error)`, `Name() string`
 - **Pipeline**: `NewPipeline(opts...)`, `Run(ctx, input) (Report, error)`
 - **Report**: Results, FinalAction, FinalText, OverrideText
 
 See [.cursor/docs/TD.md](.cursor/docs/TD.md) for the full technical design.
+
+## Migration (breaking changes)
+
+- **ext.JSONSchema**: Schema-only validator. Use `ext.NewJSONSchema(schemaJSON, code, opts)` or `ext.MustJSONSchema(...)`. Schema must be valid JSON Schema (draft-07 or 2020-12). On invalid JSON or schema mismatch always returns Retry with Guidance (and Reason, Evidence).
+- **Input**: New field `Messages []Message` (Message has Role, Content) for context-aware validation; optional.
+- **GuardWriter**: Chunking is now semantic (boundary-or-size) and UTF-8-safe; no mid-rune splits.
 
 ## Development
 

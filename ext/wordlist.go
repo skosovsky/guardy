@@ -78,9 +78,6 @@ func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code s
 
 // Validate checks input.Text against the word list.
 func (w *Wordlist) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	if ctx.Err() != nil {
-		return guardy.Result{}, ctx.Err()
-	}
 	text := input.Text
 	if w.lowercase {
 		text = strings.ToLower(text)

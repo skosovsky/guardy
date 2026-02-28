@@ -22,8 +22,8 @@ func FuzzRegex(f *testing.F) {
 	})
 }
 
-func FuzzJSON(f *testing.F) {
-	j := NewJSON(nil, guardy.Block, "JSON")
+func FuzzJSONSchema(f *testing.F) {
+	j := MustJSONSchema("{}", "JSON")
 	f.Add([]byte(`{"a":1}`))
 	f.Add([]byte("[1,2,3]"))
 	f.Add([]byte("not json"))

@@ -5,88 +5,96 @@ import (
 	"encoding/json"
 
 	"github.com/skosovsky/guardy"
+
+	"github.com/google/jsonschema-go/jsonschema"
 )
 
-// Ensure JSON implements guardy.Validator at compile time.
-var _ guardy.Validator = (*JSON)(nil)
+// Ensure JSONSchema implements guardy.Validator at compile time.
+var _ guardy.Validator = (*JSONSchema)(nil)
 
-// JSON is a validator that checks text is valid JSON and optionally has required keys.
-type JSON struct {
-	requiredKeys []string
-	action       guardy.Action
-	code         string
-	name         string
+// JSONSchema is a validator that checks input.Text conforms to a JSON Schema.
+// On invalid JSON or schema mismatch it always returns Retry with Reason, Evidence, and Guidance for LLM self-correction.
+type JSONSchema struct {
+	resolved *jsonschema.Resolved
+	code     string
+	name     string
 }
 
-// JSONOption configures a JSON validator.
-type JSONOption func(*JSON)
+// JSONSchemaOption configures a JSON Schema validator.
+type JSONSchemaOption func(*JSONSchema)
 
-// WithJSONName sets the validator name (default "json").
-func WithJSONName(name string) JSONOption {
-	return func(j *JSON) {
+// WithJSONSchemaName sets the validator name (default "json").
+func WithJSONSchemaName(name string) JSONSchemaOption {
+	return func(j *JSONSchema) {
 		j.name = name
 	}
 }
 
-// NewJSON creates a validator that blocks when text is not valid JSON
-// or when RequiredKeys is set and the JSON object does not contain all those keys.
-func NewJSON(requiredKeys []string, action guardy.Action, code string, opts ...JSONOption) *JSON {
-	keys := make([]string, len(requiredKeys))
-	copy(keys, requiredKeys)
-	j := &JSON{
-		requiredKeys: keys,
-		action:       action,
-		code:         code,
-		name:         "json",
+// WithJSONName is a short alias for WithJSONSchemaName (naming consistent with WithRegexName, WithLengthName, WithWordlistName).
+func WithJSONName(name string) JSONSchemaOption {
+	return WithJSONSchemaName(name)
+}
+
+// NewJSONSchema creates a validator that checks text against the given JSON Schema (JSON string).
+// Schema must be valid draft-07 or 2020-12. On validation failure the validator always returns
+// Action Retry with Guidance set to the schema error message (and Reason/Evidence when available).
+func NewJSONSchema(schemaJSON, code string, opts ...JSONSchemaOption) (*JSONSchema, error) {
+	var s jsonschema.Schema
+	if err := json.Unmarshal([]byte(schemaJSON), &s); err != nil {
+		return nil, err
+	}
+	resolved, err := s.Resolve(&jsonschema.ResolveOptions{})
+	if err != nil {
+		return nil, err
+	}
+	j := &JSONSchema{
+		resolved: resolved,
+		code:     code,
+		name:     "json",
 	}
 	for _, opt := range opts {
 		opt(j)
 	}
+	return j, nil
+}
+
+// MustJSONSchema is like NewJSONSchema but panics on error (for init-time or tests).
+func MustJSONSchema(schemaJSON, code string, opts ...JSONSchemaOption) *JSONSchema {
+	j, err := NewJSONSchema(schemaJSON, code, opts...)
+	if err != nil {
+		panic("ext: MustJSONSchema: " + err.Error())
+	}
 	return j
 }
 
-// Validate checks that input.Text is valid JSON and has required keys if set.
-// When requiredKeys is empty, any valid JSON (object, array, string, number, etc.) passes.
-// When requiredKeys is set, the top-level value must be a JSON object containing all those keys.
-func (j *JSON) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	if ctx.Err() != nil {
-		return guardy.Result{}, ctx.Err()
-	}
+// Validate checks that input.Text is valid JSON and conforms to the schema.
+// On failure returns Retry with Guidance (and Reason, Evidence) for self-correction.
+func (j *JSONSchema) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
 	text := input.Text
-	if len(j.requiredKeys) == 0 {
-		if !json.Valid([]byte(text)) {
-			return guardy.Result{
-				Passed: false,
-				Action: j.action,
-				Code:   j.code,
-				Reason: "invalid JSON",
-			}, nil
-		}
-		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(text), &m); err != nil {
+	var instance any
+	if err := json.Unmarshal([]byte(text), &instance); err != nil {
 		return guardy.Result{
-			Passed: false,
-			Action: j.action,
-			Code:   j.code,
-			Reason: "invalid JSON",
+			Passed:   false,
+			Action:   guardy.Retry,
+			Code:     j.code,
+			Reason:   "invalid JSON",
+			Guidance: "Output must be valid JSON: " + err.Error(),
 		}, nil
 	}
-	for _, key := range j.requiredKeys {
-		if _, ok := m[key]; !ok {
-			return guardy.Result{
-				Passed: false,
-				Action: j.action,
-				Code:   j.code,
-				Reason: "missing required key: " + key,
-			}, nil
-		}
+	if err := j.resolved.Validate(instance); err != nil {
+		return guardy.Result{
+			Passed:   false,
+			Action:   guardy.Retry,
+			Code:     j.code,
+			Reason:   "schema validation failed",
+			Evidence: text,
+			Guidance: err.Error(),
+		}, nil
 	}
 	return guardy.Result{Passed: true, Action: guardy.Pass}, nil
 }
 
 // Name returns the validator name.
-func (j *JSON) Name() string {
+func (j *JSONSchema) Name() string {
 	return j.name
 }

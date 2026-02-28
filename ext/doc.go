@@ -7,5 +7,5 @@
 //   - Regex: match or replace text using regular expressions
 //   - Wordlist: blocklist or allowlist by tokens (words)
 //   - Length: min/max rune length
-//   - JSON: valid JSON and optional required keys
+//   - JSONSchema: JSON Schema validation (github.com/google/jsonschema-go); always returns Retry with Guidance on mismatch
 package ext

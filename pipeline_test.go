@@ -347,12 +347,12 @@ func TestPipeline_WithLogger(t *testing.T) {
 }
 
 func TestPipeline_WithOnResult(t *testing.T) {
-	var names []string
-	var mu sync.Mutex
+	done := make(chan string, 1)
 	cb := func(name string, _ Result, _ time.Duration) {
-		mu.Lock()
-		names = append(names, name)
-		mu.Unlock()
+		select {
+		case done <- name:
+		default:
+		}
 	}
 	v := &fakeValidator{
 		name: "myvalidator",
@@ -365,10 +365,33 @@ func TestPipeline_WithOnResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(names) != 1 || names[0] != "myvalidator" {
-		t.Errorf("onResult callback: got %v", names)
+	select {
+	case name := <-done:
+		if name != "myvalidator" {
+			t.Errorf("onResult callback: got %q", name)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("onResult callback did not run within 2s")
+	}
+}
+
+func TestPipeline_OnResultPanicDoesNotCrashRun(t *testing.T) {
+	panickingCb := func(_ string, _ Result, _ time.Duration) {
+		panic("onResult panic test")
+	}
+	v := &fakeValidator{
+		name: "v1",
+		validate: func(context.Context, Input) (Result, error) {
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v), WithOnResult(panickingCb))
+	report, err := p.Run(context.Background(), Input{Text: "x"})
+	if err != nil {
+		t.Fatalf("Run should not return error when onResult panics: %v", err)
+	}
+	if report.FinalAction != Pass {
+		t.Errorf("FinalAction = %s, want Pass", report.FinalAction)
 	}
 }
 
