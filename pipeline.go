@@ -199,7 +199,8 @@ func (p *Pipeline) runTier(ctx context.Context, tier []Validator, input Input) (
 
 	var out []Result
 	var firstErr error
-	for _, pr := range results {
+	for i := range results {
+		pr := &results[i]
 		if pr.err != nil {
 			if firstErr == nil {
 				firstErr = pr.err

@@ -23,6 +23,25 @@ func TestFakeValidator(t *testing.T) {
 	}
 }
 
+// TestFakeValidator_nilYieldsZeroResult documents the contract: FakeValidator(name, nil) returns a validator
+// that yields zero-value Result (Passed false, Action "", empty strings).
+func TestFakeValidator_nilYieldsZeroResult(t *testing.T) {
+	v := FakeValidator("nilFake", nil)
+	ctx := context.Background()
+	r, err := v.Validate(ctx, guardy.Input{Text: "any"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var zero guardy.Result
+	if r != zero {
+		t.Errorf("FakeValidator(..., nil) must yield zero Result, got %+v", r)
+	}
+	if r.Passed || r.Action != "" || r.Code != "" || r.Reason != "" || r.Evidence != "" || r.Guidance != "" {
+		t.Errorf("expected zero Result: Passed=%v Action=%q Code=%q Reason=%q Evidence=%q Guidance=%q",
+			r.Passed, r.Action, r.Code, r.Reason, r.Evidence, r.Guidance)
+	}
+}
+
 func TestFailingValidator(t *testing.T) {
 	e := errors.New("fail")
 	v := FailingValidator("fail", e)

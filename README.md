@@ -48,7 +48,9 @@ switch report.FinalAction {
 case guardy.Block:
     return errors.New("blocked")
 case guardy.Retry:
-    return retryWithReason(report.Results[0].Reason)
+    r := report.Results[0]
+    // Pass Reason, Evidence, Guidance to the LLM for self-correction
+    return retryWithFeedback(r.Reason, r.Evidence, r.Guidance)
 case guardy.Override:
     return report.OverrideText, nil
 case guardy.Pass, guardy.Redact:
@@ -78,11 +80,12 @@ _ = gw.Close()
 
 - **guardy** — core types, Validator interface, Pipeline, middleware, GuardWriter
 - **guardy/ext** — built-in validators: Regex, Wordlist, Length, JSON
-- **guardy/guardytest** — test helpers: FakeValidator, FailingValidator, MustPass, MustBlock
+- **guardy/guardytest** — test helpers: FakeValidator(name, *guardy.Result) (nil yields zero Result), FailingValidator, MustPass, MustBlock, InputBuilder
 
 ## API overview
 
 - **Action**: Pass, Redact, Override, Retry, Block
+- **Result**: Passed, Action, Code; feedback triad (Reason, Evidence, Guidance — optional, key for Retry/self-correction); CleanText, OverrideText
 - **Validator**: `Validate(ctx, input) (Result, error)`, `Name() string`
 - **Pipeline**: `NewPipeline(opts...)`, `Run(ctx, input) (Report, error)`
 - **Report**: Results, FinalAction, FinalText, OverrideText
