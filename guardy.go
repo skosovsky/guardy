@@ -40,9 +40,17 @@ type Document struct {
 	Metadata map[string]string
 }
 
+// Message represents a single turn in a conversation (e.g. system, user, assistant, tool).
+// Used by Input.Messages for context-aware validation (e.g. Tier 3 LLM-as-judge).
+type Message struct {
+	Role    string // e.g. "system", "user", "assistant", "tool"
+	Content string
+}
+
 // Input is the data passed into validators and pipelines.
 type Input struct {
-	Text      string
+	Text      string    // Current fragment for fast checks (e.g. streaming chunk)
+	Messages  []Message // Full conversation context for deep analysis (Tier 3)
 	Metadata  map[string]any
 	Documents []Document
 }

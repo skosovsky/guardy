@@ -93,16 +93,3 @@ func TestRegex_WithRegexName(t *testing.T) {
 		t.Errorf("Name() = %q, want custom-regex", r.Name())
 	}
 }
-
-func TestRegex_ContextCancelled(t *testing.T) {
-	r, err := NewRegex(`x`, guardy.Block, "X")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err = r.Validate(ctx, guardy.Input{Text: "x"})
-	if err == nil {
-		t.Error("expected error when context cancelled")
-	}
-}

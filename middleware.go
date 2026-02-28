@@ -11,7 +11,14 @@ import (
 // Guard returns an HTTP middleware that runs the pipeline on the request.
 // The extractor converts *http.Request into Input; the middleware runs the pipeline
 // and handles Block (422), Redact (substitutes body and calls next), Override (200 + OverrideText), or Pass (calls next).
+// Passing nil for p or extractor is a programmer error and causes a fail-fast panic.
 func Guard(p *Pipeline, extractor func(*http.Request) (Input, error)) func(http.Handler) http.Handler {
+	if p == nil {
+		panic("guardy: Guard requires non-nil *Pipeline")
+	}
+	if extractor == nil {
+		panic("guardy: Guard requires non-nil extractor")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()

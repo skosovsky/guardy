@@ -96,6 +96,12 @@ func (b *InputBuilder) Documents(docs []guardy.Document) *InputBuilder {
 	return b
 }
 
+// Messages sets the conversation history for context-aware validators.
+func (b *InputBuilder) Messages(msgs []guardy.Message) *InputBuilder {
+	b.in.Messages = msgs
+	return b
+}
+
 // Build returns the built Input.
 func (b *InputBuilder) Build() guardy.Input {
 	return b.in

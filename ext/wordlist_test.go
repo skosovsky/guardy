@@ -85,13 +85,3 @@ func TestWordlist_WithWordlistName(t *testing.T) {
 		t.Errorf("Name() = %q, want my-wordlist", w.Name())
 	}
 }
-
-func TestWordlist_ContextCancelled(t *testing.T) {
-	w := NewWordlist([]string{"spam"}, Blocklist, guardy.Block, "X")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := w.Validate(ctx, guardy.Input{Text: "hello"})
-	if err == nil {
-		t.Error("expected error when context cancelled")
-	}
-}

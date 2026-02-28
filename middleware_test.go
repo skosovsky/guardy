@@ -166,3 +166,26 @@ func TestGuard_Retry(t *testing.T) {
 		t.Errorf("body should contain code: %s", rec.Body.String())
 	}
 }
+
+func TestGuard_PanicOnNilPipeline(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Guard(nil, extractor) should panic")
+		} else if !strings.Contains(r.(string), "Pipeline") {
+			t.Errorf("panic message should mention Pipeline, got %q", r)
+		}
+	}()
+	_ = Guard(nil, bodyExtractor)
+}
+
+func TestGuard_PanicOnNilExtractor(t *testing.T) {
+	p := NewPipeline()
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("Guard(p, nil) should panic")
+		} else if !strings.Contains(r.(string), "extractor") {
+			t.Errorf("panic message should mention extractor, got %q", r)
+		}
+	}()
+	_ = Guard(p, nil)
+}

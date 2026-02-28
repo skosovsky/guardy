@@ -227,3 +227,77 @@ func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 		t.Errorf("out = %q", out.String())
 	}
 }
+
+// TestGuardWriter_UTF8Safe_Cyrillic ensures multi-byte runes (e.g. Cyrillic) are not split across chunks.
+func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, in Input) (Result, error) {
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v))
+	var out bytes.Buffer
+	// Chunk size 3: "привет" is 12 bytes (6 runes x 2). With size 3 we must not cut in the middle of a rune.
+	gw := NewGuardWriter(&out, p, WithChunkSize(3))
+	_, err := gw.Write([]byte("привет"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = gw.Close()
+	if out.String() != "привет" {
+		t.Errorf("out = %q (Cyrillic must not be corrupted)", out.String())
+	}
+}
+
+// TestGuardWriter_UTF8Safe_Emoji ensures emoji (4-byte runes) are not split.
+func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, _ Input) (Result, error) {
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v))
+	var out bytes.Buffer
+	emoji := "x\U0001f600y" // 1 + 4 + 1 bytes
+	gw := NewGuardWriter(&out, p, WithChunkSize(2))
+	_, err := gw.Write([]byte(emoji))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = gw.Close()
+	if out.String() != emoji {
+		t.Errorf("out = %q (emoji must not be corrupted)", out.String())
+	}
+}
+
+// TestGuardWriter_SemanticBoundary_ForbiddenWord ensures a forbidden word is not split across chunks
+// when a semantic boundary (space) keeps it in one chunk, so the validator can detect it.
+func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, in Input) (Result, error) {
+			if strings.Contains(in.Text, "bad") {
+				return Result{Passed: false, Action: Block}, nil
+			}
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v))
+	var out bytes.Buffer
+	// Chunk size 7: "ok bad x" -> first chunk up to last boundary in 7 bytes: "ok bad " (space at 6), so chunk "ok bad "
+	// Validator sees "ok bad " and blocks.
+	gw := NewGuardWriter(&out, p, WithChunkSize(7))
+	_, err := gw.Write([]byte("ok bad x"))
+	if err == nil {
+		t.Fatal("expected block when forbidden word 'bad' is in stream")
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Errorf("err = %v", err)
+	}
+	outStr := out.String()
+	if outStr != "" && outStr != "ok " {
+		t.Errorf("out = %q (blocked content)", outStr)
+	}
+}

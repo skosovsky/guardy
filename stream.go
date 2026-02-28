@@ -5,6 +5,7 @@ import (
 	"io"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // DefaultStreamChunkSize is the default buffer size for GuardWriter.
@@ -84,7 +85,10 @@ func NewGuardWriter(w io.Writer, p *Pipeline, opts ...StreamOption) *GuardWriter
 	}
 }
 
-// Write buffers data and runs the pipeline when the buffer reaches chunk size.
+// Write buffers data and runs the pipeline when the buffer reaches chunk size or a natural boundary.
+// Chunks are split at semantic boundaries (space, newline, punctuation) when possible; otherwise
+// at a UTF-8 rune boundary so multi-byte characters are never cut. This avoids breaking words and
+// corrupting Cyrillic/emoji when validators (e.g. Wordlist, Regex) run on chunks.
 // On validation error (e.g. Block), it returns (n, err) where n is the number of bytes
 // accepted from p; some data may already have been written to the underlying writer.
 func (g *GuardWriter) Write(p []byte) (n int, err error) {
@@ -96,16 +100,48 @@ func (g *GuardWriter) Write(p []byte) (n int, err error) {
 	g.buf = append(g.buf, p...)
 	n = len(p)
 	for len(g.buf) >= g.config.chunkSize {
-		chunk := g.buf[:g.config.chunkSize]
+		split := g.findChunkSplit()
+		chunk := g.buf[:split]
 		if err = g.validateAndWrite(chunk); err != nil {
 			g.failErr = err
 			return n, err
 		}
-		// Copy remaining bytes to front to reuse buffer capacity instead of re-slicing
-		nCopied := copy(g.buf, g.buf[g.config.chunkSize:])
+		nCopied := copy(g.buf, g.buf[split:])
 		g.buf = g.buf[:nCopied]
 	}
 	return n, nil
+}
+
+// findChunkSplit returns the number of bytes to take from g.buf for the next chunk.
+// Prefers the last natural boundary (space, newline, punctuation) within chunkSize;
+// otherwise the largest UTF-8-safe prefix so we never split a multi-byte rune.
+func (g *GuardWriter) findChunkSplit() int {
+	limit := min(g.config.chunkSize, len(g.buf))
+	window := g.buf[:limit]
+	// Find last semantic boundary (space, newline, tab, common punctuation)
+	for i := len(window) - 1; i >= 0; i-- {
+		if isBoundaryByte(window[i]) {
+			return i + 1
+		}
+	}
+	// No boundary: take largest prefix that ends on a rune boundary
+	for i := limit; i > 0; i-- {
+		if utf8.FullRune(window[:i]) {
+			return i
+		}
+	}
+	return 1 // single byte if invalid UTF-8
+}
+
+func isBoundaryByte(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r':
+		return true
+	case '.', ',', '!', '?', ';', ':', '(', ')', '[', ']', '{', '}':
+		return true
+	default:
+		return false
+	}
 }
 
 // Close flushes the remaining buffer and validates it.

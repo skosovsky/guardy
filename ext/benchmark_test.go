@@ -73,8 +73,11 @@ func BenchmarkLength_TooLong(b *testing.B) {
 	}
 }
 
-func BenchmarkJSON_Valid(b *testing.B) {
-	j := NewJSON(nil, guardy.Block, "JSON")
+func BenchmarkJSONSchema_Valid(b *testing.B) {
+	j, err := NewJSONSchema("{}", "JSON")
+	if err != nil {
+		b.Fatal(err)
+	}
 	ctx := context.Background()
 	in := guardy.Input{Text: `{"a":1,"b":"x"}`}
 	b.ResetTimer()
@@ -83,8 +86,11 @@ func BenchmarkJSON_Valid(b *testing.B) {
 	}
 }
 
-func BenchmarkJSON_RequiredKeys(b *testing.B) {
-	j := NewJSON([]string{"id", "name"}, guardy.Block, "JSON")
+func BenchmarkJSONSchema_ObjectSchema(b *testing.B) {
+	j, err := NewJSONSchema(`{"type":"object","required":["id","name"]}`, "JSON")
+	if err != nil {
+		b.Fatal(err)
+	}
 	ctx := context.Background()
 	in := guardy.Input{Text: `{"id": 1, "name": "x"}`}
 	b.ResetTimer()

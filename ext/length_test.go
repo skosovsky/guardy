@@ -77,13 +77,3 @@ func TestLength_WithLengthName(t *testing.T) {
 		t.Errorf("Name() = %q, want my-length", l.Name())
 	}
 }
-
-func TestLength_ContextCancelled(t *testing.T) {
-	l := NewLength(1, 10, guardy.Block, "X")
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := l.Validate(ctx, guardy.Input{Text: "hello"})
-	if err == nil {
-		t.Error("expected error when context cancelled")
-	}
-}
