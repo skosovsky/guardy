@@ -18,10 +18,17 @@ const (
 
 // Result is returned by a Validator after checking the input.
 type Result struct {
-	Passed       bool
-	Action       Action
-	Code         string // e.g. "PROMPT_INJECTION", "PII_DETECTED"
-	Reason       string
+	Passed bool
+	Action Action
+	Code   string // e.g. "PROMPT_INJECTION", "PII_DETECTED"
+
+	// Feedback triad: especially useful for Action == Retry (LLM self-correction).
+	// All three are optional; simple validators may leave Evidence and Guidance empty.
+	Reason   string // Short description of why the check failed
+	Evidence string // Exact quote or fragment that triggered the violation
+	Guidance string // Instruction for the model on how to fix the text
+
+	// Mutations
 	CleanText    string
 	OverrideText string
 }

@@ -75,3 +75,38 @@ func (examplePassValidator) Validate(context.Context, guardy.Input) (guardy.Resu
 }
 
 func (examplePassValidator) Name() string { return "example" }
+
+// Example_retryFeedback demonstrates a validator returning the feedback triad
+// (Reason, Evidence, Guidance) for Action Retry, so an LLM can self-correct.
+func Example_retryFeedback() {
+	pipeline := guardy.NewPipeline(guardy.WithTier1(&retryFeedbackValidator{}))
+
+	ctx := context.Background()
+	input := guardy.Input{Text: "Contact me at +1-555-0199 for details."}
+	report, err := pipeline.Run(ctx, input)
+	if err != nil {
+		panic(err)
+	}
+	if report.FinalAction == guardy.Retry && len(report.Results) > 0 {
+		r := report.Results[0]
+		_, _, _ = r.Reason, r.Evidence, r.Guidance
+		// Orchestrator can send r.Reason, r.Evidence, r.Guidance back to the LLM for self-correction.
+	}
+	_ = report
+}
+
+type retryFeedbackValidator struct{}
+
+func (retryFeedbackValidator) Validate(_ context.Context, in guardy.Input) (guardy.Result, error) {
+	// Simplified: in real code, detect PII and set Evidence to the matched fragment.
+	return guardy.Result{
+		Passed:   false,
+		Action:   guardy.Retry,
+		Code:     "SENSITIVE_DATA",
+		Reason:   "Personal data detected",
+		Evidence: "Mention: '+1-555-0199'",
+		Guidance: "Replace the phone number with placeholder [PHONE REDACTED]",
+	}, nil
+}
+
+func (retryFeedbackValidator) Name() string { return "retry_feedback_example" }
