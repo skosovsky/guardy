@@ -2,10 +2,22 @@ package ext
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/skosovsky/guardy"
 )
+
+func ExampleLength_Validate_block() {
+	l := NewLength(5, 10, guardy.Block, "LENGTH")
+	ctx := context.Background()
+	res, _ := l.Validate(ctx, guardy.Input{Text: "hi"})
+	if !res.Passed {
+		fmt.Println(res.Reason)
+	}
+	// Output:
+	// text too short
+}
 
 func TestLength_WithinRange_Pass(t *testing.T) {
 	l := NewLength(1, 10, guardy.Block, "LENGTH")

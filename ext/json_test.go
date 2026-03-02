@@ -2,10 +2,22 @@ package ext
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/skosovsky/guardy"
 )
+
+func ExampleJSONSchema_Validate_retry() {
+	j := MustJSONSchema(emptySchema, "JSON")
+	ctx := context.Background()
+	res, _ := j.Validate(ctx, guardy.Input{Text: "not json"})
+	if !res.Passed && res.Action == guardy.Retry {
+		fmt.Println(res.Reason)
+	}
+	// Output:
+	// invalid JSON
+}
 
 const emptySchema = "{}"
 const objectRequiredSchema = `{"type":"object","required":["id","name"]}`

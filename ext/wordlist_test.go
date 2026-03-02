@@ -2,10 +2,22 @@ package ext
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/skosovsky/guardy"
 )
+
+func ExampleWordlist_Validate_block() {
+	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "SPAM")
+	ctx := context.Background()
+	res, _ := w.Validate(ctx, guardy.Input{Text: "this is spam"})
+	if !res.Passed {
+		fmt.Println(res.Code)
+	}
+	// Output:
+	// SPAM
+}
 
 func TestWordlist_Blocklist_NoMatch_Pass(t *testing.T) {
 	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "SPAM")

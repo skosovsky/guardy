@@ -2,6 +2,7 @@ package guardy_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,22 @@ import (
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
 )
+
+// ExamplePipeline_Run shows running a pipeline and printing the validator code when blocked.
+func ExamplePipeline_Run() {
+	wordlistV := ext.NewWordlist([]string{"bad"}, ext.Blocklist, guardy.Block, "FORBIDDEN")
+	pipeline := guardy.NewPipeline(guardy.WithTier1(wordlistV))
+	ctx := context.Background()
+	report, err := pipeline.Run(ctx, guardy.Input{Text: "this is bad"})
+	if err != nil {
+		panic(err)
+	}
+	if report.FinalAction == guardy.Block && len(report.Results) > 0 {
+		fmt.Println("blocked:", report.Results[0].Code)
+	}
+	// Output:
+	// blocked: FORBIDDEN
+}
 
 func ExampleNewPipeline() {
 	regexV, _ := ext.NewRegex(`(?i)(ignore previous|system prompt)`, guardy.Block, "PROMPT_INJECTION")
