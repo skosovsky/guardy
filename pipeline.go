@@ -8,16 +8,25 @@ import (
 	"time"
 )
 
+// PipelineHandler describes the function that runs the full validation pipeline.
+type PipelineHandler func(ctx context.Context, input Input) (Report, error)
+
+// PipelineMiddleware wraps the entire pipeline execution for cross-cutting logic (metrics, audit, tracing).
+// First added middleware runs first on the way in and last on the way out.
+type PipelineMiddleware func(next PipelineHandler) PipelineHandler
+
 // Pipeline runs validators in tiers and aggregates results.
 // It is immutable after construction and safe for concurrent use.
 type Pipeline struct {
-	tier1    []Validator
-	tier2    []Validator
-	tier3    []Validator
-	failFast bool
-	failOpen bool
-	logger   *slog.Logger
-	onResult func(name string, r Result, d time.Duration)
+	tier1               []Validator
+	tier2               []Validator
+	tier3               []Validator
+	failFast            bool
+	failOpen            bool
+	logger              *slog.Logger
+	onResult            func(name string, r Result, d time.Duration)
+	pipelineMiddlewares []PipelineMiddleware
+	handler             PipelineHandler
 }
 
 // PipelineOption configures a Pipeline.
@@ -72,7 +81,16 @@ func WithOnResult(fn func(name string, r Result, d time.Duration)) PipelineOptio
 	}
 }
 
+// WithPipelineMiddleware adds middleware that wraps the entire Run (metrics, audit, tracing).
+// When no middlewares are set, Run invokes core logic directly (zero-cost).
+func WithPipelineMiddleware(mw ...PipelineMiddleware) PipelineOption {
+	return func(p *Pipeline) {
+		p.pipelineMiddlewares = append(p.pipelineMiddlewares, mw...)
+	}
+}
+
 // NewPipeline builds an immutable pipeline from options.
+// If any PipelineMiddleware was provided, the core run is wrapped in reverse order (first added = outermost).
 func NewPipeline(opts ...PipelineOption) *Pipeline {
 	p := &Pipeline{
 		failFast: true,
@@ -81,12 +99,27 @@ func NewPipeline(opts ...PipelineOption) *Pipeline {
 	for _, opt := range opts {
 		opt(p)
 	}
+	if len(p.pipelineMiddlewares) > 0 {
+		handler := PipelineHandler(p.runCore)
+		for i := len(p.pipelineMiddlewares) - 1; i >= 0; i-- {
+			handler = p.pipelineMiddlewares[i](handler)
+		}
+		p.handler = handler
+	}
 	return p
 }
 
 // Run executes the pipeline on the given input and returns an aggregated report.
-// It checks ctx.Err() before each tier and returns immediately if context is cancelled.
+// When no PipelineMiddleware is used, it calls core logic directly (zero-cost).
 func (p *Pipeline) Run(ctx context.Context, input Input) (Report, error) {
+	if p.handler != nil {
+		return p.handler(ctx, input)
+	}
+	return p.runCore(ctx, input)
+}
+
+// runCore contains the tier execution logic (tiers, runTier, Redact, aggregateActions).
+func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 	var allResults []Result
 	text := input.Text
 

@@ -47,6 +47,23 @@ func TestReport_ZeroValue(t *testing.T) {
 	}
 }
 
+func TestReport_WorstReason(t *testing.T) {
+	if got := (Report{}).WorstReason(); got != "" {
+		t.Errorf("empty Report WorstReason() = %q, want empty", got)
+	}
+	r := Report{
+		Results:     []Result{{Action: Block, Reason: "bad input"}},
+		FinalAction: Block,
+	}
+	if got := r.WorstReason(); got != "bad input" {
+		t.Errorf("WorstReason() = %q, want bad input", got)
+	}
+	r.Results = append(r.Results, Result{Action: Pass})
+	if got := r.WorstReason(); got != "bad input" {
+		t.Errorf("WorstReason() with Pass result = %q, want bad input", got)
+	}
+}
+
 func TestConditionalValidator_SkipsWhenPredicateFalse(t *testing.T) {
 	called := false
 	inner := &fakeValidator{

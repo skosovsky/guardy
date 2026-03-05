@@ -64,6 +64,17 @@ type Report struct {
 	OverrideText string
 }
 
+// WorstReason returns the reason of the result that matches FinalAction (or empty if none/Pass).
+// Useful for PipelineMiddleware and logging when you need a single "main" reason without iterating Results.
+func (r Report) WorstReason() string {
+	for _, res := range r.Results {
+		if res.Action == r.FinalAction {
+			return res.Reason
+		}
+	}
+	return ""
+}
+
 // PriorityForAction returns the aggregation priority of the action (higher wins).
 // Used when picking which result to use for error code/reason when multiple validators run.
 func PriorityForAction(a Action) int {

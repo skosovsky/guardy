@@ -140,6 +140,34 @@ _ = gw.Close()
 handler := guardy.Guard(pipeline, extractor)(yourHandler)
 ```
 
+### Pipeline Middleware
+
+**PipelineMiddleware** wraps the entire `Pipeline.Run` call at the Go/agent level (one wrap per run). Use it for cross-cutting concerns: measuring total validation time, logging by `FinalAction`/Code/Reason, audit logging of blocks, or a single OpenTelemetry span. It is strictly optional: when you do not add any pipeline middlewares, `Run` calls the core logic directly (zero overhead).
+
+Contrast with **Guard**, which is only for HTTP: it turns a request into `Input`, runs the pipeline, and maps `Report` to HTTP responses.
+
+Example (metrics / logging) using **report.WorstReason()** for the main reason:
+
+```go
+// imports: context, log, time, guardy
+func MetricsMiddleware(next guardy.PipelineHandler) guardy.PipelineHandler {
+    return func(ctx context.Context, input guardy.Input) (guardy.Report, error) {
+        start := time.Now()
+        report, err := next(ctx, input)
+        duration := time.Since(start)
+        if err == nil && report.FinalAction != guardy.Pass {
+            log.Printf("Security: Action=%s Reason=%s Time=%v",
+                report.FinalAction, report.WorstReason(), duration)
+        }
+        return report, err
+    }
+}
+pipeline := guardy.NewPipeline(
+    guardy.WithTier1(...),
+    guardy.WithPipelineMiddleware(MetricsMiddleware),
+)
+```
+
 ## Built-in validators (ext)
 
 | Validator | Constructor | Description |
@@ -178,7 +206,7 @@ To know **which validator failed**: when `Run` returns `err == nil`, inspect `re
 
 ## Packages
 
-- **guardy** — core types (Action, Input, Result, Report), Validator, ConditionalValidator, Pipeline, GuardWriter, Guard middleware, errors.
+- **guardy** — core types (Action, Input, Result, Report, Report.WorstReason), Validator, ConditionalValidator, Pipeline, PipelineHandler, PipelineMiddleware, GuardWriter, Guard middleware, errors.
 - **guardy/ext** — Length, Wordlist, Regex, JSONSchema.
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/…, NewInput, InputBuilder.
 

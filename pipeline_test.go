@@ -492,6 +492,112 @@ func TestPipeline_BlockWinsOverrideWhenFailFastFalse(t *testing.T) {
 	}
 }
 
+func TestPipeline_WithPipelineMiddleware_CalledWithInputAndReport(t *testing.T) {
+	var seenInput *Input
+	var seenReport *Report
+	mw := func(next PipelineHandler) PipelineHandler {
+		return func(ctx context.Context, input Input) (Report, error) {
+			seenInput = &input
+			report, err := next(ctx, input)
+			if err == nil {
+				seenReport = &report
+			}
+			return report, err
+		}
+	}
+	v := &fakeValidator{
+		name: "blocker",
+		validate: func(context.Context, Input) (Result, error) {
+			return Result{Passed: false, Action: Block, Code: "X", Reason: "bad"}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v), WithPipelineMiddleware(mw))
+	ctx := context.Background()
+	in := Input{Text: "bad"}
+	report, err := p.Run(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if seenInput == nil {
+		t.Fatal("middleware did not see input")
+	}
+	if seenInput.Text != "bad" {
+		t.Errorf("middleware saw input.Text = %q, want bad", seenInput.Text)
+	}
+	if seenReport == nil {
+		t.Fatal("middleware did not see report after next()")
+	}
+	if seenReport.FinalAction != Block {
+		t.Errorf("middleware saw FinalAction = %s, want Block", seenReport.FinalAction)
+	}
+	if len(seenReport.Results) != 1 {
+		t.Errorf("middleware saw len(Results) = %d, want 1", len(seenReport.Results))
+	}
+	if report.WorstReason() != "bad" {
+		t.Errorf("WorstReason() = %q, want bad", report.WorstReason())
+	}
+}
+
+func TestPipeline_WithPipelineMiddleware_Order(t *testing.T) {
+	var order []string
+	mwA := func(next PipelineHandler) PipelineHandler {
+		return func(ctx context.Context, input Input) (Report, error) {
+			order = append(order, "enter A")
+			report, err := next(ctx, input)
+			order = append(order, "exit A")
+			return report, err
+		}
+	}
+	mwB := func(next PipelineHandler) PipelineHandler {
+		return func(ctx context.Context, input Input) (Report, error) {
+			order = append(order, "enter B")
+			report, err := next(ctx, input)
+			order = append(order, "exit B")
+			return report, err
+		}
+	}
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(context.Context, Input) (Result, error) {
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v), WithPipelineMiddleware(mwA, mwB))
+	_, err := p.Run(context.Background(), Input{Text: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"enter A", "enter B", "exit B", "exit A"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Errorf("order[%d] = %q, want %q", i, order[i], want[i])
+		}
+	}
+}
+
+func TestPipeline_NoMiddleware_UnchangedBehavior(t *testing.T) {
+	v := &fakeValidator{
+		name: "blocker",
+		validate: func(context.Context, Input) (Result, error) {
+			return Result{Passed: false, Action: Block, Code: "NO_MW"}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v))
+	report, err := p.Run(context.Background(), Input{Text: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.FinalAction != Block {
+		t.Errorf("FinalAction = %s, want Block", report.FinalAction)
+	}
+	if len(report.Results) != 1 || report.Results[0].Code != "NO_MW" {
+		t.Errorf("Results = %v", report.Results)
+	}
+}
+
 func BenchmarkPipeline_Tier1Only(b *testing.B) {
 	v := &fakeValidator{
 		name: "pass",
