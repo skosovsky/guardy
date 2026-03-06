@@ -26,7 +26,7 @@ func main() {
 	}
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, guardy.Input{Text: llmOutput})
+	report, err := pipeline.Run(ctx, &guardy.Input{Data: llmOutput})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)

@@ -11,7 +11,7 @@ import (
 func TestFakeValidator(t *testing.T) {
 	v := FakeValidator("fake", &guardy.Result{Passed: false, Action: guardy.Block, Code: "X"})
 	ctx := context.Background()
-	r, err := v.Validate(ctx, guardy.Input{Text: "any"})
+	r, err := v.Validate(ctx, NewInput("any"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestFakeValidator(t *testing.T) {
 func TestFakeValidator_nilYieldsZeroResult(t *testing.T) {
 	v := FakeValidator("nilFake", nil)
 	ctx := context.Background()
-	r, err := v.Validate(ctx, guardy.Input{Text: "any"})
+	r, err := v.Validate(ctx, NewInput("any"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestFailingValidator(t *testing.T) {
 	e := errors.New("fail")
 	v := FailingValidator("fail", e)
 	ctx := context.Background()
-	_, err := v.Validate(ctx, guardy.Input{})
+	_, err := v.Validate(ctx, &guardy.Input{})
 	if err != e {
 		t.Errorf("err = %v", err)
 	}
@@ -74,8 +74,8 @@ func TestMustRetry(t *testing.T) {
 
 func TestNewInput(t *testing.T) {
 	in := NewInput("hello")
-	if in.Text != "hello" {
-		t.Errorf("Text = %q", in.Text)
+	if in.Data != "hello" {
+		t.Errorf("Data = %q", in.Data)
 	}
 }
 
@@ -90,34 +90,22 @@ func TestPipelineWithFakeValidator(t *testing.T) {
 }
 
 func TestInputBuilder(t *testing.T) {
-	docs := []guardy.Document{{ID: "1", Content: "c", Metadata: map[string]string{"k": "v"}}}
 	meta := map[string]any{"key": "value"}
 	in := NewInputBuilder().
 		Text("hello").
 		Metadata(meta).
-		Documents(docs).
 		Build()
-	if in.Text != "hello" {
-		t.Errorf("Text = %q", in.Text)
+	if in.Data != "hello" {
+		t.Errorf("Data = %q", in.Data)
 	}
 	if in.Metadata["key"] != "value" {
 		t.Errorf("Metadata = %v", in.Metadata)
 	}
-	if len(in.Documents) != 1 || in.Documents[0].ID != "1" || in.Documents[0].Content != "c" {
-		t.Errorf("Documents = %v", in.Documents)
-	}
 }
 
-func TestInputBuilder_Messages(t *testing.T) {
-	msgs := []guardy.Message{
-		{Role: "system", Content: "You are helpful."},
-		{Role: "user", Content: "Hello"},
-	}
-	in := NewInputBuilder().Text("Hi").Messages(msgs).Build()
-	if in.Text != "Hi" {
-		t.Errorf("Text = %q", in.Text)
-	}
-	if len(in.Messages) != 2 || in.Messages[0].Role != "system" || in.Messages[1].Content != "Hello" {
-		t.Errorf("Messages = %v", in.Messages)
+func TestInputBuilder_MetadataOnly(t *testing.T) {
+	in := NewInputBuilder().Text("Hi").Build()
+	if in.Data != "Hi" {
+		t.Errorf("Data = %q", in.Data)
 	}
 }

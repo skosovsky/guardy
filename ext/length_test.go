@@ -11,7 +11,7 @@ import (
 func ExampleLength_Validate_block() {
 	l := NewLength(5, 10, guardy.Block, "LENGTH")
 	ctx := context.Background()
-	res, _ := l.Validate(ctx, guardy.Input{Text: "hi"})
+	res, _ := l.Validate(ctx, &guardy.Input{Data: "hi"})
 	if !res.Passed {
 		fmt.Println(res.Reason)
 	}
@@ -22,7 +22,7 @@ func ExampleLength_Validate_block() {
 func TestLength_WithinRange_Pass(t *testing.T) {
 	l := NewLength(1, 10, guardy.Block, "LENGTH")
 	ctx := context.Background()
-	res, err := l.Validate(ctx, guardy.Input{Text: "hello"})
+	res, err := l.Validate(ctx, &guardy.Input{Data: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestLength_WithinRange_Pass(t *testing.T) {
 func TestLength_TooShort_Block(t *testing.T) {
 	l := NewLength(5, 100, guardy.Block, "LENGTH")
 	ctx := context.Background()
-	res, err := l.Validate(ctx, guardy.Input{Text: "hi"})
+	res, err := l.Validate(ctx, &guardy.Input{Data: "hi"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +46,7 @@ func TestLength_TooShort_Block(t *testing.T) {
 func TestLength_TooLong_Block(t *testing.T) {
 	l := NewLength(0, 3, guardy.Block, "LENGTH")
 	ctx := context.Background()
-	res, err := l.Validate(ctx, guardy.Input{Text: "hello"})
+	res, err := l.Validate(ctx, &guardy.Input{Data: "hello"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestLength_TooLong_Block(t *testing.T) {
 func TestLength_ZeroMinMax_Pass(t *testing.T) {
 	l := NewLength(0, 0, guardy.Block, "X")
 	ctx := context.Background()
-	res, err := l.Validate(ctx, guardy.Input{Text: "anything"})
+	res, err := l.Validate(ctx, &guardy.Input{Data: "anything"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestLength_ZeroMinMax_Pass(t *testing.T) {
 func TestLength_UnicodeRunes(t *testing.T) {
 	l := NewLength(2, 2, guardy.Block, "X")
 	ctx := context.Background()
-	res, err := l.Validate(ctx, guardy.Input{Text: "аб"})
+	res, err := l.Validate(ctx, &guardy.Input{Data: "аб"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !res.Passed {
 		t.Errorf("2 runes should pass, got Passed=%v", res.Passed)
 	}
-	res2, _ := l.Validate(ctx, guardy.Input{Text: "а"})
+	res2, _ := l.Validate(ctx, &guardy.Input{Data: "а"})
 	if res2.Passed {
 		t.Error("1 rune should block")
 	}

@@ -9,15 +9,15 @@ import (
 	"testing"
 )
 
-func bodyExtractor(r *http.Request) (Input, error) {
+func bodyExtractor(r *http.Request) (*Input, error) {
 	body, _ := io.ReadAll(r.Body)
-	return Input{Text: string(body)}, nil
+	return &Input{Data: string(body)}, nil
 }
 
 func TestGuard_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{Passed: false, Action: Block, Code: "BAD", Reason: "blocked"}, nil
 		},
 	}
@@ -39,7 +39,7 @@ func TestGuard_Block(t *testing.T) {
 func TestGuard_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -64,7 +64,7 @@ func TestGuard_Pass(t *testing.T) {
 func TestGuard_Override(t *testing.T) {
 	v := &fakeValidator{
 		name: "override",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{
 				Passed:       false,
 				Action:       Override,
@@ -90,7 +90,7 @@ func TestGuard_Override(t *testing.T) {
 func TestGuard_Redact(t *testing.T) {
 	v := &fakeValidator{
 		name: "redact",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{
 				Passed:    false,
 				Action:    Redact,
@@ -117,7 +117,7 @@ func TestGuard_Redact(t *testing.T) {
 func TestGuard_ReportFromContext(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -143,7 +143,7 @@ func TestGuard_ReportFromContext(t *testing.T) {
 func TestGuard_Retry(t *testing.T) {
 	v := &fakeValidator{
 		name: "retry",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{
 				Passed: false,
 				Action: Retry,

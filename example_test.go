@@ -17,7 +17,7 @@ func ExamplePipeline_Run() {
 	wordlistV := ext.NewWordlist([]string{"bad"}, ext.Blocklist, guardy.Block, "FORBIDDEN")
 	pipeline := guardy.NewPipeline(guardy.WithTier1(wordlistV))
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, guardy.Input{Text: "this is bad"})
+	report, err := pipeline.Run(ctx, &guardy.Input{Data: "this is bad"})
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +38,7 @@ func ExampleNewPipeline() {
 	)
 
 	ctx := context.Background()
-	input := guardy.Input{Text: "Hello, what is the weather?"}
+	input := &guardy.Input{Data: "Hello, what is the weather?"}
 	report, err := pipeline.Run(ctx, input)
 	if err != nil {
 		panic(err)
@@ -56,9 +56,9 @@ func ExampleGuard() {
 	regexV, _ := ext.NewRegex(`(?i)ignore`, guardy.Block, "INJECT")
 	pipeline := guardy.NewPipeline(guardy.WithTier1(regexV))
 
-	extractor := func(r *http.Request) (guardy.Input, error) {
+	extractor := func(r *http.Request) (*guardy.Input, error) {
 		body, _ := io.ReadAll(r.Body)
-		return guardy.Input{Text: string(body)}, nil
+		return &guardy.Input{Data: string(body)}, nil
 	}
 
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +87,7 @@ func ExampleNewGuardWriter() {
 
 type examplePassValidator struct{}
 
-func (examplePassValidator) Validate(context.Context, guardy.Input) (guardy.Result, error) {
+func (examplePassValidator) Validate(context.Context, *guardy.Input) (guardy.Result, error) {
 	return guardy.Result{Passed: true, Action: guardy.Pass}, nil
 }
 
@@ -99,7 +99,7 @@ func Example_retryFeedback() {
 	pipeline := guardy.NewPipeline(guardy.WithTier1(&retryFeedbackValidator{}))
 
 	ctx := context.Background()
-	input := guardy.Input{Text: "Contact me at +1-555-0199 for details."}
+	input := &guardy.Input{Data: "Contact me at +1-555-0199 for details."}
 	report, err := pipeline.Run(ctx, input)
 	if err != nil {
 		panic(err)
@@ -114,7 +114,7 @@ func Example_retryFeedback() {
 
 type retryFeedbackValidator struct{}
 
-func (retryFeedbackValidator) Validate(_ context.Context, in guardy.Input) (guardy.Result, error) {
+func (retryFeedbackValidator) Validate(_ context.Context, in *guardy.Input) (guardy.Result, error) {
 	// Simplified: in real code, detect PII and set Evidence to the matched fragment.
 	return guardy.Result{
 		Passed:   false,

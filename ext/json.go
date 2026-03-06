@@ -12,7 +12,7 @@ import (
 // Ensure JSONSchema implements guardy.Validator at compile time.
 var _ guardy.Validator = (*JSONSchema)(nil)
 
-// JSONSchema is a validator that checks input.Text conforms to a JSON Schema.
+// JSONSchema is a validator that checks input.Data conforms to a JSON Schema.
 // On invalid JSON or schema mismatch it always returns Retry with Reason, Evidence, and Guidance for LLM self-correction.
 type JSONSchema struct {
 	resolved *jsonschema.Resolved
@@ -67,10 +67,13 @@ func MustJSONSchema(schemaJSON, code string, opts ...JSONSchemaOption) *JSONSche
 	return j
 }
 
-// Validate checks that input.Text is valid JSON and conforms to the schema.
+// Validate checks that input.Data is valid JSON and conforms to the schema.
 // On failure returns Retry with Guidance (and Reason, Evidence) for self-correction.
-func (j *JSONSchema) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	text := input.Text
+func (j *JSONSchema) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
+	text := ""
+	if input != nil {
+		text = input.Data
+	}
 	var instance any
 	if err := json.Unmarshal([]byte(text), &instance); err != nil {
 		return guardy.Result{

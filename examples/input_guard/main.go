@@ -34,7 +34,7 @@ func main() {
 	prompt := scanner.Text()
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, guardy.Input{Text: prompt})
+	report, err := pipeline.Run(ctx, &guardy.Input{Data: prompt})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)

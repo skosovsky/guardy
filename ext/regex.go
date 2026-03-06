@@ -11,23 +11,28 @@ import (
 var _ guardy.Validator = (*Regex)(nil)
 
 // Regex is a validator that matches text against a regular expression.
-// On match it returns the configured Action and Code; for Redact it replaces matches with Placeholder.
+// On match: if WithRegexRedaction was set, returns Redact and CleanText; otherwise returns Block (or configured action).
 type Regex struct {
 	re          *regexp.Regexp
 	action      guardy.Action
 	code        string
-	placeholder string
+	placeholder string // non-empty when WithRegexRedaction is used
 	name        string
 }
 
 // RegexOption configures a Regex validator.
 type RegexOption func(*Regex)
 
-// WithRegexPlaceholder sets the replacement string for Redact action (default "[REDACTED]").
-func WithRegexPlaceholder(s string) RegexOption {
+// WithRegexRedaction sets the replacement string for matches; when set, validator returns ActionRedact with CleanText instead of Block.
+func WithRegexRedaction(replacement string) RegexOption {
 	return func(r *Regex) {
-		r.placeholder = s
+		r.placeholder = replacement
 	}
+}
+
+// WithRegexPlaceholder is an alias for WithRegexRedaction (same behavior).
+func WithRegexPlaceholder(s string) RegexOption {
+	return WithRegexRedaction(s)
 }
 
 // WithRegexName sets the validator name for logging (default "regex").
@@ -46,11 +51,10 @@ func NewRegex(pattern string, action guardy.Action, code string, opts ...RegexOp
 		return nil, err
 	}
 	r := &Regex{
-		re:          re,
-		action:      action,
-		code:        code,
-		placeholder: "[REDACTED]",
-		name:        "regex",
+		re:     re,
+		action: action,
+		code:   code,
+		name:   "regex",
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -67,14 +71,16 @@ func MustRegex(pattern string, action guardy.Action, code string, opts ...RegexO
 	return r
 }
 
-// Validate runs the regex against input.Text.
-func (r *Regex) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	text := input.Text
+// Validate runs the regex against input.Data.
+func (r *Regex) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
+	text := ""
+	if input != nil {
+		text = input.Data
+	}
 	if !r.re.MatchString(text) {
 		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
 	}
-	switch r.action {
-	case guardy.Redact:
+	if r.placeholder != "" {
 		clean := r.re.ReplaceAllString(text, r.placeholder)
 		return guardy.Result{
 			Passed:    false,
@@ -83,14 +89,13 @@ func (r *Regex) Validate(ctx context.Context, input guardy.Input) (guardy.Result
 			Reason:    "pattern matched",
 			CleanText: clean,
 		}, nil
-	default:
-		return guardy.Result{
-			Passed: false,
-			Action: r.action,
-			Code:   r.code,
-			Reason: "pattern matched",
-		}, nil
 	}
+	return guardy.Result{
+		Passed: false,
+		Action: r.action,
+		Code:   r.code,
+		Reason: "pattern matched",
+	}, nil
 }
 
 // Name returns the validator name.

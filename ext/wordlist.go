@@ -22,12 +22,13 @@ const (
 
 // Wordlist is a validator that checks text against a set of words.
 type Wordlist struct {
-	words     map[string]struct{}
-	mode      WordlistMode
-	action    guardy.Action
-	code      string
-	name      string
-	lowercase bool
+	words             map[string]struct{}
+	mode              WordlistMode
+	action            guardy.Action
+	code              string
+	name              string
+	lowercase         bool
+	redactReplacement string // non-empty when WithWordlistRedaction is used
 }
 
 // WordlistOption configures a Wordlist validator.
@@ -44,6 +45,13 @@ func WithWordlistName(name string) WordlistOption {
 func WithWordlistLowercase(lower bool) WordlistOption {
 	return func(w *Wordlist) {
 		w.lowercase = lower
+	}
+}
+
+// WithWordlistRedaction sets the replacement string for matched/violating tokens; when set, validator returns ActionRedact with CleanText instead of Block.
+func WithWordlistRedaction(replacement string) WordlistOption {
+	return func(w *Wordlist) {
+		w.redactReplacement = replacement
 	}
 }
 
@@ -76,9 +84,12 @@ func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code s
 	return wl
 }
 
-// Validate checks input.Text against the word list.
-func (w *Wordlist) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	text := input.Text
+// Validate checks input.Data against the word list.
+func (w *Wordlist) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
+	text := ""
+	if input != nil {
+		text = input.Data
+	}
 	if w.lowercase {
 		text = strings.ToLower(text)
 	}
@@ -87,6 +98,16 @@ func (w *Wordlist) Validate(ctx context.Context, input guardy.Input) (guardy.Res
 	case Blocklist:
 		for _, t := range tokens {
 			if _, ok := w.words[t]; ok {
+				if w.redactReplacement != "" {
+					clean := replaceWordsInText(text, w.words, w.redactReplacement, w.lowercase)
+					return guardy.Result{
+						Passed:    false,
+						Action:    guardy.Redact,
+						Code:      w.code,
+						Reason:    "blocklisted word found",
+						CleanText: clean,
+					}, nil
+				}
 				return guardy.Result{
 					Passed: false,
 					Action: w.action,
@@ -98,6 +119,15 @@ func (w *Wordlist) Validate(ctx context.Context, input guardy.Input) (guardy.Res
 		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
 	case Allowlist:
 		if len(tokens) == 0 {
+			if w.redactReplacement != "" {
+				return guardy.Result{
+					Passed:    false,
+					Action:    guardy.Redact,
+					Code:      w.code,
+					Reason:    "no tokens",
+					CleanText: w.redactReplacement,
+				}, nil
+			}
 			return guardy.Result{
 				Passed: false,
 				Action: w.action,
@@ -107,6 +137,16 @@ func (w *Wordlist) Validate(ctx context.Context, input guardy.Input) (guardy.Res
 		}
 		for _, t := range tokens {
 			if _, ok := w.words[t]; !ok {
+				if w.redactReplacement != "" {
+					clean := replaceAllowlistViolations(text, w.words, w.redactReplacement, w.lowercase)
+					return guardy.Result{
+						Passed:    false,
+						Action:    guardy.Redact,
+						Code:      w.code,
+						Reason:    "word not in allowlist",
+						CleanText: clean,
+					}, nil
+				}
 				return guardy.Result{
 					Passed: false,
 					Action: w.action,
@@ -132,4 +172,46 @@ func tokenize(s string) []string {
 		return nil
 	}
 	return f
+}
+
+// replaceWordsInText replaces each word that is in the set with replacement; preserves boundaries.
+func replaceWordsInText(text string, words map[string]struct{}, replacement string, lowercase bool) string {
+	tokens := tokenize(text)
+	if len(tokens) == 0 {
+		return text
+	}
+	var out []string
+	for _, t := range tokens {
+		key := t
+		if lowercase {
+			key = strings.ToLower(t)
+		}
+		if _, ok := words[key]; ok {
+			out = append(out, replacement)
+		} else {
+			out = append(out, t)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
+// replaceAllowlistViolations replaces each token not in the allowlist with replacement.
+func replaceAllowlistViolations(text string, words map[string]struct{}, replacement string, lowercase bool) string {
+	tokens := tokenize(text)
+	if len(tokens) == 0 {
+		return replacement
+	}
+	var out []string
+	for _, t := range tokens {
+		key := t
+		if lowercase {
+			key = strings.ToLower(t)
+		}
+		if _, ok := words[key]; ok {
+			out = append(out, t)
+		} else {
+			out = append(out, replacement)
+		}
+	}
+	return strings.Join(out, " ")
 }

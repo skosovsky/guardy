@@ -4,7 +4,7 @@ import "context"
 
 // Validator checks input and returns a result.
 type Validator interface {
-	Validate(ctx context.Context, input Input) (Result, error)
+	Validate(ctx context.Context, input *Input) (Result, error)
 	Name() string
 }
 
@@ -13,15 +13,18 @@ type Validator interface {
 // If Predicate is nil, the inner validator always runs.
 type ConditionalValidator struct {
 	Validator Validator
-	Predicate func(Input) bool
+	Predicate func(*Input) bool
 }
 
 // Validate runs the inner validator only when the predicate returns true.
 // Otherwise returns a Pass result.
 // Panics if Validator is nil (programmer error; fail-fast).
-func (c *ConditionalValidator) Validate(ctx context.Context, input Input) (Result, error) {
+func (c *ConditionalValidator) Validate(ctx context.Context, input *Input) (Result, error) {
 	if c.Validator == nil {
 		panic("guardy: ConditionalValidator.Validator is nil")
+	}
+	if input == nil {
+		input = &Input{}
 	}
 	if c.Predicate != nil && !c.Predicate(input) {
 		return Result{Passed: true, Action: Pass}, nil

@@ -27,8 +27,12 @@ func NewModerationValidator(baseURL string) *ModerationValidator {
 	}
 }
 
-func (m *ModerationValidator) Validate(ctx context.Context, input guardy.Input) (guardy.Result, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/moderate", strings.NewReader(input.Text))
+func (m *ModerationValidator) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
+	data := ""
+	if input != nil {
+		data = input.Data
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/moderate", strings.NewReader(data))
 	if err != nil {
 		return guardy.Result{}, err
 	}
@@ -79,7 +83,7 @@ func main() {
 	ctx := context.Background()
 
 	for _, text := range []string{"Hello world", "This has badword in it"} {
-		report, err := pipeline.Run(ctx, guardy.Input{Text: text})
+		report, err := pipeline.Run(ctx, &guardy.Input{Data: text})
 		if err != nil {
 			fmt.Println("Error:", err)
 			continue

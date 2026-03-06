@@ -9,7 +9,7 @@ import (
 )
 
 // PipelineHandler describes the function that runs the full validation pipeline.
-type PipelineHandler func(ctx context.Context, input Input) (Report, error)
+type PipelineHandler func(ctx context.Context, input *Input) (Report, error)
 
 // PipelineMiddleware wraps the entire pipeline execution for cross-cutting logic (metrics, audit, tracing).
 // First added middleware runs first on the way in and last on the way out.
@@ -100,7 +100,8 @@ func NewPipeline(opts ...PipelineOption) *Pipeline {
 		opt(p)
 	}
 	if len(p.pipelineMiddlewares) > 0 {
-		handler := PipelineHandler(p.runCore)
+		coreHandler := func(ctx context.Context, input *Input) (Report, error) { return p.runCore(ctx, input) }
+		handler := PipelineHandler(coreHandler)
 		for i := len(p.pipelineMiddlewares) - 1; i >= 0; i-- {
 			handler = p.pipelineMiddlewares[i](handler)
 		}
@@ -111,7 +112,11 @@ func NewPipeline(opts ...PipelineOption) *Pipeline {
 
 // Run executes the pipeline on the given input and returns an aggregated report.
 // When no PipelineMiddleware is used, it calls core logic directly (zero-cost).
-func (p *Pipeline) Run(ctx context.Context, input Input) (Report, error) {
+// If input is nil, it is treated as &Input{} (boundary sanitization).
+func (p *Pipeline) Run(ctx context.Context, input *Input) (Report, error) {
+	if input == nil {
+		input = &Input{}
+	}
 	if p.handler != nil {
 		return p.handler(ctx, input)
 	}
@@ -119,9 +124,11 @@ func (p *Pipeline) Run(ctx context.Context, input Input) (Report, error) {
 }
 
 // runCore contains the tier execution logic (tiers, runTier, Redact, aggregateActions).
-func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
+// It mutates a copy of input (in.Data) between tiers so the caller's *input is not modified.
+func (p *Pipeline) runCore(ctx context.Context, input *Input) (Report, error) {
 	var allResults []Result
-	text := input.Text
+	in := *input
+	text := in.Data
 
 	tiers := [][]Validator{p.tier1, p.tier2, p.tier3}
 	for _, tier := range tiers {
@@ -136,7 +143,7 @@ func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 			continue
 		}
 
-		results, tierErr := p.runTier(ctx, tier, input)
+		results, tierErr := p.runTier(ctx, tier, &in)
 		if tierErr != nil && !p.failOpen {
 			return Report{
 				Results:     allResults,
@@ -150,9 +157,19 @@ func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 
 		allResults = append(allResults, results...)
 
+		// FastPass: immediate success, skip remaining tiers
+		for i := range results {
+			if results[i].Action == FastPass {
+				return Report{
+					Results:     allResults,
+					FinalAction: Pass,
+					FinalText:   text,
+				}, nil
+			}
+		}
+
 		// Apply Redact results: each validator in the tier saw the same (original or tier-input) text
 		// because they run in parallel; we apply CleanText in result order (last non-empty wins for this tier).
-		// For a true sequential redact chain (output of one as input to next), use separate tiers.
 		for i := range results {
 			r := &results[i]
 			if r.Action == Redact && r.CleanText != "" {
@@ -160,7 +177,7 @@ func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 			}
 		}
 
-		// Aggregate tier outcome (use allResults so Block from earlier tier wins over Override in later tier)
+		// Aggregate tier outcome (Audit has priority 0 so it never wins; Block/Override/Redact/Retry/Pass apply)
 		bestAction, overrideText := aggregateActions(allResults)
 		if bestAction == Block && p.failFast {
 			return Report{
@@ -177,8 +194,8 @@ func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 				OverrideText: overrideText,
 			}, nil
 		}
-		// Update input.Text for next tier (after Redacts)
-		input.Text = text
+		// Update copy for next tier (after Redacts)
+		in.Data = text
 	}
 
 	bestAction, overrideText := aggregateActions(allResults)
@@ -192,7 +209,7 @@ func (p *Pipeline) runCore(ctx context.Context, input Input) (Report, error) {
 
 // runTier runs all validators in the tier in parallel and collects results.
 // If a validator returns an error, it is recorded; when failOpen is false the first error is returned.
-func (p *Pipeline) runTier(ctx context.Context, tier []Validator, input Input) ([]Result, error) {
+func (p *Pipeline) runTier(ctx context.Context, tier []Validator, input *Input) ([]Result, error) {
 	type pair struct {
 		result Result
 		err    error

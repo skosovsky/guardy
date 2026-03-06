@@ -45,7 +45,7 @@ func main() {
 
 	ctx := context.Background()
 	llmOutput := `{"answer": "hello"}`
-	report, err := pipeline.Run(ctx, guardy.Input{Text: llmOutput})
+	report, err := pipeline.Run(ctx, &guardy.Input{Data: llmOutput})
 	if err != nil {
 		// system error (e.g. validator failed when failOpen=false)
 		panic(err)
@@ -81,7 +81,7 @@ Pass your validators to `WithTier1`, `WithTier2`, or `WithTier3`.
 
 ### ConditionalValidator
 
-Wrap a validator so it runs only when a condition holds: `ConditionalValidator{Validator: v, Predicate: func(Input) bool {...}}`. If `Predicate` is nil, the inner validator always runs. Use this for context-dependent checks (e.g. only run a heavy validator when `len(input.Text) > 100`).
+Wrap a validator so it runs only when a condition holds: `ConditionalValidator{Validator: v, Predicate: func(*Input) bool {...}}`. If `Predicate` is nil, the inner validator always runs. Use this for context-dependent checks (e.g. only run a heavy validator when `len(input.Data) > 100`).
 
 ### Result
 
@@ -174,7 +174,7 @@ pipeline := guardy.NewPipeline(
 |-----------|-------------|-------------|
 | **Length** | `ext.NewLength(min, max, action, code)` | Enforce min/max rune length; use 0 to skip a bound. Option: `WithLengthName`. **MustLength** — same, panics if min > max (init-time). |
 | **Wordlist** | `ext.NewWordlist(words, mode, action, code)` | **Blocklist** or **Allowlist**; option `WithWordlistLowercase`, `WithWordlistName`. |
-| **Regex** | `ext.NewRegex(pattern, action, code)` | Match pattern; Block or Redact. For Redact use `WithRegexPlaceholder` (default `[REDACTED]`). Option `WithRegexName`. **MustRegex** — panics on invalid pattern. |
+| **Regex** | `ext.NewRegex(pattern, action, code)` | Match pattern; Block or Redact. For Redact use `WithRegexRedaction(replacement)` (alias `WithRegexPlaceholder`). Option `WithRegexName`. **MustRegex** — panics on invalid pattern. |
 | **JSON** | `ext.NewJSONSchema(schemaJSON, code)` / **MustJSONSchema** | Validate against JSON Schema (draft-07 / 2020-12). On invalid JSON or schema mismatch always returns **Retry** with Reason, Evidence, Guidance. Options: `WithJSONSchemaName`, `WithJSONName`. |
 
 ## Testing with guardytest
@@ -184,7 +184,7 @@ Use **guardy/guardytest** for unit tests:
 - **FakeValidator(name, *guardy.Result)** — validator that always returns the given result (nil = zero Result).
 - **FailingValidator(name, err)** — validator that always returns the given error.
 - **MustPass**, **MustBlock**, **MustRedact**, **MustOverride**, **MustRetry** — assert `report.FinalAction`.
-- **NewInput(text)** — shorthand for `guardy.Input{Text: text}`.
+- **NewInput(text)** — shorthand for `&guardy.Input{Data: text}`.
 - **InputBuilder** — fluent builder for Input (Text, Metadata, Documents, Messages).
 
 Example:

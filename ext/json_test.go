@@ -11,7 +11,7 @@ import (
 func ExampleJSONSchema_Validate_retry() {
 	j := MustJSONSchema(emptySchema, "JSON")
 	ctx := context.Background()
-	res, _ := j.Validate(ctx, guardy.Input{Text: "not json"})
+	res, _ := j.Validate(ctx, &guardy.Input{Data: "not json"})
 	if !res.Passed && res.Action == guardy.Retry {
 		fmt.Println(res.Reason)
 	}
@@ -28,7 +28,7 @@ func TestJSONSchema_Valid_Pass(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: `{"a":1}`})
+	res, err := j.Validate(ctx, &guardy.Input{Data: `{"a":1}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestJSONSchema_Valid_Array_Pass(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: `[1, 2, 3]`})
+	res, err := j.Validate(ctx, &guardy.Input{Data: `[1, 2, 3]`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestJSONSchema_Invalid_Retry(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: "not json"})
+	res, err := j.Validate(ctx, &guardy.Input{Data: "not json"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestJSONSchema_SchemaMismatch_Retry(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: `{"id": 1}`})
+	res, err := j.Validate(ctx, &guardy.Input{Data: `{"id": 1}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestJSONSchema_ObjectSchema_Valid_Pass(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: `{"id": 1, "name": "x"}`})
+	res, err := j.Validate(ctx, &guardy.Input{Data: `{"id": 1, "name": "x"}`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestJSONSchema_GuidanceOnSchemaFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	res, err := j.Validate(ctx, guardy.Input{Text: `{"id": 1}`})
+	res, err := j.Validate(ctx, &guardy.Input{Data: `{"id": 1}`})
 	if err != nil {
 		t.Fatal(err)
 	}

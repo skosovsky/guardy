@@ -15,6 +15,7 @@ const DefaultStreamChunkSize = 4096
 type guardWriterConfig struct {
 	chunkSize int
 	contextFn func() (context.Context, context.CancelFunc)
+	metadata  map[string]any
 }
 
 // StreamOption configures GuardWriter behavior.
@@ -44,6 +45,13 @@ func WithTimeout(d time.Duration) StreamOption {
 		c.contextFn = func() (context.Context, context.CancelFunc) {
 			return context.WithTimeout(context.Background(), d)
 		}
+	}
+}
+
+// WithMetadata sets metadata to attach to each chunk Input when running the pipeline.
+func WithMetadata(metadata map[string]any) StreamOption {
+	return func(c *guardWriterConfig) {
+		c.metadata = metadata
 	}
 }
 
@@ -170,8 +178,8 @@ func (g *GuardWriter) validateAndWrite(chunk []byte) error {
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	}
 	defer cancel()
-	input := Input{Text: string(chunk)}
-	report, err := g.p.Run(ctx, input)
+	in := &Input{Data: string(chunk), Metadata: g.config.metadata}
+	report, err := g.p.Run(ctx, in)
 	if err != nil {
 		return err
 	}

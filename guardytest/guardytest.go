@@ -63,12 +63,13 @@ func MustRetry(t testing.TB, report guardy.Report) {
 	}
 }
 
-// NewInput returns an Input with the given text (convenience for tests).
-func NewInput(text string) guardy.Input {
-	return guardy.Input{Text: text}
+// NewInput returns an *Input with the given data (convenience for tests).
+func NewInput(text string) *guardy.Input {
+	return &guardy.Input{Data: text}
 }
 
-// InputBuilder builds guardy.Input for table-driven tests.
+// InputBuilder builds *guardy.Input for table-driven tests.
+// Data matches Input.Data; Text is an alias for backward compatibility.
 type InputBuilder struct {
 	in guardy.Input
 }
@@ -78,10 +79,15 @@ func NewInputBuilder() *InputBuilder {
 	return &InputBuilder{}
 }
 
-// Text sets the input text.
-func (b *InputBuilder) Text(s string) *InputBuilder {
-	b.in.Text = s
+// Data sets the input data (main text). Matches the Input.Data field.
+func (b *InputBuilder) Data(s string) *InputBuilder {
+	b.in.Data = s
 	return b
+}
+
+// Text sets the input data; alias for Data for backward compatibility.
+func (b *InputBuilder) Text(s string) *InputBuilder {
+	return b.Data(s)
 }
 
 // Metadata sets the input metadata.
@@ -90,21 +96,9 @@ func (b *InputBuilder) Metadata(m map[string]any) *InputBuilder {
 	return b
 }
 
-// Documents sets the input documents (RAG context).
-func (b *InputBuilder) Documents(docs []guardy.Document) *InputBuilder {
-	b.in.Documents = docs
-	return b
-}
-
-// Messages sets the conversation history for context-aware validators.
-func (b *InputBuilder) Messages(msgs []guardy.Message) *InputBuilder {
-	b.in.Messages = msgs
-	return b
-}
-
 // Build returns the built Input.
-func (b *InputBuilder) Build() guardy.Input {
-	return b.in
+func (b *InputBuilder) Build() *guardy.Input {
+	return &b.in
 }
 
 type fakeValidator struct {
@@ -112,7 +106,7 @@ type fakeValidator struct {
 	result guardy.Result
 }
 
-func (f *fakeValidator) Validate(context.Context, guardy.Input) (guardy.Result, error) {
+func (f *fakeValidator) Validate(context.Context, *guardy.Input) (guardy.Result, error) {
 	return f.result, nil
 }
 
@@ -125,7 +119,7 @@ type failingValidator struct {
 	err  error
 }
 
-func (f *failingValidator) Validate(context.Context, guardy.Input) (guardy.Result, error) {
+func (f *failingValidator) Validate(context.Context, *guardy.Input) (guardy.Result, error) {
 	return guardy.Result{}, f.err
 }
 

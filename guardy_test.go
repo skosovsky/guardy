@@ -26,14 +26,11 @@ func TestResult_ZeroValue(t *testing.T) {
 
 func TestInput_ZeroValue(t *testing.T) {
 	var in Input
-	if in.Text != "" {
-		t.Error("zero Input should have empty Text")
+	if in.Data != "" {
+		t.Error("zero Input should have empty Data")
 	}
 	if in.Metadata != nil {
 		t.Error("zero Input Metadata should be nil")
-	}
-	if in.Documents != nil {
-		t.Error("zero Input Documents should be nil")
 	}
 }
 
@@ -68,17 +65,17 @@ func TestConditionalValidator_SkipsWhenPredicateFalse(t *testing.T) {
 	called := false
 	inner := &fakeValidator{
 		name: "inner",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			called = true
 			return Result{Passed: false, Action: Block, Code: "TEST"}, nil
 		},
 	}
 	cv := &ConditionalValidator{
 		Validator: inner,
-		Predicate: func(Input) bool { return false },
+		Predicate: func(*Input) bool { return false },
 	}
 	ctx := context.Background()
-	in := Input{Text: "hello"}
+	in := &Input{Data: "hello"}
 	r, err := cv.Validate(ctx, in)
 	if err != nil {
 		t.Fatal(err)
@@ -94,16 +91,16 @@ func TestConditionalValidator_SkipsWhenPredicateFalse(t *testing.T) {
 func TestConditionalValidator_RunsWhenPredicateTrue(t *testing.T) {
 	inner := &fakeValidator{
 		name: "inner",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{Passed: false, Action: Block, Code: "TEST"}, nil
 		},
 	}
 	cv := &ConditionalValidator{
 		Validator: inner,
-		Predicate: func(Input) bool { return true },
+		Predicate: func(*Input) bool { return true },
 	}
 	ctx := context.Background()
-	in := Input{Text: "hello"}
+	in := &Input{Data: "hello"}
 	r, err := cv.Validate(ctx, in)
 	if err != nil {
 		t.Fatal(err)
@@ -116,13 +113,13 @@ func TestConditionalValidator_RunsWhenPredicateTrue(t *testing.T) {
 func TestConditionalValidator_NilPredicateRunsAlways(t *testing.T) {
 	inner := &fakeValidator{
 		name: "inner",
-		validate: func(context.Context, Input) (Result, error) {
+		validate: func(context.Context, *Input) (Result, error) {
 			return Result{Passed: false, Action: Redact, Code: "REDACT"}, nil
 		},
 	}
 	cv := &ConditionalValidator{Validator: inner, Predicate: nil}
 	ctx := context.Background()
-	r, err := cv.Validate(ctx, Input{Text: "x"})
+	r, err := cv.Validate(ctx, &Input{Data: "x"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +139,10 @@ func TestConditionalValidator_Name(t *testing.T) {
 // fakeValidator is used in tests.
 type fakeValidator struct {
 	name     string
-	validate func(context.Context, Input) (Result, error)
+	validate func(context.Context, *Input) (Result, error)
 }
 
-func (f *fakeValidator) Validate(ctx context.Context, input Input) (Result, error) {
+func (f *fakeValidator) Validate(ctx context.Context, input *Input) (Result, error) {
 	if f.validate != nil {
 		return f.validate(ctx, input)
 	}

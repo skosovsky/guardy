@@ -14,6 +14,8 @@ const (
 	Override Action = "override"
 	Retry    Action = "retry"
 	Block    Action = "block"
+	Audit    Action = "audit"     // log but do not block
+	FastPass Action = "fast_pass" // immediate success, skip remaining tiers
 )
 
 // Result is returned by a Validator after checking the input.
@@ -33,26 +35,10 @@ type Result struct {
 	OverrideText string
 }
 
-// Document represents a RAG context document for grounding checks.
-type Document struct {
-	ID       string
-	Content  string
-	Metadata map[string]string
-}
-
-// Message represents a single turn in a conversation (e.g. system, user, assistant, tool).
-// Used by Input.Messages for context-aware validation (e.g. Tier 3 LLM-as-judge).
-type Message struct {
-	Role    string // e.g. "system", "user", "assistant", "tool"
-	Content string
-}
-
 // Input is the data passed into validators and pipelines.
 type Input struct {
-	Text      string    // Current fragment for fast checks (e.g. streaming chunk)
-	Messages  []Message // Full conversation context for deep analysis (Tier 3)
-	Metadata  map[string]any
-	Documents []Document
+	Data     string         // Main text to validate
+	Metadata map[string]any // Optional context (user id, session, etc.)
 }
 
 // Report is the aggregated result of a pipeline run.
@@ -89,6 +75,10 @@ func PriorityForAction(a Action) int {
 		return 2
 	case Pass:
 		return 1
+	case Audit:
+		return 0 // never wins; log-only
+	case FastPass:
+		return 0 // handled by early exit, not aggregation
 	default:
 		return 0
 	}

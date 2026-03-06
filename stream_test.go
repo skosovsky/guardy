@@ -14,7 +14,7 @@ import (
 func TestGuardWriter_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -34,8 +34,8 @@ func TestGuardWriter_Pass(t *testing.T) {
 func TestGuardWriter_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in Input) (Result, error) {
-			if strings.Contains(in.Text, "x") {
+		validate: func(_ context.Context, in *Input) (Result, error) {
+			if in != nil && strings.Contains(in.Data, "x") {
 				return Result{Passed: false, Action: Block}, nil
 			}
 			return Result{Passed: true, Action: Pass}, nil
@@ -67,7 +67,7 @@ func TestGuardWriter_Block(t *testing.T) {
 func TestGuardWriter_Redact(t *testing.T) {
 	v := &fakeValidator{
 		name: "redact",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{
 				Passed:    false,
 				Action:    Redact,
@@ -88,7 +88,7 @@ func TestGuardWriter_Redact(t *testing.T) {
 func TestGuardWriter_FlushOnClose(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -108,7 +108,7 @@ func TestGuardWriter_FlushOnClose(t *testing.T) {
 func TestGuardWriter_Override(t *testing.T) {
 	v := &fakeValidator{
 		name: "override",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{
 				Passed:       false,
 				Action:       Override,
@@ -135,8 +135,8 @@ func TestGuardWriter_Override(t *testing.T) {
 func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in Input) (Result, error) {
-			if in.Text == "bb" {
+		validate: func(_ context.Context, in *Input) (Result, error) {
+			if in != nil && in.Data == "bb" {
 				return Result{Passed: false, Action: Block}, nil
 			}
 			return Result{Passed: true, Action: Pass}, nil
@@ -170,7 +170,7 @@ func TestGuardWriter_WithContext(t *testing.T) {
 	}
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ Input) (Result, error) {
+		validate: func(_ context.Context, _ *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -187,7 +187,7 @@ func TestGuardWriter_WithContext(t *testing.T) {
 func TestGuardWriter_WithTimeout(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ Input) (Result, error) {
+		validate: func(_ context.Context, _ *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -204,10 +204,38 @@ func TestGuardWriter_WithTimeout(t *testing.T) {
 	}
 }
 
+func TestGuardWriter_WithMetadata(t *testing.T) {
+	meta := map[string]any{"k": "v"}
+	var metadataSeen atomic.Bool
+	v := &fakeValidator{
+		name: "meta-check",
+		validate: func(_ context.Context, in *Input) (Result, error) {
+			if in != nil && in.Metadata != nil && in.Metadata["k"] == "v" {
+				metadataSeen.Store(true)
+			}
+			return Result{Passed: true, Action: Pass}, nil
+		},
+	}
+	p := NewPipeline(WithTier1(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithMetadata(meta))
+	_, err := gw.Write([]byte("hello"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = gw.Close()
+	if out.String() != "hello" {
+		t.Errorf("out = %q", out.String())
+	}
+	if !metadataSeen.Load() {
+		t.Error("WithMetadata: validator did not receive Input.Metadata")
+	}
+}
+
 func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ Input) (Result, error) {
+		validate: func(_ context.Context, _ *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -232,7 +260,7 @@ func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in Input) (Result, error) {
+		validate: func(_ context.Context, in *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -254,7 +282,7 @@ func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ Input) (Result, error) {
+		validate: func(_ context.Context, _ *Input) (Result, error) {
 			return Result{Passed: true, Action: Pass}, nil
 		},
 	}
@@ -277,8 +305,8 @@ func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in Input) (Result, error) {
-			if strings.Contains(in.Text, "bad") {
+		validate: func(_ context.Context, in *Input) (Result, error) {
+			if in != nil && strings.Contains(in.Data, "bad") {
 				return Result{Passed: false, Action: Block}, nil
 			}
 			return Result{Passed: true, Action: Pass}, nil
