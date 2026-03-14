@@ -8,22 +8,26 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// Observer is a callback invoked for non-blocking shadow block reports.
+// It receives the request context and the report; intended for telemetry (e.g. shadow-mode detections).
+type Observer func(ctx context.Context, rep Report)
+
 // Pipeline runs validators in two phases: sequential Fast-Path (mutations),
 // then parallel Slow-Path (block/pass only) via errgroup.
 type Pipeline struct {
 	fastPath []Validator
 	slowPath []Validator
-	observer func(Report)
+	observer Observer
 }
 
 // PipelineOption configures a Pipeline.
 type PipelineOption func(*Pipeline)
 
 // WithObserver registers a callback invoked for non-blocking shadow block reports.
-// It is intended for telemetry (e.g. shadow-mode detections) without changing the public Report shape.
-func WithObserver(fn func(Report)) PipelineOption {
+// The callback receives the request context and the report.
+func WithObserver(o Observer) PipelineOption {
 	return func(p *Pipeline) {
-		p.observer = fn
+		p.observer = o
 	}
 }
 
@@ -73,7 +77,7 @@ func (p *Pipeline) Run(ctx context.Context, text string) (Report, error) {
 		}
 		if rep.Action == ActionBlock && rep.ShadowMode {
 			if p.observer != nil {
-				p.observer(rep)
+				p.observer(ctx, rep)
 			}
 			continue
 		}
@@ -134,7 +138,7 @@ func (p *Pipeline) Run(ctx context.Context, text string) (Report, error) {
 			}
 			if rep.Action == ActionBlock && rep.ShadowMode {
 				if p.observer != nil {
-					p.observer(rep)
+					p.observer(ctx, rep)
 				}
 			}
 			return nil

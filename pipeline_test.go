@@ -223,7 +223,10 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 		},
 	}
 	p := NewPipeline(
-		WithObserver(func(Report) {
+		WithObserver(func(ctx context.Context, rep Report) {
+			if ctx == nil {
+				t.Error("observer must receive non-nil context")
+			}
 			atomic.AddInt32(&calls, 1)
 		}),
 		WithFastPath(shadowBlock),
