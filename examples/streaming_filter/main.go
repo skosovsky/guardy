@@ -5,6 +5,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -13,23 +14,18 @@ import (
 )
 
 func main() {
-	wordlistV := ext.NewWordlist([]string{"forbidden", "blocked"}, ext.Blocklist, guardy.Block, "FORBIDDEN")
-	pipeline := guardy.NewPipeline(
-		guardy.WithFailFast(true),
-		guardy.WithTier1(wordlistV),
-	)
+	wordlistV := ext.NewWordlist([]string{"forbidden", "blocked"}, ext.Blocklist, guardy.ActionBlock, "FORBIDDEN")
+	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 
-	// Mock stream: tokens written one word at a time.
 	mockStream := "Hello world this is forbidden content here."
 	var out bytes.Buffer
 	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(64))
 
-	ctx := context.Background()
-	_ = ctx
+	_ = context.Background()
 	for _, token := range strings.Fields(mockStream) {
 		_, err := gw.Write([]byte(token + " "))
 		if err != nil {
-			if err == guardy.ErrBlocked {
+			if errors.Is(err, guardy.ErrBlocked) {
 				fmt.Println("Stream blocked: forbidden word detected")
 				return
 			}
@@ -38,7 +34,7 @@ func main() {
 		}
 	}
 	if err := gw.Close(); err != nil {
-		if err == guardy.ErrBlocked {
+		if errors.Is(err, guardy.ErrBlocked) {
 			fmt.Println("Stream blocked on close")
 			return
 		}

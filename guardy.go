@@ -1,85 +1,27 @@
 // Package guardy provides a pipeline engine for AI guardrails: validation,
-// intervention actions (block, redact, override, retry), and tiered execution.
+// intervention actions (pass, block, redact), and two-phase execution
+// (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
 //
-// See [.cursor/docs/TD.md] for the full technical design.
+// See .cursor/docs/task6.md for the technical specification.
 package guardy
 
-// Action represents the intervention strategy for a validation violation.
+// Action is the intervention outcome from a validator or pipeline.
 type Action string
 
-// Standard intervention actions.
+// Supported pipeline/validator actions.
 const (
-	Pass     Action = "pass"
-	Redact   Action = "redact"
-	Override Action = "override"
-	Retry    Action = "retry"
-	Block    Action = "block"
-	Audit    Action = "audit"     // log but do not block
-	FastPass Action = "fast_pass" // immediate success, skip remaining tiers
+	ActionPass   Action = "pass"   // Validation passed
+	ActionBlock  Action = "block"  // Content should be blocked
+	ActionRedact Action = "redact" // Content was redacted (see MutatedText)
 )
 
-// Result is returned by a Validator after checking the input.
-type Result struct {
-	Passed bool
-	Action Action
-	Code   string // e.g. "PROMPT_INJECTION", "PII_DETECTED"
-
-	// Feedback triad: especially useful for Action == Retry (LLM self-correction).
-	// All three are optional; simple validators may leave Evidence and Guidance empty.
-	Reason   string // Short description of why the check failed
-	Evidence string // Exact quote or fragment that triggered the violation
-	Guidance string // Instruction for the model on how to fix the text
-
-	// Mutations
-	CleanText    string
-	OverrideText string
-}
-
-// Input is the data passed into validators and pipelines.
-type Input struct {
-	Data     string         // Main text to validate
-	Metadata map[string]any // Optional context (user id, session, etc.)
-}
-
-// Report is the aggregated result of a pipeline run.
-// When FinalAction is Override, OverrideText contains the response to return to the user.
+// Report is the single result returned by a validator or the pipeline.
+// It maps to metry/security attributes for telemetry.
 type Report struct {
-	Results      []Result
-	FinalAction  Action
-	FinalText    string
-	OverrideText string
-}
-
-// WorstReason returns the reason of the result that matches FinalAction (or empty if none/Pass).
-// Useful for PipelineMiddleware and logging when you need a single "main" reason without iterating Results.
-func (r Report) WorstReason() string {
-	for _, res := range r.Results {
-		if res.Action == r.FinalAction {
-			return res.Reason
-		}
-	}
-	return ""
-}
-
-// PriorityForAction returns the aggregation priority of the action (higher wins).
-// Used when picking which result to use for error code/reason when multiple validators run.
-func PriorityForAction(a Action) int {
-	switch a {
-	case Block:
-		return 5
-	case Override:
-		return 4
-	case Redact:
-		return 3
-	case Retry:
-		return 2
-	case Pass:
-		return 1
-	case Audit:
-		return 0 // never wins; log-only
-	case FastPass:
-		return 0 // handled by early exit, not aggregation
-	default:
-		return 0
-	}
+	Action      Action  // "pass", "block", "redact"
+	Validator   string  // Name of the validator that produced this report (e.g. "pii_masking")
+	Reason      string  // Human-readable reason
+	Score       float64 // Confidence or distance (optional)
+	ShadowMode  bool    // If true, block was logged but did not stop the pipeline
+	MutatedText string  // Text after redaction (when Action == "redact")
 }

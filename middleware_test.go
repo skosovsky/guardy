@@ -9,19 +9,19 @@ import (
 	"testing"
 )
 
-func bodyExtractor(r *http.Request) (*Input, error) {
+func bodyExtractor(r *http.Request) (string, error) {
 	body, _ := io.ReadAll(r.Body)
-	return &Input{Data: string(body)}, nil
+	return string(body), nil
 }
 
 func TestGuard_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "BAD", Reason: "blocked"}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, Validator: "block", Reason: "blocked"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("next handler should not be called on Block")
 	}))
@@ -31,7 +31,7 @@ func TestGuard_Block(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "BAD") {
+	if !strings.Contains(rec.Body.String(), "block") {
 		t.Errorf("body = %s", rec.Body.String())
 	}
 }
@@ -39,11 +39,11 @@ func TestGuard_Block(t *testing.T) {
 func TestGuard_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	called := false
 	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
@@ -61,78 +61,127 @@ func TestGuard_Pass(t *testing.T) {
 	}
 }
 
-func TestGuard_Override(t *testing.T) {
+func TestGuard_PassBodyRestored(t *testing.T) {
 	v := &fakeValidator{
-		name: "override",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{
-				Passed:       false,
-				Action:       Override,
-				OverrideText: "I am a bot.",
-			}, nil
+		name: "pass",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
+	var nextBody string
 	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("next handler should not be called on Override")
+		b, _ := io.ReadAll(r.Body)
+		nextBody = string(b)
+		w.WriteHeader(http.StatusOK)
 	}))
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("who are you?"))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", rec.Code)
+	if nextBody != "hello" {
+		t.Errorf("next body = %q, want hello (body must be restored on Pass)", nextBody)
 	}
-	if rec.Body.String() != "I am a bot." {
-		t.Errorf("body = %q", rec.Body.String())
+}
+
+// transformingExtractor returns normalized text for validation but downstream must receive original body on Pass.
+func transformingExtractor(r *http.Request) (string, error) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	return strings.ToUpper(string(body)), nil
+}
+
+func TestGuard_PassRestoresOriginalBodyNotExtractorText(t *testing.T) {
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var nextBody string
+	handler := Guard(p, transformingExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		nextBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	// Extractor returned "HELLO" for pipeline; downstream must get original "hello".
+	if nextBody != "hello" {
+		t.Errorf("next body = %q, want hello (original bytes, not extractor-transformed text)", nextBody)
 	}
 }
 
 func TestGuard_Redact(t *testing.T) {
 	v := &fakeValidator{
 		name: "redact",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{
-				Passed:    false,
-				Action:    Redact,
-				CleanText: "clean",
-			}, nil
+		validate: func(_ context.Context, text string) (Report, error) {
+			if text == "dirty" {
+				return Report{Action: ActionRedact, Validator: "redact", MutatedText: "clean"}, nil
+			}
+			return Report{Action: ActionPass, Validator: "redact"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
+	var nextBody string
 	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		if string(body) != "clean" {
-			t.Errorf("body = %q, want clean", string(body))
-		}
+		b, _ := io.ReadAll(r.Body)
+		nextBody = string(b)
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("dirty"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d", rec.Code)
+	if nextBody != "clean" {
+		t.Errorf("next body = %q, want clean", nextBody)
+	}
+}
+
+func TestGuard_RedactToEmptyBody(t *testing.T) {
+	v := &fakeValidator{
+		name: "wiper",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var nextBody string
+	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		nextBody = string(b)
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("sensitive"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if nextBody != "" {
+		t.Errorf("next body = %q, want empty (redact to empty must not leak original)", nextBody)
 	}
 }
 
 func TestGuard_ReportFromContext(t *testing.T) {
 	v := &fakeValidator{
-		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		name: "v",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "v"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		report, ok := ReportFromContext(r.Context())
+		rep, ok := ReportFromContext(r.Context())
 		if !ok {
-			t.Fatal("ReportFromContext: report not in context")
+			t.Error("ReportFromContext: no report")
+			return
 		}
-		if report.FinalAction != Pass {
-			t.Errorf("FinalAction = %s, want Pass", report.FinalAction)
+		if rep.Validator != "v" {
+			t.Errorf("report.Validator = %q", rep.Validator)
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -140,52 +189,16 @@ func TestGuard_ReportFromContext(t *testing.T) {
 	}
 }
 
-func TestGuard_Retry(t *testing.T) {
-	v := &fakeValidator{
-		name: "retry",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{
-				Passed: false,
-				Action: Retry,
-				Code:   "HALLUCINATION",
-				Reason: "not grounded",
-			}, nil
-		},
+func TestGuard_ExtractorError(t *testing.T) {
+	badExtractor := func(*http.Request) (string, error) {
+		return "", io.EOF
 	}
-	p := NewPipeline(WithTier1(v))
-	handler := Guard(p, bodyExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("next handler should not be called on Retry")
-	}))
+	p := NewPipeline()
+	handler := Guard(p, badExtractor)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnprocessableEntity {
-		t.Errorf("status = %d, want 422", rec.Code)
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "HALLUCINATION") {
-		t.Errorf("body should contain code: %s", rec.Body.String())
-	}
-}
-
-func TestGuard_PanicOnNilPipeline(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Guard(nil, extractor) should panic")
-		} else if !strings.Contains(r.(string), "Pipeline") {
-			t.Errorf("panic message should mention Pipeline, got %q", r)
-		}
-	}()
-	_ = Guard(nil, bodyExtractor)
-}
-
-func TestGuard_PanicOnNilExtractor(t *testing.T) {
-	p := NewPipeline()
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Guard(p, nil) should panic")
-		} else if !strings.Contains(r.(string), "extractor") {
-			t.Errorf("panic message should mention extractor, got %q", r)
-		}
-	}()
-	_ = Guard(p, nil)
 }

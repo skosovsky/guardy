@@ -12,7 +12,6 @@ bench:
 fuzz:
 	@go test -fuzz=. -fuzztime=30s .
 	@go test -fuzz=FuzzRegex -fuzztime=15s ./ext/
-	@go test -fuzz=FuzzJSONSchema -fuzztime=15s ./ext/
 
 cover:
 	@go test -coverprofile=coverage.out -covermode=atomic ./...

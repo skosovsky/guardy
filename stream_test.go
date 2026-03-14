@@ -14,11 +14,11 @@ import (
 func TestGuardWriter_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(4))
 	_, err := gw.Write([]byte("hello"))
@@ -34,14 +34,14 @@ func TestGuardWriter_Pass(t *testing.T) {
 func TestGuardWriter_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && strings.Contains(in.Data, "x") {
-				return Result{Passed: false, Action: Block}, nil
+		validate: func(_ context.Context, text string) (Report, error) {
+			if strings.Contains(text, "x") {
+				return Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Result{Passed: true, Action: Pass}, nil
+			return Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(2))
 	n, err := gw.Write([]byte("ab"))
@@ -67,15 +67,11 @@ func TestGuardWriter_Block(t *testing.T) {
 func TestGuardWriter_Redact(t *testing.T) {
 	v := &fakeValidator{
 		name: "redact",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{
-				Passed:    false,
-				Action:    Redact,
-				CleanText: "[CLEAN]",
-			}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "redact", MutatedText: "[CLEAN]"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(10))
 	_, _ = gw.Write([]byte("dirty"))
@@ -85,14 +81,31 @@ func TestGuardWriter_Redact(t *testing.T) {
 	}
 }
 
+func TestGuardWriter_RedactToEmptyChunk(t *testing.T) {
+	v := &fakeValidator{
+		name: "wiper",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(10))
+	_, _ = gw.Write([]byte("secret"))
+	_ = gw.Close()
+	if out.String() != "" {
+		t.Errorf("out = %q, want empty (redact to empty must not leak chunk)", out.String())
+	}
+}
+
 func TestGuardWriter_FlushOnClose(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(100))
 	_, _ = gw.Write([]byte("small"))
@@ -105,47 +118,20 @@ func TestGuardWriter_FlushOnClose(t *testing.T) {
 	}
 }
 
-func TestGuardWriter_Override(t *testing.T) {
-	v := &fakeValidator{
-		name: "override",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{
-				Passed:       false,
-				Action:       Override,
-				OverrideText: "replaced",
-			}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10))
-	_, _ = gw.Write([]byte("trigger")) // 7 bytes, below chunk size
-	err := gw.Close()                  // flush triggers validation
-	if err == nil {
-		t.Fatal("expected ErrOverridden")
-	}
-	if !errors.Is(err, ErrOverridden) {
-		t.Errorf("err = %v", err)
-	}
-	if out.Len() != 0 {
-		t.Errorf("Override should not write chunk to output")
-	}
-}
-
 func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Data == "bb" {
-				return Result{Passed: false, Action: Block}, nil
+		validate: func(_ context.Context, text string) (Report, error) {
+			if text == "bb" {
+				return Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Result{Passed: true, Action: Pass}, nil
+			return Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	_, _ = gw.Write([]byte("aa")) // ok
+	_, _ = gw.Write([]byte("aa"))
 	n, err := gw.Write([]byte("bb"))
 	if err == nil {
 		t.Fatal("expected error")
@@ -170,11 +156,11 @@ func TestGuardWriter_WithContext(t *testing.T) {
 	}
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithContext(ctxFn))
 	_, _ = gw.Write([]byte("trigger"))
@@ -187,11 +173,11 @@ func TestGuardWriter_WithContext(t *testing.T) {
 func TestGuardWriter_WithTimeout(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithTimeout(2*time.Second))
 	_, err := gw.Write([]byte("hello"))
@@ -204,42 +190,14 @@ func TestGuardWriter_WithTimeout(t *testing.T) {
 	}
 }
 
-func TestGuardWriter_WithMetadata(t *testing.T) {
-	meta := map[string]any{"k": "v"}
-	var metadataSeen atomic.Bool
-	v := &fakeValidator{
-		name: "meta-check",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Metadata != nil && in.Metadata["k"] == "v" {
-				metadataSeen.Store(true)
-			}
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithMetadata(meta))
-	_, err := gw.Write([]byte("hello"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = gw.Close()
-	if out.String() != "hello" {
-		t.Errorf("out = %q", out.String())
-	}
-	if !metadataSeen.Load() {
-		t.Error("WithMetadata: validator did not receive Input.Metadata")
-	}
-}
-
 func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(0))
 	_, _ = gw.Write([]byte("a"))
@@ -256,17 +214,15 @@ func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 	}
 }
 
-// TestGuardWriter_UTF8Safe_Cyrillic ensures multi-byte runes (e.g. Cyrillic) are not split across chunks.
 func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
-	// Chunk size 3: "привет" is 12 bytes (6 runes x 2). With size 3 we must not cut in the middle of a rune.
 	gw := NewGuardWriter(&out, p, WithChunkSize(3))
 	_, err := gw.Write([]byte("привет"))
 	if err != nil {
@@ -278,17 +234,16 @@ func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 	}
 }
 
-// TestGuardWriter_UTF8Safe_Emoji ensures emoji (4-byte runes) are not split.
 func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(_ context.Context, _ *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
-	emoji := "x\U0001f600y" // 1 + 4 + 1 bytes
+	emoji := "x\U0001f600y"
 	gw := NewGuardWriter(&out, p, WithChunkSize(2))
 	_, err := gw.Write([]byte(emoji))
 	if err != nil {
@@ -300,22 +255,18 @@ func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 	}
 }
 
-// TestGuardWriter_SemanticBoundary_ForbiddenWord ensures a forbidden word is not split across chunks
-// when a semantic boundary (space) keeps it in one chunk, so the validator can detect it.
 func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && strings.Contains(in.Data, "bad") {
-				return Result{Passed: false, Action: Block}, nil
+		validate: func(_ context.Context, text string) (Report, error) {
+			if strings.Contains(text, "bad") {
+				return Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Result{Passed: true, Action: Pass}, nil
+			return Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
+	p := NewPipeline(WithFastPath(v))
 	var out bytes.Buffer
-	// Chunk size 7: "ok bad x" -> first chunk up to last boundary in 7 bytes: "ok bad " (space at 6), so chunk "ok bad "
-	// Validator sees "ok bad " and blocks.
 	gw := NewGuardWriter(&out, p, WithChunkSize(7))
 	_, err := gw.Write([]byte("ok bad x"))
 	if err == nil {

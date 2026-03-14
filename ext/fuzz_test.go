@@ -8,7 +8,7 @@ import (
 )
 
 func FuzzRegex(f *testing.F) {
-	r, err := NewRegex(`\b(inject|ignore)\b`, guardy.Block, "INJECT")
+	r, err := NewRegex(`\b(inject|ignore)\b`, guardy.ActionBlock, "INJECT")
 	if err != nil {
 		f.Fatal(err)
 	}
@@ -18,19 +18,6 @@ func FuzzRegex(f *testing.F) {
 		if len(data) > 1<<20 {
 			t.Skip("input too large")
 		}
-		_, _ = r.Validate(context.Background(), &guardy.Input{Data: string(data)})
-	})
-}
-
-func FuzzJSONSchema(f *testing.F) {
-	j := MustJSONSchema("{}", "JSON")
-	f.Add([]byte(`{"a":1}`))
-	f.Add([]byte("[1,2,3]"))
-	f.Add([]byte("not json"))
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > 1<<20 {
-			t.Skip("input too large")
-		}
-		_, _ = j.Validate(context.Background(), &guardy.Input{Data: string(data)})
+		_, _ = r.Validate(context.Background(), string(data))
 	})
 }

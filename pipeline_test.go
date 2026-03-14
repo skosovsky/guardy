@@ -3,695 +3,352 @@ package guardy
 import (
 	"context"
 	"errors"
-	"log/slog"
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
+// fakeValidator for tests.
+type fakeValidator struct {
+	name     string
+	validate func(context.Context, string) (Report, error)
+}
+
+func (f *fakeValidator) Name() string { return f.name }
+
+func (f *fakeValidator) Validate(ctx context.Context, text string) (Report, error) {
+	if f.validate != nil {
+		return f.validate(ctx, text)
+	}
+	return Report{Action: ActionPass, Validator: f.name}, nil
+}
+
 func TestPipeline_Empty(t *testing.T) {
 	p := NewPipeline()
 	ctx := context.Background()
-	in := &Input{Data: "hello"}
-	report, err := p.Run(ctx, in)
+	report, err := p.Run(ctx, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.FinalAction != Pass {
-		t.Errorf("empty pipeline FinalAction = %s, want Pass", report.FinalAction)
+	if report.Action != ActionPass {
+		t.Errorf("Action = %s, want pass", report.Action)
 	}
-	if report.FinalText != "hello" {
-		t.Errorf("FinalText = %q, want hello", report.FinalText)
-	}
-	if len(report.Results) != 0 {
-		t.Errorf("len(Results) = %d, want 0", len(report.Results))
+	if report.MutatedText != "hello" {
+		t.Errorf("MutatedText = %q, want hello", report.MutatedText)
 	}
 }
 
-func TestPipeline_PassThrough(t *testing.T) {
+func TestPipeline_FastPath_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "hello"})
+	p := NewPipeline(WithFastPath(v))
+	report, err := p.Run(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s", report.FinalAction)
+	if report.Action != ActionPass {
+		t.Errorf("Action = %s", report.Action)
 	}
-	if len(report.Results) != 1 {
-		t.Fatalf("len(Results) = %d", len(report.Results))
-	}
-	if !report.Results[0].Passed {
-		t.Error("result should be Passed")
+	if report.MutatedText != "hello" {
+		t.Errorf("MutatedText = %q", report.MutatedText)
 	}
 }
 
-func TestPipeline_SingleBlock(t *testing.T) {
+func TestPipeline_FastPath_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "blocker",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "BAD"}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, Validator: "blocker", Reason: "bad"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v), WithFailFast(true))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "bad"})
+	p := NewPipeline(WithFastPath(v))
+	report, err := p.Run(context.Background(), "bad")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.FinalAction != Block {
-		t.Errorf("FinalAction = %s, want Block", report.FinalAction)
+	if report.Action != ActionBlock {
+		t.Errorf("Action = %s, want block", report.Action)
 	}
-	if len(report.Results) != 1 {
-		t.Fatalf("len(Results) = %d", len(report.Results))
-	}
-	if report.Results[0].Code != "BAD" {
-		t.Errorf("Code = %s", report.Results[0].Code)
+	if report.Validator != "blocker" || report.Reason != "bad" {
+		t.Errorf("Validator=%q Reason=%q", report.Validator, report.Reason)
 	}
 }
 
-func TestPipeline_MultipleRedact(t *testing.T) {
+func TestPipeline_FastPath_RedactChain(t *testing.T) {
 	v1 := &fakeValidator{
-		name: "redact1",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Data == "phone 123" {
-				return Result{Passed: false, Action: Redact, Code: "PII", CleanText: "phone [REDACTED]"}, nil
+		name: "r1",
+		validate: func(_ context.Context, text string) (Report, error) {
+			if text == "x" {
+				return Report{Action: ActionRedact, Validator: "r1", MutatedText: "y"}, nil
 			}
-			return Result{Passed: true, Action: Pass}, nil
+			return Report{Action: ActionPass, Validator: "r1"}, nil
 		},
 	}
 	v2 := &fakeValidator{
-		name: "redact2",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Data == "phone 123" {
-				return Result{Passed: false, Action: Redact, Code: "PII2", CleanText: "phone [MASKED]"}, nil
+		name: "r2",
+		validate: func(_ context.Context, text string) (Report, error) {
+			if text == "y" {
+				return Report{Action: ActionRedact, Validator: "r2", MutatedText: "z"}, nil
 			}
-			return Result{Passed: true, Action: Pass}, nil
+			return Report{Action: ActionPass, Validator: "r2"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v1, v2), WithFailFast(false))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "phone 123"})
+	p := NewPipeline(WithFastPath(v1, v2))
+	report, err := p.Run(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.FinalAction != Redact {
-		t.Errorf("FinalAction = %s", report.FinalAction)
+	if report.Action != ActionRedact {
+		t.Errorf("Action = %s", report.Action)
 	}
-	// Both validators run in parallel; we apply Redact results in order, so FinalText is one of the CleanTexts
-	if report.FinalText != "phone [REDACTED]" && report.FinalText != "phone [MASKED]" {
-		t.Errorf("FinalText = %q, want phone [REDACTED] or phone [MASKED]", report.FinalText)
+	if report.MutatedText != "z" {
+		t.Errorf("MutatedText = %q, want z (chained redact)", report.MutatedText)
 	}
 }
 
-func TestPipeline_Override(t *testing.T) {
+func TestPipeline_FastPath_RedactToEmptyText(t *testing.T) {
+	wiper := &fakeValidator{
+		name: "wiper",
+		validate: func(_ context.Context, _ string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(wiper))
+	report, err := p.Run(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Action != ActionRedact {
+		t.Errorf("Action = %s, want redact", report.Action)
+	}
+	if report.MutatedText != "" {
+		t.Errorf("MutatedText = %q, want empty string", report.MutatedText)
+	}
+}
+
+func TestPipeline_FastPath_RedactKeepsValidatorAfterSubsequentPass(t *testing.T) {
+	redactor := &fakeValidator{
+		name: "redactor",
+		validate: func(_ context.Context, _ string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "redactor", Reason: "mutated", MutatedText: "clean"}, nil
+		},
+	}
+	passer := &fakeValidator{
+		name: "passer",
+		validate: func(_ context.Context, _ string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "passer"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(redactor, passer))
+	rep, err := p.Run(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Action != ActionRedact {
+		t.Errorf("Action = %s, want redact", rep.Action)
+	}
+	if rep.Validator != "redactor" || rep.Reason != "mutated" {
+		t.Errorf("Validator=%q Reason=%q, want redactor/mutated", rep.Validator, rep.Reason)
+	}
+}
+
+func TestPipeline_ShortCircuit(t *testing.T) {
+	// First validator blocks immediately; second would sleep 1s. Run must finish in milliseconds.
+	blocker := &fakeValidator{
+		name: "blocker",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, Validator: "blocker"}, nil
+		},
+	}
+	sleeper := &fakeValidator{
+		name: "sleeper",
+		validate: func(ctx context.Context, _ string) (Report, error) {
+			select {
+			case <-time.After(time.Second):
+				return Report{Action: ActionPass, Validator: "sleeper"}, nil
+			case <-ctx.Done():
+				return Report{}, ctx.Err()
+			}
+		},
+	}
+	p := NewPipeline(WithSlowPath(blocker, sleeper))
+	start := time.Now()
+	report, err := p.Run(context.Background(), "x")
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Action != ActionBlock {
+		t.Errorf("Action = %s, want block", report.Action)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Run took %v, should short-circuit in under 500ms", elapsed)
+	}
+}
+
+func TestPipeline_ShadowMode(t *testing.T) {
+	blockShadow := &fakeValidator{
+		name: "shadow",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, Validator: "shadow", ShadowMode: true}, nil
+		},
+	}
+	passer := &fakeValidator{
+		name: "pass",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithSlowPath(blockShadow, passer))
+	report, err := p.Run(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Shadow block does not win; pipeline returns pass (or last pass).
+	if report.Action != ActionPass {
+		t.Errorf("Action = %s, want pass (shadow block should not stop pipeline)", report.Action)
+	}
+}
+
+func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
+	var calls int32
+	shadowBlock := &fakeValidator{
+		name: "shadow",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, ShadowMode: true, Validator: "shadow", Reason: "seen"}, nil
+		},
+	}
+	p := NewPipeline(
+		WithObserver(func(Report) {
+			atomic.AddInt32(&calls, 1)
+		}),
+		WithFastPath(shadowBlock),
+	)
+	rep, err := p.Run(context.Background(), "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Action != ActionPass {
+		t.Errorf("Action = %s, want pass", rep.Action)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Errorf("observer calls = %d, want 1", calls)
+	}
+}
+
+func TestPipeline_WordlistRedact(t *testing.T) {
 	v := &fakeValidator{
-		name: "override",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{
-				Passed:       false,
-				Action:       Override,
-				Code:         "BOT",
-				OverrideText: "I am a bot.",
-			}, nil
+		name: "wordlist",
+		validate: func(_ context.Context, text string) (Report, error) {
+			if text == "hello spam world" {
+				return Report{Action: ActionRedact, Validator: "wordlist", MutatedText: "hello [REDACTED] world"}, nil
+			}
+			return Report{Action: ActionPass, Validator: "wordlist"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "who are you?"})
+	p := NewPipeline(WithFastPath(v))
+	report, err := p.Run(context.Background(), "hello spam world")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if report.FinalAction != Override {
-		t.Errorf("FinalAction = %s", report.FinalAction)
+	if report.Action != ActionRedact {
+		t.Errorf("Action = %s, want redact", report.Action)
 	}
-	if report.OverrideText != "I am a bot." {
-		t.Errorf("OverrideText = %q", report.OverrideText)
+	if report.MutatedText != "hello [REDACTED] world" {
+		t.Errorf("MutatedText = %q, want hello [REDACTED] world", report.MutatedText)
 	}
 }
 
-func TestPipeline_Retry(t *testing.T) {
+func TestPipeline_ValidatorError(t *testing.T) {
+	errFail := errors.New("validator failed")
 	v := &fakeValidator{
-		name: "retry",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{
-				Passed: false,
-				Action: Retry,
-				Code:   "HALLUCINATION",
-				Reason: "Answer not grounded in documents",
-			}, nil
+		name: "fail",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{}, errFail
 		},
 	}
-	p := NewPipeline(WithTier1(v))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "..."})
-	if err != nil {
-		t.Fatal(err)
+	p := NewPipeline(WithFastPath(v))
+	_, err := p.Run(context.Background(), "x")
+	if err == nil {
+		t.Fatal("expected error")
 	}
-	if report.FinalAction != Retry {
-		t.Errorf("FinalAction = %s", report.FinalAction)
-	}
-	if len(report.Results) != 1 || report.Results[0].Reason != "Answer not grounded in documents" {
-		t.Errorf("Reason not preserved: %+v", report.Results)
+	if !errors.Is(err, ErrValidatorFailed) {
+		t.Errorf("expected ErrValidatorFailed in chain, got %v", err)
 	}
 }
 
-func TestPipeline_ActionPriority_BlockWinsRedact(t *testing.T) {
-	vBlock := &fakeValidator{
-		name: "block",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "B"}, nil
-		},
-	}
-	vRedact := &fakeValidator{
-		name: "redact",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Redact, Code: "R", CleanText: "x"}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(vBlock, vRedact))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Block {
-		t.Errorf("FinalAction = %s, want Block", report.FinalAction)
-	}
-}
-
-func TestPipeline_ContextCancellationBetweenTiers(t *testing.T) {
-	tier1Run := false
-	tier2Run := false
+func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
+	var runCount atomic.Int32
 	v1 := &fakeValidator{
-		name: "t1",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier1Run = true
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	v2 := &fakeValidator{
-		name: "t2",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier2Run = true
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v1), WithTier2(v2))
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	_, err := p.Run(ctx, &Input{Data: "x"})
-	if err == nil {
-		t.Error("expected error when context cancelled")
-	}
-	if tier1Run {
-		t.Error("tier1 should not run when ctx already cancelled at start")
-	}
-	if tier2Run {
-		t.Error("tier2 should not run when ctx already cancelled")
-	}
-}
-
-func TestPipeline_FailOpen_ContinuesOnValidatorError(t *testing.T) {
-	vFail := &fakeValidator{
-		name: "fail",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{}, errors.New("network error")
-		},
-	}
-	vPass := &fakeValidator{
-		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(vFail, vPass), WithFailOpen(true))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "x"})
-	if err != nil {
-		t.Errorf("FailOpen should not return error: %v", err)
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s, want Pass (from successful validator)", report.FinalAction)
-	}
-	if len(report.Results) != 1 {
-		t.Errorf("len(Results) = %d, want 1 (only successful validator)", len(report.Results))
-	}
-}
-
-func TestPipeline_FailClosed_BlocksOnValidatorError(t *testing.T) {
-	vFail := &fakeValidator{
-		name: "fail",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{}, errors.New("system error")
-		},
-	}
-	p := NewPipeline(WithTier1(vFail), WithFailOpen(false))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "x"})
-	if err == nil {
-		t.Error("expected error")
-	}
-	if report.FinalAction != Block {
-		t.Errorf("FailClosed should report Block, got %s", report.FinalAction)
-	}
-	if !errors.Is(err, ErrValidatorFailed) {
-		t.Errorf("expected ErrValidatorFailed in error chain, got %v", err)
-	}
-}
-
-func TestPipeline_ValidatorPanic(t *testing.T) {
-	vPanic := &fakeValidator{
-		name: "panicker",
-		validate: func(context.Context, *Input) (Result, error) {
-			panic("validator panic")
-		},
-	}
-	p := NewPipeline(WithTier1(vPanic), WithFailOpen(false))
-	_, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err == nil {
-		t.Fatal("expected error when validator panics")
-	}
-	if !errors.Is(err, ErrValidatorFailed) {
-		t.Errorf("expected ErrValidatorFailed in error chain, got %v", err)
-	}
-}
-
-func TestPipeline_ConditionalValidator_Skips(t *testing.T) {
-	called := false
-	inner := &fakeValidator{
-		name: "inner",
-		validate: func(context.Context, *Input) (Result, error) {
-			called = true
-			return Result{Passed: false, Action: Block}, nil
-		},
-	}
-	cv := &ConditionalValidator{
-		Validator: inner,
-		Predicate: func(in *Input) bool { return in != nil && in.Data == "run" },
-	}
-	p := NewPipeline(WithTier1(cv))
-	ctx := context.Background()
-	report, err := p.Run(ctx, &Input{Data: "skip"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if called {
-		t.Error("conditional validator should not run when predicate false")
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s", report.FinalAction)
-	}
-}
-
-func TestPipeline_ConcurrentRun(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	ctx := context.Background()
-	var wg sync.WaitGroup
-	for range 20 {
-		wg.Go(func() {
-			_, _ = p.Run(ctx, &Input{Data: "hello"})
-		})
-	}
-	wg.Wait()
-}
-
-func TestPipeline_WithLogger(t *testing.T) {
-	v := &fakeValidator{
-		name: "v",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	logger := slog.Default()
-	p := NewPipeline(WithTier1(v), WithLogger(logger))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s", report.FinalAction)
-	}
-}
-
-func TestPipeline_WithOnResult(t *testing.T) {
-	done := make(chan string, 1)
-	cb := func(name string, _ Result, _ time.Duration) {
-		select {
-		case done <- name:
-		default:
-		}
-	}
-	v := &fakeValidator{
-		name: "myvalidator",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v), WithOnResult(cb))
-	_, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case name := <-done:
-		if name != "myvalidator" {
-			t.Errorf("onResult callback: got %q", name)
-		}
-	case <-time.After(2 * time.Second):
-		t.Error("onResult callback did not run within 2s")
-	}
-}
-
-func TestPipeline_OnResultPanicDoesNotCrashRun(t *testing.T) {
-	panickingCb := func(_ string, _ Result, _ time.Duration) {
-		panic("onResult panic test")
-	}
-	v := &fakeValidator{
 		name: "v1",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v), WithOnResult(panickingCb))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatalf("Run should not return error when onResult panics: %v", err)
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s, want Pass", report.FinalAction)
-	}
-}
-
-func TestPipeline_CrossTierRedactPropagation(t *testing.T) {
-	t1Redact := &fakeValidator{
-		name: "t1",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Data == "foo" {
-				return Result{Passed: false, Action: Redact, Code: "R1", CleanText: "bar"}, nil
-			}
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	t2SeesT1Output := &fakeValidator{
-		name: "t2",
-		validate: func(_ context.Context, in *Input) (Result, error) {
-			if in != nil && in.Data == "foo" {
-				return Result{Passed: false, Action: Block, Code: "T2_FOO"}, nil
-			}
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(t1Redact), WithTier2(t2SeesT1Output))
-	report, err := p.Run(context.Background(), &Input{Data: "foo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// T1 redacts "foo" -> "bar"; T2 receives "bar" so it must not Block.
-	if report.FinalAction == Block {
-		t.Errorf("T2 should see redacted text bar, not block: FinalAction = Block")
-	}
-	if report.FinalText != "bar" {
-		t.Errorf("FinalText = %q, want bar", report.FinalText)
-	}
-}
-
-func TestPipeline_WithTier3_AllTiersRun(t *testing.T) {
-	var tier1Run, tier2Run, tier3Run bool
-	v1 := &fakeValidator{
-		name: "t1",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier1Run = true
-			return Result{Passed: true, Action: Pass}, nil
+		validate: func(ctx context.Context, _ string) (Report, error) {
+			runCount.Add(1)
+			<-ctx.Done()
+			return Report{}, ctx.Err()
 		},
 	}
 	v2 := &fakeValidator{
-		name: "t2",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier2Run = true
-			return Result{Passed: true, Action: Pass}, nil
+		name: "v2",
+		validate: func(context.Context, string) (Report, error) {
+			runCount.Add(1)
+			return Report{Action: ActionBlock, Validator: "v2"}, nil
 		},
 	}
-	v3 := &fakeValidator{
-		name: "t3",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier3Run = true
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v1), WithTier2(v2), WithTier3(v3))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
+	p := NewPipeline(WithSlowPath(v1, v2))
+	report, err := p.Run(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !tier1Run || !tier2Run || !tier3Run {
-		t.Errorf("all tiers should run: t1=%v t2=%v t3=%v", tier1Run, tier2Run, tier3Run)
+	if report.Action != ActionBlock || report.Validator != "v2" {
+		t.Errorf("report = %+v", report)
 	}
-	if report.FinalAction != Pass || len(report.Results) != 3 {
-		t.Errorf("FinalAction=%s len(Results)=%d", report.FinalAction, len(report.Results))
-	}
-}
-
-// TestPipeline_BlockWinsOverrideWhenFailFastFalse ensures that when failFast=false,
-// Block from an earlier tier wins over Override from a later tier (priority: Block > Override).
-func TestPipeline_BlockWinsOverrideWhenFailFastFalse(t *testing.T) {
-	vBlock := &fakeValidator{
-		name: "block",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "BLOCK_T1"}, nil
-		},
-	}
-	vOverride := &fakeValidator{
-		name: "override",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Override, Code: "OVERRIDE_T2", OverrideText: "replaced"}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(vBlock), WithTier2(vOverride), WithFailFast(false))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Block {
-		t.Errorf("FinalAction = %s, want Block (Block from tier1 must win over Override from tier2)", report.FinalAction)
-	}
-	if report.OverrideText != "" {
-		t.Errorf("OverrideText should be empty when Block wins")
+	// v1 may or may not have run before v2 blocked; both run in parallel
+	if runCount.Load() < 1 {
+		t.Error("at least one validator should have run")
 	}
 }
 
-func TestPipeline_WithPipelineMiddleware_CalledWithInputAndReport(t *testing.T) {
-	var seenInput *Input
-	var seenReport *Report
-	mw := func(next PipelineHandler) PipelineHandler {
-		return func(ctx context.Context, input *Input) (Report, error) {
-			seenInput = input
-			report, err := next(ctx, input)
-			if err == nil {
-				seenReport = &report
-			}
-			return report, err
-		}
+func TestPipeline_SlowPath_InvalidActionReturnsError(t *testing.T) {
+	badSlow := &fakeValidator{
+		name: "bad",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionRedact, Validator: "bad", MutatedText: "x"}, nil
+		},
 	}
-	v := &fakeValidator{
+	p := NewPipeline(WithSlowPath(badSlow))
+	_, err := p.Run(context.Background(), "x")
+	if err == nil {
+		t.Fatal("expected error for redact in slow-path")
+	}
+	if !errors.Is(err, ErrValidatorFailed) {
+		t.Errorf("err = %v, want ErrValidatorFailed", err)
+	}
+}
+
+func TestPipeline_SlowPath_BlockPriorityOverError(t *testing.T) {
+	errInfra := errors.New("infra failure")
+	blocker := &fakeValidator{
 		name: "blocker",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "X", Reason: "bad"}, nil
+		validate: func(context.Context, string) (Report, error) {
+			return Report{Action: ActionBlock, Validator: "blocker", Reason: "policy"}, nil
 		},
 	}
-	p := NewPipeline(WithTier1(v), WithPipelineMiddleware(mw))
-	ctx := context.Background()
-	in := &Input{Data: "bad"}
-	report, err := p.Run(ctx, in)
+	failer := &fakeValidator{
+		name: "failer",
+		validate: func(context.Context, string) (Report, error) {
+			return Report{}, errInfra
+		},
+	}
+	p := NewPipeline(WithSlowPath(blocker, failer))
+	report, err := p.Run(context.Background(), "x")
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("expected block to win, got err: %v", err)
 	}
-	if seenInput == nil {
-		t.Fatal("middleware did not see input")
+	if report.Action != ActionBlock || report.Validator != "blocker" {
+		t.Errorf("report = %+v, want block from blocker", report)
 	}
-	if seenInput.Data != "bad" {
-		t.Errorf("middleware saw input.Text = %q, want bad", seenInput.Data)
-	}
-	if seenReport == nil {
-		t.Fatal("middleware did not see report after next()")
-	}
-	if seenReport.FinalAction != Block {
-		t.Errorf("middleware saw FinalAction = %s, want Block", seenReport.FinalAction)
-	}
-	if len(seenReport.Results) != 1 {
-		t.Errorf("middleware saw len(Results) = %d, want 1", len(seenReport.Results))
-	}
-	if report.WorstReason() != "bad" {
-		t.Errorf("WorstReason() = %q, want bad", report.WorstReason())
-	}
-}
-
-func TestPipeline_WithPipelineMiddleware_Order(t *testing.T) {
-	var order []string
-	mwA := func(next PipelineHandler) PipelineHandler {
-		return func(ctx context.Context, input *Input) (Report, error) {
-			order = append(order, "enter A")
-			report, err := next(ctx, input)
-			order = append(order, "exit A")
-			return report, err
-		}
-	}
-	mwB := func(next PipelineHandler) PipelineHandler {
-		return func(ctx context.Context, input *Input) (Report, error) {
-			order = append(order, "enter B")
-			report, err := next(ctx, input)
-			order = append(order, "exit B")
-			return report, err
-		}
-	}
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v), WithPipelineMiddleware(mwA, mwB))
-	_, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"enter A", "enter B", "exit B", "exit A"}
-	if len(order) != len(want) {
-		t.Fatalf("order = %v, want %v", order, want)
-	}
-	for i := range want {
-		if order[i] != want[i] {
-			t.Errorf("order[%d] = %q, want %q", i, order[i], want[i])
-		}
-	}
-}
-
-func TestPipeline_NoMiddleware_UnchangedBehavior(t *testing.T) {
-	v := &fakeValidator{
-		name: "blocker",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Block, Code: "NO_MW"}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Block {
-		t.Errorf("FinalAction = %s, want Block", report.FinalAction)
-	}
-	if len(report.Results) != 1 || report.Results[0].Code != "NO_MW" {
-		t.Errorf("Results = %v", report.Results)
-	}
-}
-
-func TestPipeline_ActionAudit(t *testing.T) {
-	v := &fakeValidator{
-		name: "audit",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: false, Action: Audit, Code: "AUDIT_ME", Reason: "logged"}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s, want Pass (Audit does not block)", report.FinalAction)
-	}
-	if len(report.Results) != 1 || report.Results[0].Action != Audit || report.Results[0].Code != "AUDIT_ME" {
-		t.Errorf("Results = %v", report.Results)
-	}
-}
-
-func TestPipeline_ActionFastPass(t *testing.T) {
-	tier2Run := false
-	v1 := &fakeValidator{
-		name: "fastpass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: FastPass, Code: "OK"}, nil
-		},
-	}
-	v2 := &fakeValidator{
-		name: "tier2",
-		validate: func(context.Context, *Input) (Result, error) {
-			tier2Run = true
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v1), WithTier2(v2))
-	report, err := p.Run(context.Background(), &Input{Data: "x"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if report.FinalAction != Pass {
-		t.Errorf("FinalAction = %s, want Pass", report.FinalAction)
-	}
-	if tier2Run {
-		t.Error("Tier2 should not run when Tier1 returns FastPass")
-	}
-	if len(report.Results) != 1 || report.Results[0].Action != FastPass {
-		t.Errorf("Results = %v", report.Results)
-	}
-}
-
-func BenchmarkPipeline_Tier1Only(b *testing.B) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	ctx := context.Background()
-	in := &Input{Data: "hello world"}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = p.Run(ctx, in)
-	}
-}
-
-func BenchmarkPipeline_ThreeTiers(b *testing.B) {
-	pass := &fakeValidator{
-		name:     "pass",
-		validate: func(context.Context, *Input) (Result, error) { return Result{Passed: true, Action: Pass}, nil },
-	}
-	p := NewPipeline(WithTier1(pass), WithTier2(pass), WithTier3(pass))
-	ctx := context.Background()
-	in := &Input{Data: "hello"}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, _ = p.Run(ctx, in)
-	}
-}
-
-func FuzzPipeline_Run(f *testing.F) {
-	f.Add([]byte("hello"))
-	v := &fakeValidator{
-		name: "fuzz",
-		validate: func(context.Context, *Input) (Result, error) {
-			return Result{Passed: true, Action: Pass}, nil
-		},
-	}
-	p := NewPipeline(WithTier1(v))
-	f.Fuzz(func(t *testing.T, data []byte) {
-		if len(data) > 1<<20 {
-			t.Skip("input too large")
-		}
-		_, _ = p.Run(context.Background(), &Input{Data: string(data)})
-	})
 }

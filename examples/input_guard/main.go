@@ -1,4 +1,4 @@
-// Input guard: validate user prompt before sending to LLM.
+// Prompt guard: validate user prompt before sending to LLM.
 // Uses Regex (prompt injection pattern) + Length (max length).
 package main
 
@@ -15,16 +15,13 @@ import (
 const maxPromptLen = 4000
 
 func main() {
-	regexV, err := ext.NewRegex(`(?i)(ignore previous|system prompt|disregard instructions)`, guardy.Block, "PROMPT_INJECTION")
+	regexV, err := ext.NewRegex(`(?i)(ignore previous|system prompt|disregard instructions)`, guardy.ActionBlock, "PROMPT_INJECTION")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "regex:", err)
 		os.Exit(1)
 	}
-	lengthV := ext.NewLength(1, maxPromptLen, guardy.Block, "TOO_LONG")
-	pipeline := guardy.NewPipeline(
-		guardy.WithFailFast(true),
-		guardy.WithTier1(regexV, lengthV),
-	)
+	lengthV := ext.NewLength(1, maxPromptLen, guardy.ActionBlock, "TOO_LONG")
+	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV, lengthV))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
@@ -34,25 +31,24 @@ func main() {
 	prompt := scanner.Text()
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, &guardy.Input{Data: prompt})
+	report, err := pipeline.Run(ctx, prompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
-	switch report.FinalAction {
-	case guardy.Block:
-		if len(report.Results) > 0 {
-			r := report.Results[0]
-			fmt.Fprintf(os.Stderr, "blocked: %s - %s\n", r.Code, r.Reason)
-		} else {
-			fmt.Fprintln(os.Stderr, "blocked")
-		}
+	switch report.Action {
+	case guardy.ActionBlock:
+		fmt.Fprintf(os.Stderr, "blocked: %s - %s\n", report.Validator, report.Reason)
 		os.Exit(3)
-	case guardy.Pass, guardy.Redact:
+	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println("OK")
-		fmt.Println(report.FinalText)
+		if report.MutatedText != "" {
+			fmt.Println(report.MutatedText)
+		} else {
+			fmt.Println(prompt)
+		}
 	default:
-		fmt.Fprintln(os.Stderr, "unexpected action:", report.FinalAction)
+		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
 		os.Exit(2)
 	}
 }

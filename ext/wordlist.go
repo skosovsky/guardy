@@ -13,22 +13,21 @@ var _ guardy.Validator = (*Wordlist)(nil)
 // WordlistMode defines whether the list is a blocklist or allowlist.
 type WordlistMode int
 
+// Wordlist mode constants.
 const (
-	// Blocklist blocks when any word in the list is found.
-	Blocklist WordlistMode = iota
-	// Allowlist blocks when the text contains words not in the list (or when no allowed words).
-	Allowlist
+	Blocklist WordlistMode = iota // Block when any listed word is found
+	Allowlist                     // Block when any word is not in the list
 )
 
-// Wordlist is a validator that checks text against a set of words.
+// Wordlist checks text against a set of words; returns block or redact per configuration.
 type Wordlist struct {
 	words             map[string]struct{}
 	mode              WordlistMode
-	action            guardy.Action
+	action            guardy.Action // ActionBlock or ActionRedact
 	code              string
 	name              string
 	lowercase         bool
-	redactReplacement string // non-empty when WithWordlistRedaction is used
+	redactReplacement string
 }
 
 // WordlistOption configures a Wordlist validator.
@@ -48,7 +47,7 @@ func WithWordlistLowercase(lower bool) WordlistOption {
 	}
 }
 
-// WithWordlistRedaction sets the replacement string for matched/violating tokens; when set, validator returns ActionRedact with CleanText instead of Block.
+// WithWordlistRedaction sets the replacement for redact mode (default "[REDACTED]").
 func WithWordlistRedaction(replacement string) WordlistOption {
 	return func(w *Wordlist) {
 		w.redactReplacement = replacement
@@ -56,20 +55,19 @@ func WithWordlistRedaction(replacement string) WordlistOption {
 }
 
 // NewWordlist creates a blocklist or allowlist validator.
-// For Blocklist: returns action/code when any word in words is found in text.
-// For Allowlist: returns action/code when text contains tokens not in words (or is empty of allowed tokens).
+// action must be guardy.ActionBlock or guardy.ActionRedact; for redact use WithWordlistRedaction or default "[REDACTED]".
 func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code string, opts ...WordlistOption) *Wordlist {
 	set := make(map[string]struct{}, len(words))
 	for _, w := range words {
 		set[w] = struct{}{}
 	}
 	wl := &Wordlist{
-		words:     set,
-		mode:      mode,
-		action:    action,
-		code:      code,
-		name:      "wordlist",
-		lowercase: false,
+		words:             set,
+		mode:              mode,
+		action:            action,
+		code:              code,
+		name:              "wordlist",
+		redactReplacement: "[REDACTED]",
 	}
 	for _, opt := range opts {
 		opt(wl)
@@ -84,86 +82,71 @@ func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code s
 	return wl
 }
 
-// Validate checks input.Data against the word list.
-func (w *Wordlist) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
-	text := ""
-	if input != nil {
-		text = input.Data
-	}
+// Name returns the validator name.
+func (w *Wordlist) Name() string { return w.name }
+
+// Validate checks text against the word list and returns Report.
+func (w *Wordlist) Validate(ctx context.Context, text string) (guardy.Report, error) {
+	run := text
 	if w.lowercase {
-		text = strings.ToLower(text)
+		run = strings.ToLower(text)
 	}
-	tokens := tokenize(text)
+	tokens := tokenize(run)
 	switch w.mode {
 	case Blocklist:
 		for _, t := range tokens {
 			if _, ok := w.words[t]; ok {
-				if w.redactReplacement != "" {
+				if w.action == guardy.ActionRedact && w.redactReplacement != "" {
 					clean := replaceWordsInText(text, w.words, w.redactReplacement, w.lowercase)
-					return guardy.Result{
-						Passed:    false,
-						Action:    guardy.Redact,
-						Code:      w.code,
-						Reason:    "blocklisted word found",
-						CleanText: clean,
+					return guardy.Report{
+						Action:      guardy.ActionRedact,
+						Validator:   w.name,
+						Reason:      "blocklisted word found",
+						MutatedText: clean,
 					}, nil
 				}
-				return guardy.Result{
-					Passed: false,
-					Action: w.action,
-					Code:   w.code,
-					Reason: "blocklisted word found",
+				return guardy.Report{
+					Action:    guardy.ActionBlock,
+					Validator: w.name,
+					Reason:    "blocklisted word found",
 				}, nil
 			}
 		}
-		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
+		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	case Allowlist:
 		if len(tokens) == 0 {
-			if w.redactReplacement != "" {
-				return guardy.Result{
-					Passed:    false,
-					Action:    guardy.Redact,
-					Code:      w.code,
-					Reason:    "no tokens",
-					CleanText: w.redactReplacement,
+			if w.action == guardy.ActionRedact {
+				return guardy.Report{
+					Action:      guardy.ActionRedact,
+					Validator:   w.name,
+					Reason:      "no tokens",
+					MutatedText: w.redactReplacement,
 				}, nil
 			}
-			return guardy.Result{
-				Passed: false,
-				Action: w.action,
-				Code:   w.code,
-				Reason: "no tokens",
-			}, nil
+			return guardy.Report{Action: guardy.ActionBlock, Validator: w.name, Reason: "no tokens"}, nil
 		}
 		for _, t := range tokens {
 			if _, ok := w.words[t]; !ok {
-				if w.redactReplacement != "" {
+				if w.action == guardy.ActionRedact {
 					clean := replaceAllowlistViolations(text, w.words, w.redactReplacement, w.lowercase)
-					return guardy.Result{
-						Passed:    false,
-						Action:    guardy.Redact,
-						Code:      w.code,
-						Reason:    "word not in allowlist",
-						CleanText: clean,
+					return guardy.Report{
+						Action:      guardy.ActionRedact,
+						Validator:   w.name,
+						Reason:      "word not in allowlist",
+						MutatedText: clean,
 					}, nil
 				}
-				return guardy.Result{
-					Passed: false,
-					Action: w.action,
-					Code:   w.code,
-					Reason: "word not in allowlist",
+				return guardy.Report{
+					Action:    guardy.ActionBlock,
+					Validator: w.name,
+					Reason:    "word not in allowlist",
 				}, nil
 			}
 		}
-		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
+		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	default:
-		return guardy.Result{Passed: true, Action: guardy.Pass}, nil
+		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	}
-}
-
-// Name returns the validator name.
-func (w *Wordlist) Name() string {
-	return w.name
 }
 
 func tokenize(s string) []string {
@@ -174,7 +157,6 @@ func tokenize(s string) []string {
 	return f
 }
 
-// replaceWordsInText replaces each word that is in the set with replacement; preserves boundaries.
 func replaceWordsInText(text string, words map[string]struct{}, replacement string, lowercase bool) string {
 	tokens := tokenize(text)
 	if len(tokens) == 0 {
@@ -195,7 +177,6 @@ func replaceWordsInText(text string, words map[string]struct{}, replacement stri
 	return strings.Join(out, " ")
 }
 
-// replaceAllowlistViolations replaces each token not in the allowlist with replacement.
 func replaceAllowlistViolations(text string, words map[string]struct{}, replacement string, lowercase bool) string {
 	tokens := tokenize(text)
 	if len(tokens) == 0 {

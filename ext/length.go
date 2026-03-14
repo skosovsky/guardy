@@ -10,7 +10,7 @@ import (
 // Ensure Length implements guardy.Validator at compile time.
 var _ guardy.Validator = (*Length)(nil)
 
-// Length is a validator that enforces min/max length of input text (in runes).
+// Length enforces min/max rune length; use 0 to skip a bound.
 type Length struct {
 	min    int
 	max    int
@@ -29,25 +29,16 @@ func WithLengthName(name string) LengthOption {
 	}
 }
 
-// NewLength creates a validator that blocks when len(runes(text)) < minLen or > maxLen.
-// Use 0 for minLen or maxLen to skip that check.
-// If both minLen and maxLen are positive and minLen > maxLen, the validator will always block
-// (no text can satisfy both constraints); use MustLength for init-time validation that panics on invalid config.
+// NewLength creates a validator that blocks when rune count is outside [minLen, maxLen].
 func NewLength(minLen, maxLen int, action guardy.Action, code string, opts ...LengthOption) *Length {
-	l := &Length{
-		min:    minLen,
-		max:    maxLen,
-		action: action,
-		code:   code,
-		name:   "length",
-	}
+	l := &Length{min: minLen, max: maxLen, action: action, code: code, name: "length"}
 	for _, opt := range opts {
 		opt(l)
 	}
 	return l
 }
 
-// MustLength is like NewLength but panics if both minLen and maxLen are positive and minLen > maxLen (for init-time use).
+// MustLength is like NewLength but panics if minLen > maxLen (both > 0).
 func MustLength(minLen, maxLen int, action guardy.Action, code string, opts ...LengthOption) *Length {
 	if minLen > 0 && maxLen > 0 && minLen > maxLen {
 		panic("ext: length validator: minLen > maxLen")
@@ -55,33 +46,25 @@ func MustLength(minLen, maxLen int, action guardy.Action, code string, opts ...L
 	return NewLength(minLen, maxLen, action, code, opts...)
 }
 
-// Validate checks the rune length of input.Data.
-func (l *Length) Validate(ctx context.Context, input *guardy.Input) (guardy.Result, error) {
-	data := ""
-	if input != nil {
-		data = input.Data
-	}
-	n := utf8.RuneCountInString(data)
+// Name returns the validator name.
+func (l *Length) Name() string { return l.name }
+
+// Validate checks rune length of text.
+func (l *Length) Validate(ctx context.Context, text string) (guardy.Report, error) {
+	n := utf8.RuneCountInString(text)
 	if l.min > 0 && n < l.min {
-		return guardy.Result{
-			Passed: false,
-			Action: l.action,
-			Code:   l.code,
-			Reason: "text too short",
+		return guardy.Report{
+			Action:    l.action,
+			Validator: l.name,
+			Reason:    "text too short",
 		}, nil
 	}
 	if l.max > 0 && n > l.max {
-		return guardy.Result{
-			Passed: false,
-			Action: l.action,
-			Code:   l.code,
-			Reason: "text too long",
+		return guardy.Report{
+			Action:    l.action,
+			Validator: l.name,
+			Reason:    "text too long",
 		}, nil
 	}
-	return guardy.Result{Passed: true, Action: guardy.Pass}, nil
-}
-
-// Name returns the validator name.
-func (l *Length) Name() string {
-	return l.name
+	return guardy.Report{Action: guardy.ActionPass, Validator: l.name}, nil
 }

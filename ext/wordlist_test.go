@@ -9,109 +9,109 @@ import (
 )
 
 func ExampleWordlist_Validate_block() {
-	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "SPAM")
+	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.ActionBlock, "SPAM")
 	ctx := context.Background()
-	res, _ := w.Validate(ctx, &guardy.Input{Data: "this is spam"})
-	if !res.Passed {
-		fmt.Println(res.Code)
+	rep, _ := w.Validate(ctx, "this is spam")
+	if rep.Action == guardy.ActionBlock {
+		fmt.Println(rep.Reason)
 	}
 	// Output:
-	// SPAM
+	// blocklisted word found
 }
 
 func TestWordlist_Blocklist_NoMatch_Pass(t *testing.T) {
-	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "SPAM")
+	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.ActionBlock, "SPAM")
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "hello world"})
+	rep, err := w.Validate(ctx, "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Passed {
-		t.Errorf("expected Pass")
+	if rep.Action != guardy.ActionPass {
+		t.Errorf("expected Pass, got Action=%s", rep.Action)
 	}
 }
 
 func TestWordlist_Blocklist_Match_Block(t *testing.T) {
-	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "SPAM")
+	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.ActionBlock, "SPAM")
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "this is spam"})
+	rep, err := w.Validate(ctx, "this is spam")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Passed || res.Action != guardy.Block || res.Code != "SPAM" {
-		t.Errorf("got Passed=%v Action=%s Code=%s", res.Passed, res.Action, res.Code)
+	if rep.Action != guardy.ActionBlock || rep.Validator != "wordlist" {
+		t.Errorf("got Action=%s Validator=%s", rep.Action, rep.Validator)
 	}
 }
 
 func TestWordlist_Blocklist_Lowercase(t *testing.T) {
-	w := NewWordlist([]string{"Spam"}, Blocklist, guardy.Block, "X", WithWordlistLowercase(true))
+	w := NewWordlist([]string{"Spam"}, Blocklist, guardy.ActionBlock, "X", WithWordlistLowercase(true))
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "SPAM here"})
+	rep, err := w.Validate(ctx, "SPAM here")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Passed {
+	if rep.Action != guardy.ActionBlock {
 		t.Error("expected block (case-insensitive match)")
 	}
 }
 
 func TestWordlist_Allowlist_AllAllowed_Pass(t *testing.T) {
-	w := NewWordlist([]string{"hello", "world"}, Allowlist, guardy.Block, "OFF_TOPIC")
+	w := NewWordlist([]string{"hello", "world"}, Allowlist, guardy.ActionBlock, "OFF_TOPIC")
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "hello world"})
+	rep, err := w.Validate(ctx, "hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Passed {
-		t.Errorf("expected Pass")
+	if rep.Action != guardy.ActionPass {
+		t.Errorf("expected Pass, got Action=%s", rep.Action)
 	}
 }
 
 func TestWordlist_Allowlist_NotAllowed_Block(t *testing.T) {
-	w := NewWordlist([]string{"hello", "world"}, Allowlist, guardy.Block, "OFF_TOPIC")
+	w := NewWordlist([]string{"hello", "world"}, Allowlist, guardy.ActionBlock, "OFF_TOPIC")
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "hello foo world"})
+	rep, err := w.Validate(ctx, "hello foo world")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Passed || res.Code != "OFF_TOPIC" {
-		t.Errorf("got Passed=%v Code=%s", res.Passed, res.Code)
+	if rep.Action != guardy.ActionBlock {
+		t.Errorf("got Action=%s", rep.Action)
 	}
 }
 
 func TestWordlist_Allowlist_EmptyText_Block(t *testing.T) {
-	w := NewWordlist([]string{"a"}, Allowlist, guardy.Block, "X")
+	w := NewWordlist([]string{"a"}, Allowlist, guardy.ActionBlock, "X")
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: ""})
+	rep, err := w.Validate(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Passed {
+	if rep.Action != guardy.ActionBlock {
 		t.Error("empty text with allowlist should block")
 	}
 }
 
 func TestWordlist_WithWordlistName(t *testing.T) {
-	w := NewWordlist([]string{"a"}, Blocklist, guardy.Block, "X", WithWordlistName("my-wordlist"))
+	w := NewWordlist([]string{"a"}, Blocklist, guardy.ActionBlock, "X", WithWordlistName("my-wordlist"))
 	if w.Name() != "my-wordlist" {
 		t.Errorf("Name() = %q, want my-wordlist", w.Name())
 	}
 }
 
 func TestWordlist_WithWordlistRedaction_ReturnsRedactAndCleanText(t *testing.T) {
-	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.Block, "X", WithWordlistRedaction("***"))
+	w := NewWordlist([]string{"spam", "bad"}, Blocklist, guardy.ActionRedact, "X", WithWordlistRedaction("***"))
 	ctx := context.Background()
-	res, err := w.Validate(ctx, &guardy.Input{Data: "this is spam"})
+	rep, err := w.Validate(ctx, "this is spam")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Passed || res.Action != guardy.Redact {
-		t.Errorf("got Passed=%v Action=%s, want Redact", res.Passed, res.Action)
+	if rep.Action != guardy.ActionRedact {
+		t.Errorf("got Action=%s, want redact", rep.Action)
 	}
-	if res.CleanText == "" {
-		t.Error("CleanText should be set")
+	if rep.MutatedText == "" {
+		t.Error("MutatedText should be set")
 	}
-	if res.CleanText != "this is ***" {
-		t.Errorf("CleanText = %q, want this is ***", res.CleanText)
+	if rep.MutatedText != "this is ***" {
+		t.Errorf("MutatedText = %q, want this is ***", rep.MutatedText)
 	}
 }

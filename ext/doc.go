@@ -4,8 +4,9 @@
 // patterns and lists are supplied at construction time.
 //
 // Available validators:
+//   - TagSanitizer: WAF-style block on system XML tags
+//   - PIIMasking: redact email, phone, credit card
 //   - Regex: match or replace text using regular expressions
 //   - Wordlist: blocklist or allowlist by tokens (words)
 //   - Length: min/max rune length
-//   - JSONSchema: JSON Schema validation (github.com/google/jsonschema-go); always returns Retry with Guidance on mismatch
 package ext
