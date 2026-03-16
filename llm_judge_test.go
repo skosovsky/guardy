@@ -27,11 +27,11 @@ func TestLLMJudge_PassthroughPreservesFields(t *testing.T) {
 	}
 	v := NewLLMJudge(j, true)
 
-	rep, err := v.Validate(context.Background(), "x")
+	_, rep, err := v.Validate(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Validator != "judge_impl" {
+	if rep == nil || rep.Validator != "judge_impl" {
 		t.Errorf("Validator = %q, want judge_impl", rep.Validator)
 	}
 	if rep.Reason != "policy_violation" || rep.Score != 0.7 {
@@ -50,18 +50,18 @@ func TestLLMJudge_FillsValidatorWhenEmpty(t *testing.T) {
 	}
 	v := NewLLMJudge(j, false)
 
-	rep, err := v.Validate(context.Background(), "x")
+	_, rep, err := v.Validate(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Validator != "llm_judge" {
+	if rep == nil || rep.Validator != "llm_judge" {
 		t.Errorf("Validator = %q, want llm_judge", rep.Validator)
 	}
 }
 
 func TestLLMJudge_NilJudge_ReturnsError(t *testing.T) {
 	v := NewLLMJudge(nil, false)
-	_, err := v.Validate(context.Background(), "x")
+	_, _, err := v.Validate(context.Background(), "x")
 	if err == nil {
 		t.Fatal("expected error")
 	}

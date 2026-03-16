@@ -31,22 +31,19 @@ func main() {
 	prompt := scanner.Text()
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, prompt)
+	result, err := pipeline.Run(ctx, prompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
+	report := result.Decision()
 	switch report.Action {
 	case guardy.ActionBlock:
 		fmt.Fprintf(os.Stderr, "blocked: %s - %s\n", report.Validator, report.Reason)
 		os.Exit(3)
 	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println("OK")
-		if report.MutatedText != "" {
-			fmt.Println(report.MutatedText)
-		} else {
-			fmt.Println(prompt)
-		}
+		fmt.Println(result.Output)
 	default:
 		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
 		os.Exit(2)

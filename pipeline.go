@@ -9,134 +9,197 @@ import (
 )
 
 // Observer is a callback invoked for non-blocking shadow block reports.
-// It receives the request context and the report; intended for telemetry (e.g. shadow-mode detections).
-type Observer func(ctx context.Context, rep Report)
+// It receives the request context and the report; intended for telemetry.
+type Observer func(ctx context.Context, rep *Report)
+
+// ValidatorMiddleware wraps a Validator with cross-cutting logic (metrics, logging).
+type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 
 // Pipeline runs validators in two phases: sequential Fast-Path (mutations),
-// then parallel Slow-Path (block/pass only) via errgroup.
-type Pipeline struct {
-	fastPath []Validator
-	slowPath []Validator
-	observer Observer
+// then parallel Slow-Path (block/pass/retry only) via errgroup.
+type Pipeline[T any] struct {
+	fastPath    []Validator[T]
+	slowPath    []Validator[T]
+	middlewares []ValidatorMiddleware[T]
+	observer    Observer
+
+	// Wrapped chains built at Use() time (zero-overhead hot path).
+	fastPathWrapped []Validator[T]
+	slowPathWrapped []Validator[T]
 }
 
 // PipelineOption configures a Pipeline.
-type PipelineOption func(*Pipeline)
+type PipelineOption[T any] func(*Pipeline[T])
 
-// WithObserver registers a callback invoked for non-blocking shadow block reports.
-// The callback receives the request context and the report.
-func WithObserver(o Observer) PipelineOption {
-	return func(p *Pipeline) {
+// WithObserver registers a callback for shadow block reports.
+func WithObserver[T any](o Observer) PipelineOption[T] {
+	return func(p *Pipeline[T]) {
 		p.observer = o
 	}
 }
 
 // WithFastPath adds validators that run sequentially and may return redact.
-func WithFastPath(v ...Validator) PipelineOption {
-	return func(p *Pipeline) {
+func WithFastPath[T any](v ...Validator[T]) PipelineOption[T] {
+	return func(p *Pipeline[T]) {
 		p.fastPath = append(p.fastPath, v...)
 	}
 }
 
-// WithSlowPath adds validators that run in parallel (errgroup) on the cleaned text.
-func WithSlowPath(v ...Validator) PipelineOption {
-	return func(p *Pipeline) {
+// WithSlowPath adds validators that run in parallel (read-only, no redact).
+func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
+	return func(p *Pipeline[T]) {
 		p.slowPath = append(p.slowPath, v...)
 	}
 }
 
+// Use adds middlewares; they wrap validators at compile time (when called). First added = outer (wraps innermost).
+// Rebuilds wrapped chains so Run uses zero-overhead cached validators.
+func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) {
+	p.middlewares = append(p.middlewares, mw...)
+	p.fastPathWrapped = p.wrapAll(p.fastPath)
+	p.slowPathWrapped = p.wrapAll(p.slowPath)
+}
+
+// fastChain returns validators for phase 1 (cached if middlewares applied, else raw).
+func (p *Pipeline[T]) fastChain() []Validator[T] {
+	if len(p.middlewares) == 0 {
+		return p.fastPath
+	}
+	return p.fastPathWrapped
+}
+
+// slowChain returns validators for phase 2 (cached if middlewares applied, else raw).
+func (p *Pipeline[T]) slowChain() []Validator[T] {
+	if len(p.middlewares) == 0 {
+		return p.slowPath
+	}
+	return p.slowPathWrapped
+}
+
+func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
+	if len(p.middlewares) == 0 {
+		return vv
+	}
+	out := make([]Validator[T], len(vv))
+	for i, v := range vv {
+		wrapped := v
+		for j := len(p.middlewares) - 1; j >= 0; j-- {
+			wrapped = p.middlewares[j](wrapped)
+		}
+		out[i] = wrapped
+	}
+	return out
+}
+
 // NewPipeline builds a pipeline from options.
-func NewPipeline(opts ...PipelineOption) *Pipeline {
-	p := &Pipeline{}
+func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
+	p := &Pipeline[T]{}
 	for _, opt := range opts {
 		opt(p)
 	}
 	return p
 }
 
-// Run executes the pipeline on text. Phase 1 runs fastPath sequentially,
-// accumulating MutatedText; Phase 2 runs slowPath in parallel. On block (non-shadow)
-// returns immediately with that Report.
-func (p *Pipeline) Run(ctx context.Context, text string) (Report, error) {
-	finalReport := Report{
-		Action:      ActionPass,
-		MutatedText: text,
-	}
+// Run executes the pipeline. Block and Retry short-circuit immediately.
+// Returns RunResult with Output and all Reports for telemetry.
+func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
+	var zero RunResult[T]
+	var reports []Report
 
-	// Phase 1: sequential Fast-Path
-	for _, v := range p.fastPath {
+	// Phase 1: sequential Fast-Path (uses cached wrapped chain when middlewares applied)
+	fastToRun := p.fastChain()
+	current := input
+	for _, v := range fastToRun {
 		if err := ctx.Err(); err != nil {
-			return Report{}, err
+			return zero, err
 		}
-		rep, err := v.Validate(ctx, finalReport.MutatedText)
+		out, rep, err := v.Validate(ctx, current)
 		if err != nil {
-			return Report{}, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+			return zero, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
 		}
-		if rep.Action == ActionBlock && !rep.ShadowMode {
-			return rep, nil
+		if rep != nil {
+			reports = append(reports, *rep)
 		}
-		if rep.Action == ActionBlock && rep.ShadowMode {
+		if rep != nil && (rep.Action == ActionBlock || rep.Action == ActionRetry) && !rep.ShadowMode {
+			return RunResult[T]{Output: out, Reports: reports}, nil
+		}
+		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 			if p.observer != nil {
 				p.observer(ctx, rep)
 			}
 			continue
 		}
-		if rep.Action == ActionRedact {
-			finalReport.MutatedText = rep.MutatedText
-			finalReport.Action = ActionRedact
-			finalReport.Validator = rep.Validator
-			finalReport.Reason = rep.Reason
-		}
-		if rep.Action == ActionPass && finalReport.Action == ActionPass {
-			finalReport.Validator = rep.Validator
+		if rep != nil && rep.Action == ActionRedact {
+			current = out
 		}
 	}
 
-	// Phase 2: parallel Slow-Path on finalReport.MutatedText.
-	// Block has priority over infrastructure errors: we collect results and then prefer block.
+	// Phase 2: parallel Slow-Path (read-only; Redact forbidden)
 	if len(p.slowPath) == 0 {
-		return finalReport, nil
+		return RunResult[T]{Output: current, Reports: reports}, nil
 	}
 
 	var (
 		mu       sync.Mutex
 		block    *Report
+		retry    *Report
+		slowReps []Report
 		firstErr error
 	)
 	phase2Ctx, cancelPhase2 := context.WithCancel(ctx)
 	defer cancelPhase2()
+	slowToRun := p.slowChain()
 	g, gctx := errgroup.WithContext(phase2Ctx)
-	phase2Text := finalReport.MutatedText
-	for i := range p.slowPath {
-		v := p.slowPath[i]
-		g.Go(func() error {
-			rep, err := v.Validate(gctx, phase2Text)
-			if err != nil {
+	for i := range slowToRun {
+		v := slowToRun[i]
+		g.Go(func() (err error) {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("validator panic: %v", r)
+				}
+			}()
+			out, rep, validateErr := v.Validate(gctx, current)
+			_ = out // slow-path is read-only, we ignore mutations
+			if validateErr != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = err
+					firstErr = validateErr
 				}
 				mu.Unlock()
-				return nil
+				return validateErr
 			}
-			if rep.Action != ActionBlock && rep.Action != ActionPass {
+			if rep != nil && rep.Action == ActionRedact {
+				e := fmt.Errorf("%w: slow-path validator must not return ActionRedact", ErrValidatorFailed)
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = fmt.Errorf("%w: slow-path validator returned unexpected action %s", ErrValidatorFailed, rep.Action)
+					firstErr = e
 				}
 				mu.Unlock()
-				return nil
+				return e
 			}
-			if rep.Action == ActionBlock && !rep.ShadowMode {
+			if rep != nil {
+				mu.Lock()
+				slowReps = append(slowReps, *rep)
+				mu.Unlock()
+			}
+			if rep != nil && rep.Action == ActionBlock && !rep.ShadowMode {
 				mu.Lock()
 				if block == nil {
-					block = &rep
+					block = rep
 					cancelPhase2()
 				}
 				mu.Unlock()
 				return nil
 			}
-			if rep.Action == ActionBlock && rep.ShadowMode {
+			if rep != nil && rep.Action == ActionRetry {
+				mu.Lock()
+				if retry == nil {
+					retry = rep
+				}
+				mu.Unlock()
+				return nil
+			}
+			if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 				if p.observer != nil {
 					p.observer(ctx, rep)
 				}
@@ -145,14 +208,17 @@ func (p *Pipeline) Run(ctx context.Context, text string) (Report, error) {
 		})
 	}
 
-	if err := g.Wait(); err != nil {
-		return Report{}, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+	err := g.Wait()
+	reports = append(reports, slowReps...)
+	partial := RunResult[T]{Output: current, Reports: reports}
+	if block != nil || retry != nil {
+		return partial, nil
 	}
-	if block != nil {
-		return *block, nil
+	if err != nil {
+		return partial, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
 	}
 	if firstErr != nil {
-		return Report{}, fmt.Errorf("%w: %w", ErrValidatorFailed, firstErr)
+		return partial, fmt.Errorf("%w: %w", ErrValidatorFailed, firstErr)
 	}
-	return finalReport, nil
+	return partial, nil
 }

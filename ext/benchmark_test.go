@@ -16,12 +16,12 @@ func BenchmarkRegex_NoMatch(b *testing.B) {
 	text := "hello world"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = r.Validate(ctx, text)
+		_, _, _ = r.Validate(ctx, text)
 	}
 }
 
 func BenchmarkRegex_MatchRedact(b *testing.B) {
-	r, err := NewRegex(`\d{3}-\d{3}-\d{4}`, guardy.ActionRedact, "PII", WithRegexPlaceholder("[PHONE]"))
+	r, err := NewRegex(`\d{3}-\d{3}-\d{4}`, guardy.ActionRedact, "PII", WithRegexRedaction("[PHONE]"))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func BenchmarkRegex_MatchRedact(b *testing.B) {
 	text := "Call me at 555-123-4567"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = r.Validate(ctx, text)
+		_, _, _ = r.Validate(ctx, text)
 	}
 }
 
@@ -39,7 +39,7 @@ func BenchmarkWordlist_Blocklist_NoMatch(b *testing.B) {
 	text := "hello world"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = w.Validate(ctx, text)
+		_, _, _ = w.Validate(ctx, text)
 	}
 }
 
@@ -49,7 +49,7 @@ func BenchmarkWordlist_Blocklist_Match(b *testing.B) {
 	text := "this is spam"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = w.Validate(ctx, text)
+		_, _, _ = w.Validate(ctx, text)
 	}
 }
 
@@ -59,7 +59,7 @@ func BenchmarkLength_WithinRange(b *testing.B) {
 	text := "hello"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = l.Validate(ctx, text)
+		_, _, _ = l.Validate(ctx, text)
 	}
 }
 
@@ -69,6 +69,6 @@ func BenchmarkLength_TooLong(b *testing.B) {
 	text := "hello world"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, _ = l.Validate(ctx, text)
+		_, _, _ = l.Validate(ctx, text)
 	}
 }

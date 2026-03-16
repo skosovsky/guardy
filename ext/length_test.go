@@ -11,8 +11,8 @@ import (
 func ExampleLength_Validate_block() {
 	l := NewLength(5, 10, guardy.ActionBlock, "LENGTH")
 	ctx := context.Background()
-	rep, _ := l.Validate(ctx, "hi")
-	if rep.Action == guardy.ActionBlock {
+	_, rep, _ := l.Validate(ctx, "hi")
+	if rep != nil && rep.Action == guardy.ActionBlock {
 		fmt.Println(rep.Reason)
 	}
 	// Output:
@@ -22,7 +22,7 @@ func ExampleLength_Validate_block() {
 func TestLength_WithinRange_Pass(t *testing.T) {
 	l := NewLength(1, 10, guardy.ActionBlock, "LENGTH")
 	ctx := context.Background()
-	rep, err := l.Validate(ctx, "hello")
+	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,31 +34,31 @@ func TestLength_WithinRange_Pass(t *testing.T) {
 func TestLength_TooShort_Block(t *testing.T) {
 	l := NewLength(5, 100, guardy.ActionBlock, "LENGTH")
 	ctx := context.Background()
-	rep, err := l.Validate(ctx, "hi")
+	_, rep, err := l.Validate(ctx, "hi")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionBlock || rep.Reason != "text too short" {
-		t.Errorf("got Action=%s Reason=%s", rep.Action, rep.Reason)
+		t.Errorf("got Action=%v Reason=%s", rep.Action, rep.Reason)
 	}
 }
 
 func TestLength_TooLong_Block(t *testing.T) {
 	l := NewLength(0, 3, guardy.ActionBlock, "LENGTH")
 	ctx := context.Background()
-	rep, err := l.Validate(ctx, "hello")
+	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionBlock || rep.Reason != "text too long" {
-		t.Errorf("got Action=%s Reason=%s", rep.Action, rep.Reason)
+		t.Errorf("got Action=%v Reason=%s", rep.Action, rep.Reason)
 	}
 }
 
 func TestLength_ZeroMinMax_Pass(t *testing.T) {
 	l := NewLength(0, 0, guardy.ActionBlock, "X")
 	ctx := context.Background()
-	rep, err := l.Validate(ctx, "anything")
+	_, rep, err := l.Validate(ctx, "anything")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,14 +70,14 @@ func TestLength_ZeroMinMax_Pass(t *testing.T) {
 func TestLength_UnicodeRunes(t *testing.T) {
 	l := NewLength(2, 2, guardy.ActionBlock, "X")
 	ctx := context.Background()
-	rep, err := l.Validate(ctx, "аб")
+	_, rep, err := l.Validate(ctx, "аб")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionPass {
-		t.Errorf("2 runes should pass, got Action=%s", rep.Action)
+		t.Errorf("2 runes should pass, got Action=%v", rep.Action)
 	}
-	rep2, _ := l.Validate(ctx, "а")
+	_, rep2, _ := l.Validate(ctx, "а")
 	if rep2.Action != guardy.ActionBlock {
 		t.Error("1 rune should block")
 	}

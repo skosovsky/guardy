@@ -2,13 +2,14 @@ package ext
 
 import (
 	"context"
+	"regexp"
 	"strings"
 
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure Wordlist implements guardy.Validator at compile time.
-var _ guardy.Validator = (*Wordlist)(nil)
+// Ensure Wordlist implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*Wordlist)(nil)
 
 // WordlistMode defines whether the list is a blocklist or allowlist.
 type WordlistMode int
@@ -83,13 +84,18 @@ func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code s
 }
 
 // Name returns the validator name.
-func (w *Wordlist) Name() string { return w.name }
+func (w *Wordlist) Name() string {
+	if w.name != "" {
+		return w.name
+	}
+	return "wordlist"
+}
 
 // Validate checks text against the word list and returns Report.
-func (w *Wordlist) Validate(ctx context.Context, text string) (guardy.Report, error) {
-	run := text
+func (w *Wordlist) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
+	run := input
 	if w.lowercase {
-		run = strings.ToLower(text)
+		run = strings.ToLower(input)
 	}
 	tokens := tokenize(run)
 	switch w.mode {
@@ -97,102 +103,103 @@ func (w *Wordlist) Validate(ctx context.Context, text string) (guardy.Report, er
 		for _, t := range tokens {
 			if _, ok := w.words[t]; ok {
 				if w.action == guardy.ActionRedact && w.redactReplacement != "" {
-					clean := replaceWordsInText(text, w.words, w.redactReplacement, w.lowercase)
-					return guardy.Report{
+					clean := replaceWordsInText(input, w.words, w.redactReplacement, w.lowercase)
+					return clean, &guardy.Report{
 						Action:      guardy.ActionRedact,
 						Validator:   w.name,
 						Reason:      "blocklisted word found",
 						MutatedText: clean,
 					}, nil
 				}
-				return guardy.Report{
+				return input, &guardy.Report{
 					Action:    guardy.ActionBlock,
 					Validator: w.name,
 					Reason:    "blocklisted word found",
 				}, nil
 			}
 		}
-		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
+		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	case Allowlist:
 		if len(tokens) == 0 {
 			if w.action == guardy.ActionRedact {
-				return guardy.Report{
+				return w.redactReplacement, &guardy.Report{
 					Action:      guardy.ActionRedact,
 					Validator:   w.name,
 					Reason:      "no tokens",
 					MutatedText: w.redactReplacement,
 				}, nil
 			}
-			return guardy.Report{Action: guardy.ActionBlock, Validator: w.name, Reason: "no tokens"}, nil
+			return input, &guardy.Report{Action: guardy.ActionBlock, Validator: w.name, Reason: "no tokens"}, nil
 		}
 		for _, t := range tokens {
 			if _, ok := w.words[t]; !ok {
 				if w.action == guardy.ActionRedact {
-					clean := replaceAllowlistViolations(text, w.words, w.redactReplacement, w.lowercase)
-					return guardy.Report{
+					clean := replaceAllowlistViolations(input, w.words, w.redactReplacement, w.lowercase)
+					return clean, &guardy.Report{
 						Action:      guardy.ActionRedact,
 						Validator:   w.name,
 						Reason:      "word not in allowlist",
 						MutatedText: clean,
 					}, nil
 				}
-				return guardy.Report{
+				return input, &guardy.Report{
 					Action:    guardy.ActionBlock,
 					Validator: w.name,
 					Reason:    "word not in allowlist",
 				}, nil
 			}
 		}
-		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
+		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	default:
-		return guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
+		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
 	}
 }
 
+// wordBoundaryRE matches sequences of word chars (letters, digits, underscore).
+var wordBoundaryRE = regexp.MustCompile(`\b[\p{L}\p{N}_]+\b`)
+
+// tokenize extracts words (sequences bounded by non-word chars) to prevent punctuation bypass.
 func tokenize(s string) []string {
-	f := strings.Fields(s)
-	if len(f) == 0 {
-		return nil
-	}
-	return f
+	matches := wordBoundaryRE.FindAllString(s, -1)
+	return matches
 }
 
+// replaceWordsInText replaces blocklisted words with replacement, preserving formatting and punctuation.
 func replaceWordsInText(text string, words map[string]struct{}, replacement string, lowercase bool) string {
-	tokens := tokenize(text)
-	if len(tokens) == 0 {
+	if len(words) == 0 {
 		return text
 	}
-	var out []string
-	for _, t := range tokens {
-		key := t
-		if lowercase {
-			key = strings.ToLower(t)
-		}
-		if _, ok := words[key]; ok {
-			out = append(out, replacement)
-		} else {
-			out = append(out, t)
-		}
+	// Build \b(word1|word2|...)\b pattern with escaped words.
+	var parts []string
+	for w := range words {
+		parts = append(parts, regexp.QuoteMeta(w))
 	}
-	return strings.Join(out, " ")
+	pat := `\b(` + strings.Join(parts, "|") + `)\b`
+	if lowercase {
+		pat = `(?i)` + pat
+	}
+	re, err := regexp.Compile(pat)
+	if err != nil {
+		return text
+	}
+	return re.ReplaceAllString(text, replacement)
 }
 
+// replaceAllowlistViolations replaces words not in allowlist, preserving formatting.
 func replaceAllowlistViolations(text string, words map[string]struct{}, replacement string, lowercase bool) string {
 	tokens := tokenize(text)
 	if len(tokens) == 0 {
 		return replacement
 	}
-	var out []string
-	for _, t := range tokens {
-		key := t
+	allowedPat := regexp.MustCompile(`\b[\p{L}\p{N}_]+\b`)
+	return allowedPat.ReplaceAllStringFunc(text, func(m string) string {
+		key := m
 		if lowercase {
-			key = strings.ToLower(t)
+			key = strings.ToLower(m)
 		}
 		if _, ok := words[key]; ok {
-			out = append(out, t)
-		} else {
-			out = append(out, replacement)
+			return m
 		}
-	}
-	return strings.Join(out, " ")
+		return replacement
+	})
 }

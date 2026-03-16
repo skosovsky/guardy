@@ -5,21 +5,21 @@ import (
 )
 
 func TestAction_String(t *testing.T) {
-	if got := string(ActionBlock); got != "block" {
-		t.Errorf("ActionBlock = %q, want block", got)
+	if got := ActionBlock.String(); got != "block" {
+		t.Errorf("ActionBlock.String() = %q, want block", got)
 	}
-	if got := string(ActionPass); got != "pass" {
-		t.Errorf("ActionPass = %q, want pass", got)
+	if got := ActionPass.String(); got != "pass" {
+		t.Errorf("ActionPass.String() = %q, want pass", got)
 	}
-	if got := string(ActionRedact); got != "redact" {
-		t.Errorf("ActionRedact = %q, want redact", got)
+	if got := ActionRedact.String(); got != "redact" {
+		t.Errorf("ActionRedact.String() = %q, want redact", got)
 	}
 }
 
 func TestReport_ZeroValue(t *testing.T) {
 	var rep Report
-	if rep.Action != "" {
-		t.Errorf("zero Report Action = %q", rep.Action)
+	if rep.Action != ActionPass {
+		t.Errorf("zero Report Action = %v, want ActionPass", rep.Action)
 	}
 	if rep.Validator != "" {
 		t.Errorf("zero Report Validator = %q", rep.Validator)

@@ -29,34 +29,34 @@ func NewModerationValidator(baseURL string) *ModerationValidator {
 
 func (m *ModerationValidator) Name() string { return "moderation" }
 
-func (m *ModerationValidator) Validate(ctx context.Context, text string) (guardy.Report, error) {
+func (m *ModerationValidator) Validate(ctx context.Context, text string) (string, *guardy.Report, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, m.baseURL+"/moderate", strings.NewReader(text))
 	if err != nil {
-		return guardy.Report{}, err
+		return text, nil, err
 	}
 	req.Header.Set("Content-Type", "text/plain")
 	resp, err := m.client.Do(req)
 	if err != nil {
-		return guardy.Report{}, err
+		return text, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return guardy.Report{}, fmt.Errorf("moderation API returned %d", resp.StatusCode)
+		return text, nil, fmt.Errorf("moderation API returned %d", resp.StatusCode)
 	}
 	var out struct {
 		Toxic bool `json:"toxic"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return guardy.Report{}, err
+		return text, nil, err
 	}
 	if out.Toxic {
-		return guardy.Report{
+		return text, &guardy.Report{
 			Action:    guardy.ActionBlock,
 			Validator: m.Name(),
 			Reason:    "Content flagged by moderation API",
 		}, nil
 	}
-	return guardy.Report{Action: guardy.ActionPass, Validator: m.Name()}, nil
+	return text, &guardy.Report{Action: guardy.ActionPass, Validator: m.Name()}, nil
 }
 
 func main() {
@@ -77,11 +77,12 @@ func main() {
 	ctx := context.Background()
 
 	for _, text := range []string{"Hello world", "This has badword in it"} {
-		report, err := pipeline.Run(ctx, text)
+		result, err := pipeline.Run(ctx, text)
 		if err != nil {
 			fmt.Println("Error:", err)
 			continue
 		}
+		report := result.Decision()
 		if report.Action == guardy.ActionBlock {
 			fmt.Printf("Blocked: %q -> %s\n", text, report.Validator)
 		} else {

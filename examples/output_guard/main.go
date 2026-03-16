@@ -21,19 +21,18 @@ func main() {
 	}
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, llmOutput)
+	result, err := pipeline.Run(ctx, llmOutput)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
+	report := result.Decision()
 	switch report.Action {
 	case guardy.ActionBlock:
 		fmt.Fprintf(os.Stderr, "blocked: %s\n", report.Reason)
 		os.Exit(1)
-	case guardy.ActionPass:
-		fmt.Println(llmOutput)
-	case guardy.ActionRedact:
-		fmt.Println(report.MutatedText)
+	case guardy.ActionPass, guardy.ActionRedact:
+		fmt.Println(result.Output)
 	default:
 		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
 		os.Exit(2)

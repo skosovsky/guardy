@@ -14,8 +14,8 @@ import (
 func TestGuardWriter_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -34,11 +34,11 @@ func TestGuardWriter_Pass(t *testing.T) {
 func TestGuardWriter_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, text string) (Report, error) {
+		validate: func(_ context.Context, text string) (string, *Report, error) {
 			if strings.Contains(text, "x") {
-				return Report{Action: ActionBlock, Validator: "block"}, nil
+				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Report{Action: ActionPass, Validator: "block"}, nil
+			return text, &Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -64,11 +64,37 @@ func TestGuardWriter_Block(t *testing.T) {
 	}
 }
 
+func TestGuardWriter_Retry(t *testing.T) {
+	v := &fakeValidator{
+		name: "retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "x") {
+				return text, &Report{Action: ActionRetry, Validator: "retry", Feedback: "fix it"}, nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "retry"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(2))
+	_, _ = gw.Write([]byte("ab"))
+	_, err := gw.Write([]byte("xy"))
+	if err == nil {
+		t.Fatal("expected error on retry")
+	}
+	if !errors.Is(err, ErrRetryRequested) {
+		t.Errorf("err = %v, want ErrRetryRequested", err)
+	}
+	if out.String() != "ab" {
+		t.Errorf("out = %q (retry must not write chunk)", out.String())
+	}
+}
+
 func TestGuardWriter_Redact(t *testing.T) {
 	v := &fakeValidator{
 		name: "redact",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionRedact, Validator: "redact", MutatedText: "[CLEAN]"}, nil
+		validate: func(context.Context, string) (string, *Report, error) {
+			return "[CLEAN]", &Report{Action: ActionRedact, Validator: "redact", MutatedText: "[CLEAN]"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -84,8 +110,8 @@ func TestGuardWriter_Redact(t *testing.T) {
 func TestGuardWriter_RedactToEmptyChunk(t *testing.T) {
 	v := &fakeValidator{
 		name: "wiper",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
+		validate: func(context.Context, string) (string, *Report, error) {
+			return "", &Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -101,8 +127,8 @@ func TestGuardWriter_RedactToEmptyChunk(t *testing.T) {
 func TestGuardWriter_FlushOnClose(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -121,11 +147,12 @@ func TestGuardWriter_FlushOnClose(t *testing.T) {
 func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, text string) (Report, error) {
-			if text == "bb" {
-				return Report{Action: ActionBlock, Validator: "block"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			// Block when "bb" appears (overlap may prepend prior chunk, so use Contains)
+			if strings.Contains(text, "bb") {
+				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Report{Action: ActionPass, Validator: "block"}, nil
+			return text, &Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -136,8 +163,8 @@ func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if n != 2 {
-		t.Errorf("Write must return bytes accepted on error: n = %d", n)
+	if n != 0 {
+		t.Errorf("Write must return 0 on error per io.Writer contract: n = %d", n)
 	}
 	if out.String() != "aa" {
 		t.Errorf("out = %q", out.String())
@@ -156,8 +183,8 @@ func TestGuardWriter_WithContext(t *testing.T) {
 	}
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -173,8 +200,8 @@ func TestGuardWriter_WithContext(t *testing.T) {
 func TestGuardWriter_WithTimeout(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -193,8 +220,8 @@ func TestGuardWriter_WithTimeout(t *testing.T) {
 func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -217,8 +244,8 @@ func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
 func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -237,8 +264,8 @@ func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
 func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
-		validate: func(context.Context, string) (Report, error) {
-			return Report{Action: ActionPass, Validator: "pass"}, nil
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -258,11 +285,11 @@ func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
 func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",
-		validate: func(_ context.Context, text string) (Report, error) {
+		validate: func(_ context.Context, text string) (string, *Report, error) {
 			if strings.Contains(text, "bad") {
-				return Report{Action: ActionBlock, Validator: "block"}, nil
+				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
 			}
-			return Report{Action: ActionPass, Validator: "block"}, nil
+			return text, &Report{Action: ActionPass, Validator: "block"}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -278,5 +305,58 @@ func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
 	outStr := out.String()
 	if outStr != "" && outStr != "ok " {
 		t.Errorf("out = %q (blocked content)", outStr)
+	}
+}
+
+// TestGuardWriter_StreamingRedact_MutatedOutput verifies that on ActionRedact
+// the output buffer receives the mutated text (not original) for both partial and full chunks.
+func TestGuardWriter_StreamingRedact_MutatedOutput(t *testing.T) {
+	redactor := &fakeValidator{
+		name: "redact",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "PII") {
+				return strings.ReplaceAll(text, "PII", "[REDACTED]"), &Report{
+					Action: ActionRedact, Validator: "redact",
+					MutatedText: strings.ReplaceAll(text, "PII", "[REDACTED]"),
+				}, nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "redact"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(redactor))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(20))
+	// Write enough to trigger chunk with PII, then more
+	_, _ = gw.Write([]byte("hello PII world "))
+	_, _ = gw.Write([]byte("and more PII here"))
+	_ = gw.Close()
+	got := out.String()
+	if got != "hello [REDACTED] world and more [REDACTED] here" {
+		t.Errorf("got = %q, want mutated text with PII redacted", got)
+	}
+}
+
+// TestGuardWriter_OverlapBoundaryBypass verifies that a forbidden pattern split across
+// chunk boundaries is detected (overlap prevents bypass).
+func TestGuardWriter_OverlapBoundaryBypass(t *testing.T) {
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "badword") {
+				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "block"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	// Chunk size 7: "xxxxbad" (7) ends chunk 1, "wordyyy" (7) starts chunk 2. Overlap carries "bad" into next validation.
+	gw := NewGuardWriter(&out, p, WithChunkSize(7))
+	_, err := gw.Write([]byte("xxxxbadwordyyy"))
+	if err == nil {
+		t.Fatal("expected block when forbidden word spans chunk boundary")
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Errorf("err = %v", err)
 	}
 }

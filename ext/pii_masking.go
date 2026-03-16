@@ -7,8 +7,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure PIIMasking implements guardy.Validator at compile time.
-var _ guardy.Validator = (*PIIMasking)(nil)
+// Ensure PIIMasking implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*PIIMasking)(nil)
 
 // PIIMasking redacts PII (email, phone, credit card) using regex patterns.
 type PIIMasking struct {
@@ -55,11 +55,16 @@ func NewPIIMasking(opts ...PIIMaskingOption) *PIIMasking {
 }
 
 // Name returns the validator name.
-func (p *PIIMasking) Name() string { return p.name }
+func (p *PIIMasking) Name() string {
+	if p.name != "" {
+		return p.name
+	}
+	return "pii_masking"
+}
 
 // Validate redacts PII in text and returns the mutated string.
-func (p *PIIMasking) Validate(ctx context.Context, text string) (guardy.Report, error) {
-	out := text
+func (p *PIIMasking) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
+	out := input
 	changed := false
 	for _, re := range p.patterns {
 		if re.MatchString(out) {
@@ -68,12 +73,12 @@ func (p *PIIMasking) Validate(ctx context.Context, text string) (guardy.Report, 
 		}
 	}
 	if changed {
-		return guardy.Report{
+		return out, &guardy.Report{
 			Action:      guardy.ActionRedact,
 			Validator:   p.name,
 			Reason:      "PII detected",
 			MutatedText: out,
 		}, nil
 	}
-	return guardy.Report{Action: guardy.ActionPass, Validator: p.name}, nil
+	return input, &guardy.Report{Action: guardy.ActionPass, Validator: p.name}, nil
 }

@@ -10,36 +10,36 @@ import (
 
 // FakeValidator returns a validator that always returns the given report.
 // If report is nil or the zero value, it returns Action: pass.
-func FakeValidator(name string, report *guardy.Report) guardy.Validator {
+func FakeValidator(name string, report *guardy.Report) guardy.Validator[string] {
 	return &fakeValidator{name: name, report: report}
 }
 
 // FailingValidator returns a validator that always returns the given error.
-func FailingValidator(name string, err error) guardy.Validator {
+func FailingValidator(name string, err error) guardy.Validator[string] {
 	return &failingValidator{name: name, err: err}
 }
 
 // MustPass asserts that report.Action == ActionPass. It calls t.Fatal on failure.
 func MustPass(t testing.TB, report *guardy.Report) {
 	t.Helper()
-	if report.Action != guardy.ActionPass {
-		t.Fatalf("expected Action pass, got %s", report.Action)
+	if report == nil || report.Action != guardy.ActionPass {
+		t.Fatalf("expected Action pass, got %v", report)
 	}
 }
 
 // MustBlock asserts that report.Action == ActionBlock. It calls t.Fatal on failure.
 func MustBlock(t testing.TB, report *guardy.Report) {
 	t.Helper()
-	if report.Action != guardy.ActionBlock {
-		t.Fatalf("expected Action block, got %s", report.Action)
+	if report == nil || report.Action != guardy.ActionBlock {
+		t.Fatalf("expected Action block, got %v", report)
 	}
 }
 
 // MustRedact asserts that report.Action == ActionRedact. It calls t.Fatal on failure.
 func MustRedact(t testing.TB, report *guardy.Report) {
 	t.Helper()
-	if report.Action != guardy.ActionRedact {
-		t.Fatalf("expected Action redact, got %s", report.Action)
+	if report == nil || report.Action != guardy.ActionRedact {
+		t.Fatalf("expected Action redact, got %v", report)
 	}
 }
 
@@ -48,20 +48,19 @@ type fakeValidator struct {
 	report *guardy.Report
 }
 
-func (f *fakeValidator) Validate(context.Context, string) (guardy.Report, error) {
+func (f *fakeValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
 	var rep guardy.Report
 	if f.report != nil {
 		rep = *f.report
 	}
-	if rep.Action == "" {
+	rep.Validator = f.name
+	if rep.Action == 0 {
 		rep.Action = guardy.ActionPass
 	}
-	rep.Validator = f.name
-	return rep, nil
-}
-
-func (f *fakeValidator) Name() string {
-	return f.name
+	if rep.Action == guardy.ActionRedact && rep.MutatedText != "" {
+		return rep.MutatedText, &rep, nil
+	}
+	return input, &rep, nil
 }
 
 type failingValidator struct {
@@ -69,10 +68,6 @@ type failingValidator struct {
 	err  error
 }
 
-func (f *failingValidator) Validate(context.Context, string) (guardy.Report, error) {
-	return guardy.Report{}, f.err
-}
-
-func (f *failingValidator) Name() string {
-	return f.name
+func (f *failingValidator) Validate(context.Context, string) (string, *guardy.Report, error) {
+	return "", nil, f.err
 }

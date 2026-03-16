@@ -7,8 +7,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure Regex implements guardy.Validator at compile time.
-var _ guardy.Validator = (*Regex)(nil)
+// Ensure Regex implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*Regex)(nil)
 
 // Regex matches text against a regular expression; on match returns block or redact (if placeholder set).
 type Regex struct {
@@ -27,11 +27,6 @@ func WithRegexRedaction(replacement string) RegexOption {
 	return func(r *Regex) {
 		r.placeholder = replacement
 	}
-}
-
-// WithRegexPlaceholder is an alias for WithRegexRedaction.
-func WithRegexPlaceholder(s string) RegexOption {
-	return WithRegexRedaction(s)
 }
 
 // WithRegexName sets the validator name (default "regex").
@@ -64,23 +59,31 @@ func MustRegex(pattern string, action guardy.Action, code string, opts ...RegexO
 }
 
 // Name returns the validator name.
-func (r *Regex) Name() string { return r.name }
-
-// Validate runs the regex against text.
-func (r *Regex) Validate(ctx context.Context, text string) (guardy.Report, error) {
-	if !r.re.MatchString(text) {
-		return guardy.Report{Action: guardy.ActionPass, Validator: r.name}, nil
+func (r *Regex) Name() string {
+	if r.name != "" {
+		return r.name
 	}
+	return "regex"
+}
+
+// Validate runs the regex against text. Uses single ReplaceAllString pass when placeholder is set to avoid double regex scan.
+func (r *Regex) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
 	if r.placeholder != "" {
-		clean := r.re.ReplaceAllString(text, r.placeholder)
-		return guardy.Report{
+		clean := r.re.ReplaceAllString(input, r.placeholder)
+		if clean == input {
+			return input, &guardy.Report{Action: guardy.ActionPass, Validator: r.name}, nil
+		}
+		return clean, &guardy.Report{
 			Action:      guardy.ActionRedact,
 			Validator:   r.name,
 			Reason:      "pattern matched",
 			MutatedText: clean,
 		}, nil
 	}
-	return guardy.Report{
+	if !r.re.MatchString(input) {
+		return input, &guardy.Report{Action: guardy.ActionPass, Validator: r.name}, nil
+	}
+	return input, &guardy.Report{
 		Action:    r.action,
 		Validator: r.name,
 		Reason:    "pattern matched",

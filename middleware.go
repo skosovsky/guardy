@@ -6,65 +6,96 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
+// DefaultMaxBodyBytes is the default request body size limit for Guard (1MB, DoS protection).
+const DefaultMaxBodyBytes = 1 << 20
+
+// PlainTextInjector returns an injector that replaces the request body with the mutated string.
+// Syncs Body, ContentLength, Header[Content-Length], and GetBody for proxy/retry compatibility.
+func PlainTextInjector() func(*http.Request, string) error {
+	return func(r *http.Request, mutated string) error {
+		body := io.NopCloser(strings.NewReader(mutated))
+		r.Body = body
+		r.ContentLength = int64(len(mutated))
+		r.Header.Set("Content-Length", strconv.FormatInt(int64(len(mutated)), 10))
+		r.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(strings.NewReader(mutated)), nil
+		}
+		return nil
+	}
+}
+
 // Guard returns an HTTP middleware that runs the pipeline on the request body.
-// The extractor reads the request and returns the text to validate; the middleware runs the pipeline
-// and handles Block (422), Redact (substitutes body with MutatedText and calls next), or Pass (calls next).
-func Guard(p *Pipeline, extractor func(*http.Request) (string, error)) func(http.Handler) http.Handler {
+// Extractor reads the request and returns value of type T to validate.
+// Injector applies mutated T to the request body on ActionRedact (required; format-aware).
+// On Block/Retry returns 422. On Pass restores original body.
+// Use Guard[string] with PlainTextInjector for string-based pipelines.
+func Guard[T any](p *Pipeline[T], extractor func(*http.Request) (T, error), injector func(*http.Request, T) error) func(http.Handler) http.Handler {
 	if p == nil {
-		panic("guardy: Guard requires non-nil *Pipeline")
+		panic("guardy: Guard requires non-nil Pipeline")
 	}
 	if extractor == nil {
 		panic("guardy: Guard requires non-nil extractor")
 	}
+	if injector == nil {
+		panic("guardy: Guard requires non-nil injector")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			// Read and keep original body so we can restore it on Pass (extractor may transform text).
-			bodyBytes, err := io.ReadAll(r.Body)
+			limitedBody := http.MaxBytesReader(w, r.Body, DefaultMaxBodyBytes)
+			bodyBytes, err := io.ReadAll(limitedBody)
 			if err != nil {
-				writeJSONError(w, http.StatusBadRequest, "invalid_input", err.Error())
+				writeJSONError(w, http.StatusBadRequest, "invalid_input", "request body too large or invalid")
 				return
 			}
 			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 			text, err := extractor(r)
 			if err != nil {
-				writeJSONError(w, http.StatusBadRequest, "invalid_input", err.Error())
+				writeJSONError(w, http.StatusBadRequest, "invalid_input", "extraction failed")
 				return
 			}
-			report, err := p.Run(ctx, text)
+			result, err := p.Run(ctx, text)
 			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "pipeline_error", err.Error())
+				writeJSONError(w, http.StatusInternalServerError, "pipeline_error", "validation failed")
 				return
 			}
-			switch report.Action {
-			case ActionBlock:
-				code := report.Validator
+			rep := result.Decision()
+			switch rep.Action {
+			case ActionBlock, ActionRetry:
+				code := rep.Validator
 				if code == "" {
 					code = "blocked"
 				}
-				reason := report.Reason
-				if reason == "" {
-					reason = "validation failed"
+				msg := rep.Reason
+				if rep.Action == ActionRetry && rep.Feedback != "" {
+					msg = rep.Feedback
 				}
-				writeJSONError(w, http.StatusUnprocessableEntity, code, reason)
+				if msg == "" {
+					msg = "validation failed"
+				}
+				writeJSONError(w, http.StatusUnprocessableEntity, code, msg)
 				return
 			case ActionRedact:
-				ctx = withReport(r.Context(), &report)
-				r2 := r.WithContext(ctx)
-				// Always substitute body with MutatedText (including empty string) to avoid leaking original content.
-				r2.Body = io.NopCloser(strings.NewReader(report.MutatedText))
-				r2.ContentLength = int64(len(report.MutatedText))
+				r2 := r.WithContext(withReport(r.Context(), rep))
+				if err := injector(r2, result.Output); err != nil {
+					writeJSONError(w, http.StatusInternalServerError, "inject_failed", "injection failed")
+					return
+				}
 				next.ServeHTTP(w, r2)
 				return
 			default:
-				ctx = withReport(r.Context(), &report)
+				ctx = withReport(r.Context(), rep)
 				r2 := r.WithContext(ctx)
-				// Restore original body for downstream (not extractor's text, which may be transformed).
 				r2.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 				r2.ContentLength = int64(len(bodyBytes))
+				r2.Header.Set("Content-Length", strconv.FormatInt(int64(len(bodyBytes)), 10))
+				r2.GetBody = func() (io.ReadCloser, error) {
+					return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+				}
 				next.ServeHTTP(w, r2)
 			}
 		})

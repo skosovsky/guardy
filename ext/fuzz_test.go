@@ -18,6 +18,6 @@ func FuzzRegex(f *testing.F) {
 		if len(data) > 1<<20 {
 			t.Skip("input too large")
 		}
-		_, _ = r.Validate(context.Background(), string(data))
+		_, _, _ = r.Validate(context.Background(), string(data))
 	})
 }

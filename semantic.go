@@ -27,20 +27,17 @@ func NewSemanticValidator(m Matcher, threshold float64, shadow bool) *SemanticVa
 	return &SemanticValidator{matcher: m, threshold: threshold, shadow: shadow, name: "semantic"}
 }
 
-// Name returns the validator name.
-func (s *SemanticValidator) Name() string { return s.name }
-
 // Validate runs the matcher and returns block when score > threshold.
-func (s *SemanticValidator) Validate(ctx context.Context, text string) (Report, error) {
+func (s *SemanticValidator) Validate(ctx context.Context, input string) (string, *Report, error) {
 	if s.matcher == nil {
-		return Report{}, errSemanticMatcherNil
+		return "", nil, errSemanticMatcherNil
 	}
-	score, err := s.matcher.Match(ctx, text)
+	score, err := s.matcher.Match(ctx, input)
 	if err != nil {
-		return Report{}, err
+		return input, nil, err
 	}
 	if score > s.threshold {
-		return Report{
+		return input, &Report{
 			Action:     ActionBlock,
 			Validator:  s.name,
 			Reason:     "semantic match above threshold",
@@ -48,5 +45,5 @@ func (s *SemanticValidator) Validate(ctx context.Context, text string) (Report, 
 			ShadowMode: s.shadow,
 		}, nil
 	}
-	return Report{Action: ActionPass, Validator: s.name}, nil
+	return input, &Report{Action: ActionPass, Validator: s.name}, nil
 }

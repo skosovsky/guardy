@@ -44,17 +44,18 @@ func main() {
 
 	ctx := context.Background()
 	text := "Contact me at user@example.com"
-	report, err := pipeline.Run(ctx, text)
+	result, err := pipeline.Run(ctx, text)
 	if err != nil {
 		panic(err)
 	}
+	report := result.Decision()
 	switch report.Action {
 	case guardy.ActionBlock:
 		fmt.Println("blocked:", report.Reason)
 	case guardy.ActionRedact:
-		fmt.Println("ok (redacted):", report.MutatedText)
+		fmt.Println("ok (redacted):", result.Output)
 	case guardy.ActionPass:
-		fmt.Println("ok:", report.MutatedText)
+		fmt.Println("ok:", result.Output)
 	}
 }
 ```
@@ -63,41 +64,41 @@ func main() {
 
 ### Validator
 
-Any type implementing the **Validator** interface can be used in a pipeline:
+Validators implement the generic **Validator[T]** interface:
 
 ```go
-type Validator interface {
-	Validate(ctx context.Context, text string) (Report, error)
-	Name() string
+type Validator[T any] interface {
+	Validate(ctx context.Context, input T) (T, *Report, error)
 }
 ```
 
-Validators return a **Report** with **Action** (`pass`, `block`, `redact`), optional **MutatedText** (for redaction), **Validator** name, **Reason**, **Score**, and **ShadowMode**.
+For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. Report holds **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator** name, **Reason**, **Feedback** (for LLM on Retry), **MutatedText**, **Score**, **ShadowMode**.
 
 ### Pipeline (two-phase)
 
-- **Construction**: `NewPipeline(WithFastPath(...), WithSlowPath(...))`.
-- **Execution**: `Run(ctx, text string)` returns `(Report, error)`.
+- **Construction**: `NewPipeline[string](WithFastPath(...), WithSlowPath(...))`.
+- **Execution**: `Run(ctx, text)` returns `(RunResult[string], error)`. Use `result.Output` for mutated text and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry.
 
 **Phase 1 — Fast path (sequential)**  
 Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizer, PIIMasking, Wordlist, Regex, Length.
 
 **Phase 2 — Slow path (parallel)**  
-Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. Results are collected; a **block** (non-shadow) takes priority over infrastructure errors. Context is cancelled when a block is stored so other validators can exit early. Use for: SemanticValidator, LLMJudge.
+Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `Block > Retry > last Redact > last Pass`. Context is cancelled only on **Block** (not Retry) so all reports are collected. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
 
 **Recommended order in fast path:** WAF (TagSanitizer) → PII (PIIMasking) → Wordlist → Regex/Length.
 
 ### Report
 
-**Report** holds: **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`), **Validator**, **Reason**, **Score**, **ShadowMode**, **MutatedText**. After `Run`, use `report.Action` and `report.MutatedText` (safe text when redactions were applied).
+**Report** holds: **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator**, **Reason**, **Feedback** (for LLM on Retry), **Score**, **ShadowMode**, **MutatedText**. After `Run`, use the first return value (mutated text) and `report.Action`. **ActionRetry** with **Feedback** supports validation loops where the LLM can retry with the feedback message.
 
 ### Stream (GuardWriter)
 
 Use **GuardWriter** to validate streaming output in chunks:
 
-- Buffers until chunk size or a semantic boundary (space, newline, punctuation); runs the pipeline on each chunk. UTF-8 safe.
+- Buffers until chunk size or a semantic boundary (space, newline, punctuation); runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
 - On **Block** — returns `ErrBlocked`.
-- On **Redact** — writes `report.MutatedText` for that chunk.
+- On **Retry** — returns `ErrRetryRequested` (orchestrator should retry with Feedback).
+- On **Redact** — writes the mutated text for that chunk.
 - On **Pass** — writes the original chunk.
 
 Options: **WithChunkSize** (default 4096), **WithContext**, **WithTimeout**.
@@ -110,14 +111,14 @@ _ = gw.Close()
 
 ### Middleware (Guard)
 
-**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **Block** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
+**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **Block** or **Retry** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
 
 ```go
 extractor := func(r *http.Request) (string, error) {
 	body, _ := io.ReadAll(r.Body)
 	return string(body), nil
 }
-handler := guardy.Guard(pipeline, extractor)(yourHandler)
+handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHandler)
 ```
 
 ## Built-in validators (ext)
@@ -127,8 +128,20 @@ handler := guardy.Guard(pipeline, extractor)(yourHandler)
 | **TagSanitizer** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizer(pattern)` or `ext.MustTagSanitizer("")` for default pattern. |
 | **PIIMasking**   | Redacts email, phone, credit card. `ext.NewPIIMasking()`, options: `WithPIIReplacement`, `WithPIIName`. |
 | **Wordlist**     | Blocklist or allowlist; block or redact. `ext.NewWordlist(words, mode, action, code)`, options: `WithWordlistRedaction`, `WithWordlistLowercase`, `WithWordlistName`. |
-| **Regex**        | Match pattern; block or redact. `ext.NewRegex(pattern, action, code)`, options: `WithRegexRedaction` / `WithRegexPlaceholder`, `WithRegexName`. |
+| **Regex**        | Match pattern; block or redact. `ext.NewRegex(pattern, action, code)`, options: `WithRegexRedaction`, `WithRegexName`. |
 | **Length**       | Min/max rune length. `ext.NewLength(min, max, action, code)`, option: `WithLengthName`. |
+| **JSON Schema**  | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation. |
+
+### Map (Lens adapter)
+
+Use **Map[T,U]** to adapt `Validator[U]` to `Validator[T]` for domain structs:
+
+```go
+type AgentState struct { Text string }
+regexV, _ := ext.NewRegex(`(?i)bad`, guardy.ActionRedact, "X", ext.WithRegexRedaction("[REDACTED]"))
+v := guardy.Map(regexV, func(s *AgentState) string { return s.Text },
+	func(s *AgentState, t string) *AgentState { s.Text = t; return s })
+```
 
 ## Core validators (guardy)
 
@@ -146,13 +159,14 @@ Use **guardy/guardytest** for unit tests:
 ```go
 v := guardytest.FakeValidator("mock", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
 pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
-report, _ := pipeline.Run(ctx, "x")
-guardytest.MustBlock(t, &report)
+result, _ := pipeline.Run(ctx, "x")
+guardytest.MustBlock(t, result.Decision())
 ```
 
 ## Error handling
 
 - **ErrBlocked** — returned by GuardWriter when report.Action == ActionBlock.
+- **ErrRetryRequested** — returned by GuardWriter when report.Action == ActionRetry.
 - **ErrValidatorFailed** — wraps a validator’s system error from `Run`.
 
 ## Packages
@@ -161,7 +175,7 @@ guardytest.MustBlock(t, &report)
 - **guardy/ext** — TagSanitizer, PIIMasking, Wordlist, Regex, Length.
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact.
 
-See [.cursor/docs/TD.md](.cursor/docs/TD.md) for the full technical design.
+See [.cursor/docs/task7.md](.cursor/docs/task7.md) for the full technical specification.
 
 ## Development
 

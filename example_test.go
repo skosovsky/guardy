@@ -16,11 +16,12 @@ func ExamplePipeline_Run() {
 	wordlistV := ext.NewWordlist([]string{"bad"}, ext.Blocklist, guardy.ActionBlock, "FORBIDDEN")
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, "this is bad")
+	result, err := pipeline.Run(ctx, "this is bad")
 	if err != nil {
 		panic(err)
 	}
-	if report.Action == guardy.ActionBlock {
+	report := result.Decision()
+	if report != nil && report.Action == guardy.ActionBlock {
 		fmt.Println("blocked:", report.Reason)
 	}
 	// Output:
@@ -36,17 +37,20 @@ func ExampleNewPipeline() {
 	)
 
 	ctx := context.Background()
-	report, err := pipeline.Run(ctx, "Hello, what is the weather?")
+	result, err := pipeline.Run(ctx, "Hello, what is the weather?")
 	if err != nil {
 		panic(err)
 	}
-	switch report.Action {
-	case guardy.ActionBlock:
-		// handle block
-	case guardy.ActionPass, guardy.ActionRedact:
-		_ = report.MutatedText
+	report := result.Decision()
+	if report != nil {
+		switch report.Action {
+		case guardy.ActionBlock:
+			// handle block
+		case guardy.ActionPass, guardy.ActionRedact:
+			_ = result.Output
+			_ = report.MutatedText
+		}
 	}
-	_ = report
 }
 
 func ExampleGuard() {
@@ -63,7 +67,7 @@ func ExampleGuard() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	handler := guardy.Guard(pipeline, extractor)(next)
+	handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(next)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
@@ -84,8 +88,6 @@ func ExampleNewGuardWriter() {
 
 type examplePassValidator struct{}
 
-func (examplePassValidator) Validate(context.Context, string) (guardy.Report, error) {
-	return guardy.Report{Action: guardy.ActionPass}, nil
+func (examplePassValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
+	return input, &guardy.Report{Action: guardy.ActionPass}, nil
 }
-
-func (examplePassValidator) Name() string { return "example" }

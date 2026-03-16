@@ -11,6 +11,9 @@ import (
 // DefaultStreamChunkSize is the default buffer size for GuardWriter.
 const DefaultStreamChunkSize = 4096
 
+// streamOverlapSize is bytes kept at chunk boundaries to detect patterns spanning splits.
+const streamOverlapSize = 64
+
 // guardWriterConfig holds options for GuardWriter.
 type guardWriterConfig struct {
 	chunkSize int
@@ -44,18 +47,21 @@ func WithTimeout(d time.Duration) StreamOption {
 }
 
 // GuardWriter wraps an io.Writer and runs the pipeline on buffered chunks.
-// On Block it returns ErrBlocked; on Redact it writes MutatedText.
+// On Block it returns ErrBlocked; on Redact it writes the mutated text.
+// Uses index-based buffering to avoid O(N^2) copy; overlap prevents boundary bypass.
 type GuardWriter struct {
 	w       io.Writer
-	p       *Pipeline
+	p       *Pipeline[string]
 	config  guardWriterConfig
 	mu      sync.Mutex
 	buf     []byte
+	start   int    // read position; compact when large
+	overlap []byte // tail of previous chunk for boundary detection
 	failErr error
 }
 
 // NewGuardWriter creates a GuardWriter that validates data in chunks before writing.
-func NewGuardWriter(w io.Writer, p *Pipeline, opts ...StreamOption) *GuardWriter {
+func NewGuardWriter(w io.Writer, p *Pipeline[string], opts ...StreamOption) *GuardWriter {
 	if w == nil {
 		panic("guardy: NewGuardWriter: writer is nil")
 	}
@@ -86,32 +92,45 @@ func (g *GuardWriter) Write(p []byte) (n int, err error) {
 	}
 	g.buf = append(g.buf, p...)
 	n = len(p)
-	for len(g.buf) >= g.config.chunkSize {
+	dataLen := len(g.buf) - g.start
+	for dataLen >= g.config.chunkSize {
 		split := g.findChunkSplit()
-		chunk := g.buf[:split]
-		if err = g.validateAndWrite(chunk); err != nil {
+		chunk := make([]byte, len(g.overlap)+split)
+		copy(chunk, g.overlap)
+		copy(chunk[len(g.overlap):], g.buf[g.start:g.start+split])
+		g.overlap, err = g.validateAndWrite(chunk, len(g.overlap))
+		if err != nil {
 			g.failErr = err
-			return n, err
+			// io.Writer: on error, n must be < len(p) (bytes actually written)
+			return 0, err
 		}
-		nCopied := copy(g.buf, g.buf[split:])
-		g.buf = g.buf[:nCopied]
+		g.start += split
+		if g.start >= g.config.chunkSize {
+			nCopied := copy(g.buf, g.buf[g.start:])
+			g.buf = g.buf[:nCopied]
+			g.start = 0
+		}
+		dataLen = len(g.buf) - g.start
 	}
 	return n, nil
 }
 
 func (g *GuardWriter) findChunkSplit() int {
-	limit := min(g.config.chunkSize, len(g.buf))
-	window := g.buf[:limit]
+	dataLen := len(g.buf) - g.start
+	limit := min(g.config.chunkSize, dataLen)
+	window := g.buf[g.start : g.start+limit]
 	for i := len(window) - 1; i >= 0; i-- {
 		if isBoundaryByte(window[i]) {
 			return i + 1
 		}
 	}
+	// Find last valid UTF-8 boundary: don't split mid-rune.
 	for i := limit; i > 0; i-- {
-		if utf8.FullRune(window[:i]) {
+		if utf8.Valid(window[:i]) {
 			return i
 		}
 	}
+	// Fallback: advance 1 byte to make progress on invalid UTF-8.
 	return 1
 }
 
@@ -133,17 +152,25 @@ func (g *GuardWriter) Close() error {
 	if g.failErr != nil {
 		return g.failErr
 	}
-	if len(g.buf) > 0 {
-		if err := g.validateAndWrite(g.buf); err != nil {
+	remain := g.buf[g.start:]
+	if len(g.overlap) > 0 || len(remain) > 0 {
+		chunk := make([]byte, len(g.overlap)+len(remain))
+		copy(chunk, g.overlap)
+		copy(chunk[len(g.overlap):], remain)
+		_, err := g.validateAndWrite(chunk, len(g.overlap))
+		if err != nil {
 			g.failErr = err
 			return err
 		}
-		g.buf = g.buf[:0]
 	}
+	g.buf = g.buf[:0]
+	g.start = 0
+	g.overlap = nil
 	return nil
 }
 
-func (g *GuardWriter) validateAndWrite(chunk []byte) error {
+// validateAndWrite runs pipeline on chunk, writes output (skipping overlapLen bytes), returns new overlap.
+func (g *GuardWriter) validateAndWrite(chunk []byte, overlapLen int) ([]byte, error) {
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if g.config.contextFn != nil {
@@ -152,19 +179,31 @@ func (g *GuardWriter) validateAndWrite(chunk []byte) error {
 		ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	}
 	defer cancel()
-	report, err := g.p.Run(ctx, string(chunk))
+	result, err := g.p.Run(ctx, string(chunk))
 	if err != nil {
-		return err
+		return nil, err
 	}
-	switch report.Action {
+	rep := result.Decision()
+	var output []byte
+	switch rep.Action {
 	case ActionBlock:
-		return ErrBlocked
+		return nil, ErrBlocked
+	case ActionRetry:
+		return nil, ErrRetryRequested
 	case ActionRedact:
-		// Always write MutatedText (including empty) to avoid leaking original chunk.
-		_, err = g.w.Write([]byte(report.MutatedText))
-		return err
+		output = []byte(result.Output)
 	default:
-		_, err = g.w.Write(chunk)
-		return err
+		output = chunk
 	}
+	if overlapLen < len(output) {
+		if _, err = g.w.Write(output[overlapLen:]); err != nil {
+			return nil, err
+		}
+	}
+	// New overlap: last streamOverlapSize bytes of output (copy to avoid retaining large buffer)
+	overlap := output
+	if len(overlap) > streamOverlapSize {
+		overlap = overlap[len(overlap)-streamOverlapSize:]
+	}
+	return append([]byte(nil), overlap...), nil
 }

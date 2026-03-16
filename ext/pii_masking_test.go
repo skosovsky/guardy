@@ -11,24 +11,24 @@ import (
 func TestPIIMasking_NoPII_Pass(t *testing.T) {
 	p := NewPIIMasking()
 	ctx := context.Background()
-	rep, err := p.Validate(ctx, "Hello world")
+	_, rep, err := p.Validate(ctx, "Hello world")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionPass {
-		t.Errorf("got Action=%s", rep.Action)
+		t.Errorf("got Action=%v", rep.Action)
 	}
 }
 
 func TestPIIMasking_Email_Redact(t *testing.T) {
 	p := NewPIIMasking()
 	ctx := context.Background()
-	rep, err := p.Validate(ctx, "Contact me at user@example.com please")
+	_, rep, err := p.Validate(ctx, "Contact me at user@example.com please")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionRedact {
-		t.Errorf("got Action=%s", rep.Action)
+		t.Errorf("got Action=%v", rep.Action)
 	}
 	if rep.MutatedText == "" || strings.Contains(rep.MutatedText, "user@example.com") {
 		t.Errorf("MutatedText should redact email, got %q", rep.MutatedText)
@@ -41,12 +41,12 @@ func TestPIIMasking_Email_Redact(t *testing.T) {
 func TestPIIMasking_Phone_Redact(t *testing.T) {
 	p := NewPIIMasking()
 	ctx := context.Background()
-	rep, err := p.Validate(ctx, "Call 555-123-4567")
+	_, rep, err := p.Validate(ctx, "Call 555-123-4567")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionRedact {
-		t.Errorf("got Action=%s", rep.Action)
+		t.Errorf("got Action=%v", rep.Action)
 	}
 	if strings.Contains(rep.MutatedText, "555") {
 		t.Errorf("MutatedText should redact phone, got %q", rep.MutatedText)
@@ -56,12 +56,12 @@ func TestPIIMasking_Phone_Redact(t *testing.T) {
 func TestPIIMasking_CustomReplacement(t *testing.T) {
 	p := NewPIIMasking(WithPIIReplacement("[PII]"))
 	ctx := context.Background()
-	rep, err := p.Validate(ctx, "Email: a@b.co")
+	_, rep, err := p.Validate(ctx, "Email: a@b.co")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.Action != guardy.ActionRedact {
-		t.Errorf("got Action=%s", rep.Action)
+		t.Errorf("got Action=%v", rep.Action)
 	}
 	if !strings.Contains(rep.MutatedText, "[PII]") {
 		t.Errorf("MutatedText = %q, should contain [PII]", rep.MutatedText)

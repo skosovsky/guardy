@@ -25,17 +25,14 @@ func NewLLMJudge(j Judge, shadow bool) *LLMJudge {
 	return &LLMJudge{judge: j, shadow: shadow, name: "llm_judge"}
 }
 
-// Name returns the validator name.
-func (l *LLMJudge) Name() string { return l.name }
-
 // Validate runs the judge and returns its result.
-func (l *LLMJudge) Validate(ctx context.Context, text string) (Report, error) {
+func (l *LLMJudge) Validate(ctx context.Context, input string) (string, *Report, error) {
 	if l.judge == nil {
-		return Report{}, errLLMJudgeNil
+		return "", nil, errLLMJudgeNil
 	}
-	rep, err := l.judge.Evaluate(ctx, text)
+	rep, err := l.judge.Evaluate(ctx, input)
 	if err != nil {
-		return Report{}, err
+		return input, nil, err
 	}
 	if l.shadow && rep.Action == ActionBlock {
 		rep.ShadowMode = true
@@ -43,5 +40,5 @@ func (l *LLMJudge) Validate(ctx context.Context, text string) (Report, error) {
 	if rep.Validator == "" {
 		rep.Validator = l.name
 	}
-	return rep, nil
+	return input, &rep, nil
 }
