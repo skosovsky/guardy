@@ -29,11 +29,13 @@ func main() {
 	report := result.Decision()
 	switch report.Action {
 	case guardy.ActionBlock:
+		//nolint:gosec // G705 -- stderr output, not HTML
 		fmt.Fprintf(os.Stderr, "blocked: %s\n", report.Reason)
 		os.Exit(1)
 	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println(result.Output)
 	default:
+		//nolint:gosec // G705 -- stderr output, not HTML
 		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
 		os.Exit(2)
 	}

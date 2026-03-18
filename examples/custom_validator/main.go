@@ -35,11 +35,12 @@ func (m *ModerationValidator) Validate(ctx context.Context, text string) (string
 		return text, nil, err
 	}
 	req.Header.Set("Content-Type", "text/plain")
+	// #nosec G704 -- baseURL is trusted (e.g. from config or httptest in examples)
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return text, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return text, nil, fmt.Errorf("moderation API returned %d", resp.StatusCode)
 	}

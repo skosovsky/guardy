@@ -15,8 +15,12 @@ type Observer func(ctx context.Context, rep *Report)
 // ValidatorMiddleware wraps a Validator with cross-cutting logic (metrics, logging).
 type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 
-// Pipeline runs validators in two phases: sequential Fast-Path (mutations),
-// then parallel Slow-Path (block/pass/retry only) via errgroup.
+// Pipeline orchestrates the execution of multiple Validators.
+//
+// THREAD SAFETY:
+// A Pipeline is safe for concurrent use (for example, calling Run from multiple goroutines)
+// only after it has been fully configured. Configuration methods such as Use mutate internal
+// cached chains and must not be called concurrently with Run.
 type Pipeline[T any] struct {
 	fastPath    []Validator[T]
 	slowPath    []Validator[T]
@@ -52,12 +56,15 @@ func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
 	}
 }
 
-// Use adds middlewares; they wrap validators at compile time (when called). First added = outer (wraps innermost).
-// Rebuilds wrapped chains so Run uses zero-overhead cached validators.
-func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) {
+// Use appends middleware to the pipeline and rebuilds cached wrapped chains.
+// This method mutates the pipeline state and is not thread-safe.
+// Call it during initialization before the pipeline is executed concurrently.
+// The pipeline is returned to support fluent builder-style configuration.
+func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
 	p.middlewares = append(p.middlewares, mw...)
 	p.fastPathWrapped = p.wrapAll(p.fastPath)
 	p.slowPathWrapped = p.wrapAll(p.slowPath)
+	return p
 }
 
 // fastChain returns validators for phase 1 (cached if middlewares applied, else raw).

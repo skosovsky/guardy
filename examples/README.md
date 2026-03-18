@@ -5,7 +5,7 @@ Each subdirectory is a standalone example with its own `go.mod` (using `replace`
 Run from the example directory:
 
 ```bash
-cd input_guard   # or output_guard, streaming_filter, custom_validator
+cd input_guard   # or output_guard, streaming_filter, custom_validator, struct_validation
 go mod tidy
 go run .
 ```
@@ -14,3 +14,4 @@ go run .
 - **output_guard** — Validates and redacts PII in LLM output (PIIMasking). Prints either original output (pass) or `MutatedText` (redact). Pass one argument to validate that string.
 - **streaming_filter** — Writes a mock token stream through GuardWriter; demonstrates Block (ErrBlocked) when a forbidden word appears in a chunk.
 - **custom_validator** — Custom validator that calls a mock moderation HTTP API; integrates into a pipeline and runs two sample inputs.
+- **struct_validation** — Generates JSON Schema from a Go struct, validates an LLM-style JSON response, and prints `ActionRetry` feedback when the payload violates schema rules.

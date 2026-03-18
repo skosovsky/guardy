@@ -79,6 +79,10 @@ For string validation: `Validator[string]`. The pipeline returns the mutated tex
 - **Construction**: `NewPipeline[string](WithFastPath(...), WithSlowPath(...))`.
 - **Execution**: `Run(ctx, text)` returns `(RunResult[string], error)`. Use `result.Output` for mutated text and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry.
 
+> Warning
+> `pipeline.Use()` mutates internal cached state and is not safe to call concurrently with `Run()` or `GuardWriter`.
+> Configure the pipeline during initialization, then share the fully configured instance across goroutines.
+
 **Phase 1 — Fast path (sequential)**  
 Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizer, PIIMasking, Wordlist, Regex, Length.
 
@@ -95,16 +99,21 @@ Heavy validators that only **block** or **pass** run in parallel via `errgroup` 
 
 Use **GuardWriter** to validate streaming output in chunks:
 
-- Buffers until chunk size or a semantic boundary (space, newline, punctuation); runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
+- Buffers until a semantic boundary (space, newline, punctuation) or a delimiterless hard cap is reached; runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
 - On **Block** — returns `ErrBlocked`.
 - On **Retry** — returns `ErrRetryRequested` (orchestrator should retry with Feedback).
 - On **Redact** — writes the mutated text for that chunk.
 - On **Pass** — writes the original chunk.
 
-Options: **WithChunkSize** (default 4096), **WithContext**, **WithTimeout**.
+Options: **WithChunkSize** (preferred natural boundary target, default 4096), **WithMaxChunkSize** (delimiterless hard cap, default 2048), **WithContext**, **WithTimeout**.
 
 ```go
-gw := guardy.NewGuardWriter(w, pipeline, guardy.WithChunkSize(4096))
+gw := guardy.NewGuardWriter(
+	w,
+	pipeline,
+	guardy.WithChunkSize(4096),
+	guardy.WithMaxChunkSize(2048),
+)
 _, _ = gw.Write(data)
 _ = gw.Close()
 ```
@@ -131,6 +140,37 @@ handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHan
 | **Regex**        | Match pattern; block or redact. `ext.NewRegex(pattern, action, code)`, options: `WithRegexRedaction`, `WithRegexName`. |
 | **Length**       | Min/max rune length. `ext.NewLength(min, max, action, code)`, option: `WithLengthName`. |
 | **JSON Schema**  | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation. |
+
+### Structured Output / JSON Schema
+
+For low-level control you can still provide a raw JSON Schema string:
+
+```go
+validator, _ := jsonschemaext.NewJSONSchemaValidator(`{
+  "type": "object",
+  "properties": {
+    "name": {"type": "string"}
+  },
+  "required": ["name"]
+}`)
+```
+
+For the common case, prefer generating the schema from a Go struct:
+
+```go
+package main
+
+import jsonschemaext "github.com/skosovsky/guardy/ext/jsonschema"
+
+type User struct {
+	Name string `json:"name" jsonschema:"required"`
+	Age  int    `json:"age" jsonschema:"minimum=18"`
+}
+
+validator, _ := jsonschemaext.NewValidatorFromStruct(&User{})
+```
+
+`NewValidatorFromStruct` keeps the schema in sync with your Go type and still returns `ActionRetry` with detailed `Feedback` for invalid JSON or schema violations.
 
 ### Map (Lens adapter)
 
@@ -173,6 +213,7 @@ guardytest.MustBlock(t, result.Decision())
 
 - **guardy** — core types (Action, Report, Validator), Pipeline, SemanticValidator, LLMJudge, GuardWriter, Guard middleware, errors.
 - **guardy/ext** — TagSanitizer, PIIMasking, Wordlist, Regex, Length.
+- **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact.
 
 See [.cursor/docs/task7.md](.cursor/docs/task7.md) for the full technical specification.

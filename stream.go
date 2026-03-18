@@ -11,13 +11,17 @@ import (
 // DefaultStreamChunkSize is the default buffer size for GuardWriter.
 const DefaultStreamChunkSize = 4096
 
+// DefaultStreamMaxChunkSize is the hard cap for delimiterless chunks.
+const DefaultStreamMaxChunkSize = 2048
+
 // streamOverlapSize is bytes kept at chunk boundaries to detect patterns spanning splits.
 const streamOverlapSize = 64
 
 // guardWriterConfig holds options for GuardWriter.
 type guardWriterConfig struct {
-	chunkSize int
-	contextFn func() (context.Context, context.CancelFunc)
+	chunkSize    int
+	maxChunkSize int
+	contextFn    func() (context.Context, context.CancelFunc)
 }
 
 // StreamOption configures GuardWriter behavior.
@@ -27,6 +31,13 @@ type StreamOption func(*guardWriterConfig)
 func WithChunkSize(n int) StreamOption {
 	return func(c *guardWriterConfig) {
 		c.chunkSize = n
+	}
+}
+
+// WithMaxChunkSize sets the hard cap for delimiterless chunks (default 2048).
+func WithMaxChunkSize(n int) StreamOption {
+	return func(c *guardWriterConfig) {
+		c.maxChunkSize = n
 	}
 }
 
@@ -68,12 +79,18 @@ func NewGuardWriter(w io.Writer, p *Pipeline[string], opts ...StreamOption) *Gua
 	if p == nil {
 		panic("guardy: NewGuardWriter: pipeline is nil")
 	}
-	config := guardWriterConfig{chunkSize: DefaultStreamChunkSize}
+	config := guardWriterConfig{
+		chunkSize:    DefaultStreamChunkSize,
+		maxChunkSize: DefaultStreamMaxChunkSize,
+	}
 	for _, opt := range opts {
 		opt(&config)
 	}
 	if config.chunkSize <= 0 {
 		config.chunkSize = DefaultStreamChunkSize
+	}
+	if config.maxChunkSize <= 0 {
+		config.maxChunkSize = DefaultStreamMaxChunkSize
 	}
 	return &GuardWriter{
 		w:      w,
@@ -83,7 +100,7 @@ func NewGuardWriter(w io.Writer, p *Pipeline[string], opts ...StreamOption) *Gua
 	}
 }
 
-// Write buffers data and runs the pipeline when the buffer reaches chunk size or a natural boundary.
+// Write buffers data and runs the pipeline when a natural boundary or hard cap is reached.
 func (g *GuardWriter) Write(p []byte) (n int, err error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -92,9 +109,11 @@ func (g *GuardWriter) Write(p []byte) (n int, err error) {
 	}
 	g.buf = append(g.buf, p...)
 	n = len(p)
-	dataLen := len(g.buf) - g.start
-	for dataLen >= g.config.chunkSize {
+	for {
 		split := g.findChunkSplit()
+		if split == 0 {
+			break
+		}
 		chunk := make([]byte, len(g.overlap)+split)
 		copy(chunk, g.overlap)
 		copy(chunk[len(g.overlap):], g.buf[g.start:g.start+split])
@@ -110,28 +129,58 @@ func (g *GuardWriter) Write(p []byte) (n int, err error) {
 			g.buf = g.buf[:nCopied]
 			g.start = 0
 		}
-		dataLen = len(g.buf) - g.start
 	}
 	return n, nil
 }
 
 func (g *GuardWriter) findChunkSplit() int {
 	dataLen := len(g.buf) - g.start
-	limit := min(g.config.chunkSize, dataLen)
-	window := g.buf[g.start : g.start+limit]
-	for i := len(window) - 1; i >= 0; i-- {
-		if isBoundaryByte(window[i]) {
-			return i + 1
-		}
+	if dataLen == 0 {
+		return 0
 	}
-	// Find last valid UTF-8 boundary: don't split mid-rune.
-	for i := limit; i > 0; i-- {
+
+	if dataLen >= g.config.chunkSize {
+		window := g.buf[g.start : g.start+g.config.chunkSize]
+		for i := len(window) - 1; i >= 0; i-- {
+			if isBoundaryByte(window[i]) {
+				return i + 1
+			}
+		}
+
+		fallback := g.config.maxChunkSize
+		if fallback <= 0 || fallback > g.config.chunkSize {
+			fallback = g.config.chunkSize
+		}
+		return utf8SafePrefixLen(g.buf[g.start : g.start+fallback])
+	}
+
+	if g.config.maxChunkSize > 0 && dataLen >= g.config.maxChunkSize {
+		window := g.buf[g.start : g.start+dataLen]
+		for i := len(window) - 1; i >= 0; i-- {
+			if isBoundaryByte(window[i]) {
+				return 0
+			}
+		}
+
+		return utf8SafePrefixLen(g.buf[g.start : g.start+g.config.maxChunkSize])
+	}
+
+	return 0
+}
+
+func utf8SafePrefixLen(window []byte) int {
+	if len(window) == 0 || utf8.Valid(window) {
+		return len(window)
+	}
+
+	minIndex := max(1, len(window)-utf8.UTFMax+1)
+	for i := len(window) - 1; i >= minIndex; i-- {
 		if utf8.Valid(window[:i]) {
 			return i
 		}
 	}
-	// Fallback: advance 1 byte to make progress on invalid UTF-8.
-	return 1
+
+	return len(window)
 }
 
 func isBoundaryByte(b byte) bool {

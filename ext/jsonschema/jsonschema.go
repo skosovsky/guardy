@@ -4,11 +4,15 @@ package jsonschema
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 
-	"github.com/skosovsky/guardy"
+	invopopjsonschema "github.com/invopop/jsonschema"
 	"github.com/xeipuuv/gojsonschema"
+
+	"github.com/skosovsky/guardy"
 )
 
 // Ensure JSONSchemaValidator implements guardy.Validator[string] at compile time.
@@ -16,6 +20,8 @@ var _ guardy.Validator[string] = (*JSONSchemaValidator)(nil)
 
 // JSONSchemaValidator validates JSON strings against a JSON Schema.
 // On schema violation it returns ActionRetry with detailed Feedback for LLM.
+//
+//nolint:revive // keep the public type name stable for backward compatibility.
 type JSONSchemaValidator struct {
 	schema *gojsonschema.Schema
 	name   string
@@ -46,13 +52,52 @@ func NewJSONSchemaValidator(schema string, opts ...Option) (*JSONSchemaValidator
 	return j, nil
 }
 
+// NewValidatorFromStruct generates a JSON schema from the provided Go struct
+// and returns a Validator that enforces this schema.
+func NewValidatorFromStruct(v any) (*JSONSchemaValidator, error) {
+	if v == nil {
+		return nil, fmt.Errorf("jsonschema: expected struct or *struct, got nil")
+	}
+
+	t := reflect.TypeOf(v)
+	if t.Kind() == reflect.Ptr {
+		value := reflect.ValueOf(v)
+		if value.IsNil() {
+			return nil, fmt.Errorf("jsonschema: expected struct or *struct, got nil pointer")
+		}
+		t = t.Elem()
+	}
+	if t.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("jsonschema: expected struct or *struct, got %s", reflect.TypeOf(v))
+	}
+
+	schema := invopopjsonschema.Reflect(v)
+	schemaBytes, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("jsonschema: marshal generated schema: %w", err)
+	}
+
+	return NewJSONSchemaValidator(string(schemaBytes))
+}
+
 // Validate checks that input is valid JSON conforming to the schema.
 // Valid -> ActionPass. Invalid -> ActionRetry with Feedback (detailed message for LLM).
 func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
 	if err := ctx.Err(); err != nil {
 		return input, nil, err
 	}
-	docLoader := gojsonschema.NewStringLoader(input)
+
+	var doc any
+	if err := json.Unmarshal([]byte(input), &doc); err != nil {
+		return input, &guardy.Report{
+			Action:    guardy.ActionRetry,
+			Validator: j.name,
+			Reason:    "invalid JSON",
+			Feedback:  err.Error(),
+		}, nil
+	}
+
+	docLoader := gojsonschema.NewGoLoader(doc)
 	result, err := j.schema.Validate(docLoader)
 	if err != nil {
 		return input, nil, fmt.Errorf("jsonschema: validate: %w", err)

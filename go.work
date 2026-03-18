@@ -1,0 +1,11 @@
+go 1.26.0
+
+use (
+	.
+	./examples/custom_validator
+	./examples/input_guard
+	./examples/output_guard
+	./examples/streaming_filter
+	./examples/struct_validation
+	./ext/jsonschema
+)

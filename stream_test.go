@@ -360,3 +360,135 @@ func TestGuardWriter_OverlapBoundaryBypass(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestGuardWriter_MaxChunkSize_DelimiterlessASCII(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	input := strings.Repeat("A", 10_000)
+
+	gw := NewGuardWriter(&out, p, WithChunkSize(4096), WithMaxChunkSize(1024))
+	if _, err := gw.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := calls.Load(); got != 10 {
+		t.Fatalf("validator calls = %d, want 10", got)
+	}
+	if out.String() != input {
+		t.Fatal("output mismatch for delimiterless ASCII input")
+	}
+}
+
+func TestGuardWriter_MaxChunkSize_DelimiterlessUTF8(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	input := strings.Repeat("界", 3000)
+
+	gw := NewGuardWriter(&out, p, WithChunkSize(4096), WithMaxChunkSize(1024))
+	if _, err := gw.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := calls.Load(); got != 9 {
+		t.Fatalf("validator calls = %d, want 9", got)
+	}
+	if out.String() != input {
+		t.Fatal("output mismatch for delimiterless UTF-8 input")
+	}
+}
+
+func TestGuardWriter_ChunkSizeRespectedForNormalText(t *testing.T) {
+	var firstChunk string
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			if firstChunk == "" {
+				firstChunk = text
+			}
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithMaxChunkSize(5))
+
+	if _, err := gw.Write([]byte("aa bb cc dd ee")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if firstChunk != "aa bb cc " {
+		t.Fatalf("first chunk = %q, want %q", firstChunk, "aa bb cc ")
+	}
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("validator calls = %d, want 2", got)
+	}
+	if out.String() != "aa bb cc dd ee" {
+		t.Fatalf("output = %q", out.String())
+	}
+}
+
+func TestGuardWriter_DefaultChunkSizeNotCappedForBoundaryRichText(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+
+	var b strings.Builder
+	for range 60 {
+		b.WriteString(strings.Repeat("a", 50))
+		b.WriteByte(' ')
+	}
+	input := b.String()
+
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p)
+
+	if _, err := gw.Write([]byte(input)); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("validator calls after Write = %d, want 0", got)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("validator calls after Close = %d, want 1", got)
+	}
+	if out.String() != input {
+		t.Fatal("output mismatch for boundary-rich input")
+	}
+}
