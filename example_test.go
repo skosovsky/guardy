@@ -13,7 +13,7 @@ import (
 )
 
 func ExamplePipeline_Run() {
-	wordlistV := ext.NewWordlist([]string{"bad"}, ext.Blocklist, guardy.ActionBlock, "FORBIDDEN")
+	wordlistV := ext.NewWordlistValidator([]string{"bad"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 	ctx := context.Background()
 	result, err := pipeline.Run(ctx, "this is bad")
@@ -29,8 +29,8 @@ func ExamplePipeline_Run() {
 }
 
 func ExampleNewPipeline() {
-	regexV, _ := ext.NewRegex(`(?i)(ignore previous|system prompt)`, guardy.ActionBlock, "PROMPT_INJECTION")
-	lengthV := ext.NewLength(0, 10000, guardy.ActionBlock, "TOO_LONG")
+	regexV, _ := ext.NewRegexValidator(`(?i)(ignore previous|system prompt)`, ext.WithCode("PROMPT_INJECTION"))
+	lengthV := ext.NewLengthValidator(0, 10000, ext.WithCode("TOO_LONG"))
 
 	pipeline := guardy.NewPipeline(
 		guardy.WithFastPath(regexV, lengthV),
@@ -49,12 +49,17 @@ func ExampleNewPipeline() {
 		case guardy.ActionPass, guardy.ActionRedact:
 			_ = result.Output
 			_ = report.MutatedText
+		case guardy.ActionRetry:
+			_ = report.Feedback
 		}
 	}
+	fmt.Println("configured")
+	// Output:
+	// configured
 }
 
 func ExampleGuard() {
-	regexV, _ := ext.NewRegex(`(?i)ignore`, guardy.ActionBlock, "INJECT")
+	regexV, _ := ext.NewRegexValidator(`(?i)ignore`, ext.WithCode("INJECT"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV))
 
 	extractor := func(r *http.Request) (string, error) {
@@ -62,7 +67,7 @@ func ExampleGuard() {
 		return string(body), nil
 	}
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
@@ -72,7 +77,9 @@ func ExampleGuard() {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
-	// rec.Code is 200, rec.Body is "ok"
+	fmt.Println(rec.Code)
+	// Output:
+	// 200
 }
 
 func ExampleNewGuardWriter() {
@@ -83,7 +90,9 @@ func ExampleNewGuardWriter() {
 	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(64))
 	_, _ = gw.Write([]byte("streaming text "))
 	_ = gw.Close()
-	// out contains "streaming text "
+	fmt.Println(out.String())
+	// Output:
+	// streaming text
 }
 
 type examplePassValidator struct{}

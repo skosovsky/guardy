@@ -19,7 +19,12 @@ type DummyStatePtr struct {
 
 // TestMap_LensMutation_ValueType verifies that Map correctly mutates T when T is a struct by value.
 func TestMap_LensMutation_ValueType(t *testing.T) {
-	regexV, err := NewRegex(`(?i)bad`, guardy.ActionRedact, "X", WithRegexRedaction("[REDACTED]"))
+	regexV, err := NewRegexValidator(
+		`(?i)bad`,
+		WithAction(guardy.ActionRedact),
+		WithCode("X"),
+		WithRedactionReplacement("[REDACTED]"),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +50,12 @@ func TestMap_LensMutation_ValueType(t *testing.T) {
 
 // TestMap_LensMutation_PointerType verifies that Map correctly mutates T when T is a pointer.
 func TestMap_LensMutation_PointerType(t *testing.T) {
-	regexV, err := NewRegex(`(?i)bad`, guardy.ActionRedact, "X", WithRegexRedaction("[REDACTED]"))
+	regexV, err := NewRegexValidator(
+		`(?i)bad`,
+		WithAction(guardy.ActionRedact),
+		WithCode("X"),
+		WithRedactionReplacement("[REDACTED]"),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

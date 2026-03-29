@@ -22,9 +22,11 @@ func TestGuard_Block(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Error("next handler should not be called on Block")
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Error("next handler should not be called on Block")
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("bad"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -33,6 +35,33 @@ func TestGuard_Block(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "block") {
 		t.Errorf("body = %s", rec.Body.String())
+	}
+}
+
+func TestGuard_Block_UsesReportCode(t *testing.T) {
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action:    ActionBlock,
+				Validator: "validator-name",
+				Code:      "RULE_BLOCKED",
+				Reason:    "blocked",
+			}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("bad"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "RULE_BLOCKED") {
+		t.Fatalf("expected code from report, body=%s", rec.Body.String())
 	}
 }
 
@@ -45,11 +74,13 @@ func TestGuard_Pass(t *testing.T) {
 	}
 	p := NewPipeline(WithFastPath(v))
 	called := false
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		called = true
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok"))
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -70,11 +101,13 @@ func TestGuard_PassBodyRestored(t *testing.T) {
 	}
 	p := NewPipeline(WithFastPath(v))
 	var nextBody string
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		nextBody = string(b)
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			nextBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -101,11 +134,13 @@ func TestGuard_PassRestoresOriginalBodyNotExtractorText(t *testing.T) {
 	}
 	p := NewPipeline(WithFastPath(v))
 	var nextBody string
-	handler := Guard(p, transformingExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		nextBody = string(b)
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := Guard(p, transformingExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			nextBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -127,11 +162,13 @@ func TestGuard_Redact(t *testing.T) {
 	}
 	p := NewPipeline(WithFastPath(v))
 	var nextBody string
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		nextBody = string(b)
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			nextBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("dirty"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -143,17 +180,19 @@ func TestGuard_Redact(t *testing.T) {
 func TestGuard_RedactToEmptyBody(t *testing.T) {
 	v := &fakeValidator{
 		name: "wiper",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
+		validate: func(_ context.Context, _ string) (string, *Report, error) {
 			return "", &Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
 	var nextBody string
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		nextBody = string(b)
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			b, _ := io.ReadAll(r.Body)
+			nextBody = string(b)
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("sensitive"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -170,17 +209,19 @@ func TestGuard_ReportFromContext(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rep, ok := ReportFromContext(r.Context())
-		if !ok {
-			t.Error("ReportFromContext: no report")
-			return
-		}
-		if rep.Validator != "v" {
-			t.Errorf("report.Validator = %q", rep.Validator)
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rep, ok := ReportFromContext(r.Context())
+			if !ok {
+				t.Error("ReportFromContext: no report")
+				return
+			}
+			if rep.Validator != "v" {
+				t.Errorf("report.Validator = %q", rep.Validator)
+			}
+			w.WriteHeader(http.StatusOK)
+		}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -194,7 +235,9 @@ func TestGuard_ExtractorError(t *testing.T) {
 		return "", io.EOF
 	}
 	p := NewPipeline[string]()
-	handler := Guard(p, badExtractor, PlainTextInjector())(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	handler := Guard(p, badExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+	)
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)

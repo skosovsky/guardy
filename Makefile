@@ -1,33 +1,48 @@
-MODULES := $(shell find . -name go.mod -not -path './vendor/*' -exec dirname {} \; | sort)
+GO      := go
+MODULES := $(shell find . -type d \( -name ".*" -not -name "." -o -name "vendor" \) -prune -o -type f -name "go.mod" -exec dirname {} \;)
 
-.PHONY: test lint bench fuzz cover fix-all lint-all test-all
-
-test:
-	@go test -race -count=1 ./...
-
-test-all:
-	@for d in $(MODULES); do echo ">>> Testing $$d"; (cd $$d && go test -race -count=1 ./...) || exit 1; done
+.PHONY: lint fix test bench bench-hotpath fuzz cover
 
 lint:
-	@golangci-lint run ./...
+	@for dir in $(MODULES); do \
+		echo "golangci-lint - $$dir"; \
+		(cd "$$dir" && golangci-lint run ./...) || exit 1; \
+	done
 
-lint-all:
-	@for d in $(MODULES); do echo ">>> Linting $$d"; (cd $$d && golangci-lint run ./...) || exit 1; done
+fix:
+	@if [ -f "go.work" ]; then $(GO) work sync; fi
+	@for dir in $(MODULES); do \
+		echo "fix & tidy - $$dir"; \
+		(cd "$$dir" && $(GO) fix ./... && $(GO) mod tidy) || exit 1; \
+		(cd "$$dir" && golangci-lint run --fix ./...) || exit 1; \
+	done
 
-fix-all:
-	@go work sync
-	@for d in $(MODULES); do \
-		echo ">>> Fixing $$d"; \
-		(cd $$d && go fix ./... && go mod tidy && golangci-lint run --fix ./...) || exit 1; \
+test:
+	@for dir in $(MODULES); do \
+		echo "test - $$dir"; \
+		(cd "$$dir" && $(GO) test -v -race ./...) || exit 1; \
 	done
 
 bench:
-	@go test -bench=. -benchmem ./...
+	@for dir in $(MODULES); do \
+		echo "bench - $$dir"; \
+		(cd "$$dir" && $(GO) test -bench=. -run=^$$ ./...) || exit 1; \
+	done
 
 fuzz:
-	@go test -fuzz=. -fuzztime=30s .
-	@go test -fuzz=FuzzRegex -fuzztime=15s ./ext/
+	@for dir in $(MODULES); do \
+		echo "fuzz - $$dir"; \
+		(cd "$$dir" && \
+			for pkg in $$($(GO) list -tags=fuzz ./...); do \
+				if $(GO) test -tags=fuzz -list . "$$pkg" 2>/dev/null | grep -q '^Fuzz'; then \
+					$(GO) test -tags=fuzz -fuzz=. -fuzztime=30s "$$pkg" || exit 1; \
+				fi; \
+			done \
+		) || exit 1; \
+	done
 
 cover:
-	@go test -coverprofile=coverage.out -covermode=atomic ./...
-	@go tool cover -func=coverage.out
+	@for dir in $(MODULES); do \
+		echo "cover - $$dir"; \
+		(cd "$$dir" && $(GO) test -coverprofile=coverage.out ./... && $(GO) tool cover -func=coverage.out) || exit 1; \
+	done

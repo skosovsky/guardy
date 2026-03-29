@@ -48,7 +48,7 @@ type fakeValidator struct {
 	report *guardy.Report
 }
 
-func (f *fakeValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
+func (f *fakeValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
 	var rep guardy.Report
 	if f.report != nil {
 		rep = *f.report

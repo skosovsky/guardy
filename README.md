@@ -34,12 +34,12 @@ import (
 )
 
 func main() {
-	lengthV := ext.NewLength(0, 2048, guardy.ActionBlock, "TOO_LONG")
-	wordlistV := ext.NewWordlist([]string{"bad", "spam"}, ext.Blocklist, guardy.ActionBlock, "FORBIDDEN")
-	piiV := ext.NewPIIMasking()
+	lengthV := ext.NewLengthValidator(0, 2048, ext.WithCode("TOO_LONG"))
+	wordlistV := ext.NewWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
+	piiV := ext.NewPIIValidator()
 
 	pipeline := guardy.NewPipeline(
-		guardy.WithFastPath(ext.MustTagSanitizer(""), piiV, wordlistV, lengthV),
+		guardy.WithFastPath(ext.MustTagSanitizerValidator(""), piiV, wordlistV, lengthV),
 	)
 
 	ctx := context.Background()
@@ -72,28 +72,26 @@ type Validator[T any] interface {
 }
 ```
 
-For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. Report holds **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator** name, **Reason**, **Feedback** (for LLM on Retry), **MutatedText**, **Score**, **ShadowMode**.
+For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. Report holds **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **MutatedText**, **Score**, **ShadowMode**.
 
 ### Pipeline (two-phase)
 
 - **Construction**: `NewPipeline[string](WithFastPath(...), WithSlowPath(...))`.
 - **Execution**: `Run(ctx, text)` returns `(RunResult[string], error)`. Use `result.Output` for mutated text and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry.
 
-> Warning
-> `pipeline.Use()` mutates internal cached state and is not safe to call concurrently with `Run()` or `GuardWriter`.
-> Configure the pipeline during initialization, then share the fully configured instance across goroutines.
+`pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
 
 **Phase 1 — Fast path (sequential)**  
-Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizer, PIIMasking, Wordlist, Regex, Length.
+Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
 
 **Phase 2 — Slow path (parallel)**  
 Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `Block > Retry > last Redact > last Pass`. Context is cancelled only on **Block** (not Retry) so all reports are collected. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
 
-**Recommended order in fast path:** WAF (TagSanitizer) → PII (PIIMasking) → Wordlist → Regex/Length.
+**Recommended order in fast path:** WAF (TagSanitizerValidator) → PII (PIIValidator) → WordlistValidator → RegexValidator/LengthValidator.
 
 ### Report
 
-**Report** holds: **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator**, **Reason**, **Feedback** (for LLM on Retry), **Score**, **ShadowMode**, **MutatedText**. After `Run`, use the first return value (mutated text) and `report.Action`. **ActionRetry** with **Feedback** supports validation loops where the LLM can retry with the feedback message.
+**Report** holds: **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Score**, **ShadowMode**, **MutatedText**. After `Run`, use the first return value (mutated text) and `report.Action`.
 
 ### Stream (GuardWriter)
 
@@ -104,8 +102,9 @@ Use **GuardWriter** to validate streaming output in chunks:
 - On **Retry** — returns `ErrRetryRequested` (orchestrator should retry with Feedback).
 - On **Redact** — writes the mutated text for that chunk.
 - On **Pass** — writes the original chunk.
+- In JSON-aware mode, incomplete JSON is never validated/written; `Close()` on incomplete JSON returns `ErrValidatorFailed`.
 
-Options: **WithChunkSize** (preferred natural boundary target, default 4096), **WithMaxChunkSize** (delimiterless hard cap, default 2048), **WithContext**, **WithTimeout**.
+Options: **WithChunkSize** (preferred natural boundary target, default 4096), **WithMaxChunkSize** (delimiterless hard cap, default 2048), **WithJSONAwareSplitter** (for streamed JSON/tool-call payloads), **WithContext**, **WithTimeout**.
 
 ```go
 gw := guardy.NewGuardWriter(
@@ -134,11 +133,11 @@ handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHan
 
 | Validator       | Description |
 |----------------|-------------|
-| **TagSanitizer** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizer(pattern)` or `ext.MustTagSanitizer("")` for default pattern. |
-| **PIIMasking**   | Redacts email, phone, credit card. `ext.NewPIIMasking()`, options: `WithPIIReplacement`, `WithPIIName`. |
-| **Wordlist**     | Blocklist or allowlist; block or redact. `ext.NewWordlist(words, mode, action, code)`, options: `WithWordlistRedaction`, `WithWordlistLowercase`, `WithWordlistName`. |
-| **Regex**        | Match pattern; block or redact. `ext.NewRegex(pattern, action, code)`, options: `WithRegexRedaction`, `WithRegexName`. |
-| **Length**       | Min/max rune length. `ext.NewLength(min, max, action, code)`, option: `WithLengthName`. |
+| **TagSanitizerValidator** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`. |
+| **PIIValidator**   | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
+| **WordlistValidator**     | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
+| **RegexValidator**        | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`. |
+| **LengthValidator**       | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`. |
 | **JSON Schema**  | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation. |
 
 ### Structured Output / JSON Schema
@@ -155,6 +154,8 @@ validator, _ := jsonschemaext.NewJSONSchemaValidator(`{
 }`)
 ```
 
+`jsonschema` also accepts shared v2 rule options (`ext.WithCode`, `ext.WithSeverity`, `ext.WithReason`, `ext.WithName`). It is an intrinsically `ActionRetry` validator; mutation options (`WithTokenVault`, `WithRedactionReplacement`, `WithLowercase`) are rejected at construction time.
+
 For the common case, prefer generating the schema from a Go struct:
 
 ```go
@@ -167,10 +168,57 @@ type User struct {
 	Age  int    `json:"age" jsonschema:"minimum=18"`
 }
 
-validator, _ := jsonschemaext.NewValidatorFromStruct(&User{})
+validator, _ := jsonschemaext.NewJSONSchemaValidatorFromStruct(&User{})
 ```
 
-`NewValidatorFromStruct` keeps the schema in sync with your Go type and still returns `ActionRetry` with detailed `Feedback` for invalid JSON or schema violations.
+`NewJSONSchemaValidatorFromStruct` keeps the schema in sync with your Go type and still returns `ActionRetry` with detailed `Feedback` for invalid JSON or schema violations.
+
+### Token Vault (Reversible Redaction)
+
+Use `TokenVault` when you need reversible redaction (`[GUARDY_TOKEN_...]`) and later restoration in model output:
+
+```go
+vault := ext.NewInMemoryTokenVault()
+piiV := ext.NewPIIValidator(
+	ext.WithAction(guardy.ActionRedact),
+	ext.WithTokenVault(vault),
+)
+result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, "email: a@b.com")
+restored := ext.UnredactText("model: "+result.Output, vault)
+```
+
+Built-in validators write namespaced canonical tokens such as `[GUARDY_TOKEN_PII_1]` and `[GUARDY_TOKEN_WORDLIST_1]` through `TokenVault.Store(namespace, original)`.
+
+### Multi-turn Adapter (MapSlice)
+
+Use `MapSlice` for BYOT message slices (`[]T`) without introducing framework-specific message types into guardy:
+
+```go
+type Msg struct{ Content string }
+base, _ := ext.NewRegexValidator(`(?i)secret`, ext.WithAction(guardy.ActionRedact))
+multi := ext.MapSlice(
+	func(m Msg) string { return m.Content },
+	func(m Msg, s string) Msg { m.Content = s; return m },
+	base,
+)
+```
+
+If any item returns `ActionBlock` or `ActionRetry`, `MapSlice` blocks the whole collection by default.
+
+### Telemetry (Optional `ext/guardyotel`)
+
+For OpenTelemetry integration without adding heavy deps to root module, use `github.com/skosovsky/guardy/ext/guardyotel`:
+
+```go
+import "github.com/skosovsky/guardy/ext/guardyotel"
+
+pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+pipeline = pipeline.Use(guardyotel.NewMiddleware[string](
+	guardyotel.WithIncludePayloads(false), // default secure mode
+))
+```
+
+Fast path exports counters/histograms; slow path emits spans. Raw payload capture is opt-in.
 
 ### Map (Lens adapter)
 
@@ -178,7 +226,7 @@ Use **Map[T,U]** to adapt `Validator[U]` to `Validator[T]` for domain structs:
 
 ```go
 type AgentState struct { Text string }
-regexV, _ := ext.NewRegex(`(?i)bad`, guardy.ActionRedact, "X", ext.WithRegexRedaction("[REDACTED]"))
+regexV, _ := ext.NewRegexValidator(`(?i)bad`, ext.WithAction(guardy.ActionRedact), ext.WithCode("X"), ext.WithRedactionReplacement("[REDACTED]"))
 v := guardy.Map(regexV, func(s *AgentState) string { return s.Text },
 	func(s *AgentState, t string) *AgentState { s.Text = t; return s })
 ```
@@ -212,11 +260,38 @@ guardytest.MustBlock(t, result.Decision())
 ## Packages
 
 - **guardy** — core types (Action, Report, Validator), Pipeline, SemanticValidator, LLMJudge, GuardWriter, Guard middleware, errors.
-- **guardy/ext** — TagSanitizer, PIIMasking, Wordlist, Regex, Length.
+- **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator.
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
+- **guardy/ext/guardyotel** — optional OTel middleware module (metrics + tracing).
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact.
 
-See [.cursor/docs/task7.md](.cursor/docs/task7.md) for the full technical specification.
+See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical specification.
+
+## v2 Migration Highlights
+
+- `Pipeline.Use(...)` is immutable and returns a new pipeline.
+- `Report` includes `Code` and typed `Severity`.
+- `StreamOption` was renamed to `GuardWriterOption`.
+- `PIIMasking` APIs were renamed to `PIIValidator` / `NewPIIValidator`.
+- `ext/jsonschema.NewValidatorFromStruct` was renamed to `NewJSONSchemaValidatorFromStruct`.
+- Built-in `ext` validators use options for common rule metadata (`WithAction`, `WithCode`, `WithSeverity`, `WithReason`, ...).
+
+## Wordlist Benchmark Evidence (Task9 DoD #3)
+
+Run the reproducible redact comparison benchmark:
+
+```bash
+go test -bench '^BenchmarkWordlist_Blocklist_Redact_BaselineComparison$' -benchmem ./ext -run '^$'
+```
+
+This benchmark includes:
+- `baseline_a16279e_runtime_compile`: frozen pre-v2 redact path copied from commit `a16279e` (runtime regex compile on each hit).
+- `v2_precompiled`: current v2 validator with precompiled matchers from constructor.
+
+Latest local run on this workspace (March 28, 2026):
+- `baseline_a16279e_runtime_compile`: `~197k ns/op`, `~234k B/op`, `~1678 allocs/op`
+- `v2_precompiled`: `~3.2k ns/op`, `~587 B/op`, `~15 allocs/op`
+- Throughput ratio: `~61x` faster for v2 on redact path.
 
 ## Development
 

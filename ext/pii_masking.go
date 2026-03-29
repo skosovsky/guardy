@@ -7,15 +7,13 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure PIIMasking implements guardy.Validator[string] at compile time.
-var _ guardy.Validator[string] = (*PIIMasking)(nil)
-
-// PIIMasking redacts PII (email, phone, credit card) using regex patterns.
-type PIIMasking struct {
-	patterns    []*regexp.Regexp
-	replacement string
-	name        string
+type piiValidator struct {
+	patterns []*regexp.Regexp
+	cfg      RuleConfig
 }
+
+// Ensure PII validator implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*piiValidator)(nil)
 
 // Common PII patterns (simplified; extend as needed).
 var (
@@ -24,61 +22,60 @@ var (
 	cardPattern  = regexp.MustCompile(`\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14})\b`)
 )
 
-// PIIMaskingOption configures PIIMasking.
-type PIIMaskingOption func(*PIIMasking)
+const defaultPIIValidatorName = "pii_validator"
 
-// WithPIIReplacement sets the replacement string (default "[REDACTED]").
-func WithPIIReplacement(s string) PIIMaskingOption {
-	return func(p *PIIMasking) {
-		p.replacement = s
+// NewPIIValidator creates a validator for common PII patterns (email, phone, card).
+func NewPIIValidator(opts ...Option) guardy.Validator[string] {
+	cfg := applyOptions(RuleConfig{
+		Action:               guardy.ActionRedact,
+		Severity:             guardy.SeverityHigh,
+		Name:                 defaultPIIValidatorName,
+		RedactionReplacement: "[REDACTED]",
+	}, opts...)
+	if cfg.Action != guardy.ActionBlock && cfg.Action != guardy.ActionRedact {
+		cfg.Action = guardy.ActionRedact
+	}
+	return &piiValidator{
+		patterns: []*regexp.Regexp{emailPattern, phonePattern, cardPattern},
+		cfg:      cfg,
 	}
 }
 
-// WithPIIName sets the validator name.
-func WithPIIName(name string) PIIMaskingOption {
-	return func(p *PIIMasking) {
-		p.name = name
+func (p *piiValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
+	if p.cfg.Action == guardy.ActionBlock {
+		for _, re := range p.patterns {
+			if re.MatchString(input) {
+				return input, violationReport(p.cfg, guardy.ActionBlock, "PII detected"), nil
+			}
+		}
+		return input, passReport(p.cfg), nil
 	}
-}
 
-// NewPIIMasking creates a validator that redacts email, phone, and credit card numbers.
-func NewPIIMasking(opts ...PIIMaskingOption) *PIIMasking {
-	p := &PIIMasking{
-		patterns:    []*regexp.Regexp{emailPattern, phonePattern, cardPattern},
-		replacement: "[REDACTED]",
-		name:        "pii_masking",
-	}
-	for _, opt := range opts {
-		opt(p)
-	}
-	return p
-}
-
-// Name returns the validator name.
-func (p *PIIMasking) Name() string {
-	if p.name != "" {
-		return p.name
-	}
-	return "pii_masking"
-}
-
-// Validate redacts PII in text and returns the mutated string.
-func (p *PIIMasking) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
 	out := input
 	changed := false
 	for _, re := range p.patterns {
+		if p.cfg.TokenVault != nil {
+			out = re.ReplaceAllStringFunc(out, func(match string) string {
+				changed = true
+				return storeTokenOrFallback(
+					p.cfg.TokenVault,
+					TokenNamespacePII,
+					match,
+					p.cfg.RedactionReplacement,
+				)
+			})
+			continue
+		}
 		if re.MatchString(out) {
-			out = re.ReplaceAllString(out, p.replacement)
 			changed = true
 		}
+		out = re.ReplaceAllString(out, p.cfg.RedactionReplacement)
 	}
-	if changed {
-		return out, &guardy.Report{
-			Action:      guardy.ActionRedact,
-			Validator:   p.name,
-			Reason:      "PII detected",
-			MutatedText: out,
-		}, nil
+	if !changed {
+		return input, passReport(p.cfg), nil
 	}
-	return input, &guardy.Report{Action: guardy.ActionPass, Validator: p.name}, nil
+
+	rep := violationReport(p.cfg, guardy.ActionRedact, "PII detected")
+	rep.MutatedText = out
+	return out, rep, nil
 }

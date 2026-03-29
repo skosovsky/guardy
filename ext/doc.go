@@ -4,9 +4,10 @@
 // patterns and lists are supplied at construction time.
 //
 // Available validators:
-//   - TagSanitizer: WAF-style block on system XML tags
-//   - PIIMasking: redact email, phone, credit card
-//   - Regex: match or replace text using regular expressions
-//   - Wordlist: blocklist or allowlist by tokens (words)
-//   - Length: min/max rune length
+//   - TagSanitizerValidator: WAF-style block on system XML tags
+//   - PIIValidator: redact or block email, phone, credit card
+//   - RegexValidator: match or replace text using regular expressions
+//   - WordlistValidator: blocklist or allowlist by tokens (words)
+//   - LengthValidator: min/max rune length
+//   - MLValidator: fast-path contract for local classifiers
 package ext

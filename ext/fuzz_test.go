@@ -3,12 +3,10 @@ package ext
 import (
 	"context"
 	"testing"
-
-	"github.com/skosovsky/guardy"
 )
 
 func FuzzRegex(f *testing.F) {
-	r, err := NewRegex(`\b(inject|ignore)\b`, guardy.ActionBlock, "INJECT")
+	r, err := NewRegexValidator(`\b(inject|ignore)\b`, WithCode("INJECT"))
 	if err != nil {
 		f.Fatal(err)
 	}

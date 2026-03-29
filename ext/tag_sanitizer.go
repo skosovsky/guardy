@@ -7,23 +7,21 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure TagSanitizer implements guardy.Validator[string] at compile time.
-var _ guardy.Validator[string] = (*TagSanitizer)(nil)
-
-// TagSanitizer is a WAF-style validator that blocks on system XML tag injection attempts
-// (e.g. <system>, </system>, case-insensitive with optional whitespace).
-type TagSanitizer struct {
-	re   *regexp.Regexp
-	name string
+type tagSanitizerValidator struct {
+	re  *regexp.Regexp
+	cfg RuleConfig
 }
 
-// DefaultTagPattern matches common system/prompt injection tags.
-// Includes <system ...> with attributes to prevent bypass via e.g. <system role="x">.
-var DefaultTagPattern = `(?i)<\s*system\b[^>]*>|<\s*/\s*system\s*>`
+// Ensure tag sanitizer implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*tagSanitizerValidator)(nil)
 
-// NewTagSanitizer creates a validator that blocks when the pattern matches.
-// If pattern is empty, DefaultTagPattern is used.
-func NewTagSanitizer(pattern string) (*TagSanitizer, error) {
+// DefaultTagPattern matches common system/prompt injection tags.
+const DefaultTagPattern = `(?i)<\s*system\b[^>]*>|<\s*/\s*system\s*>`
+
+const defaultTagSanitizerName = "tag_sanitizer_validator"
+
+// NewTagSanitizerValidator creates a validator that blocks on tag pattern match.
+func NewTagSanitizerValidator(pattern string, opts ...Option) (guardy.Validator[string], error) {
 	if pattern == "" {
 		pattern = DefaultTagPattern
 	}
@@ -31,34 +29,27 @@ func NewTagSanitizer(pattern string) (*TagSanitizer, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &TagSanitizer{re: re, name: "tag_sanitizer"}, nil
+	cfg := applyOptions(RuleConfig{
+		Action:   guardy.ActionBlock,
+		Severity: guardy.SeverityHigh,
+		Name:     defaultTagSanitizerName,
+	}, opts...)
+	cfg.Action = guardy.ActionBlock
+	return &tagSanitizerValidator{re: re, cfg: cfg}, nil
 }
 
-// MustTagSanitizer is like NewTagSanitizer but panics on invalid pattern.
-func MustTagSanitizer(pattern string) *TagSanitizer {
-	t, err := NewTagSanitizer(pattern)
+// MustTagSanitizerValidator is like NewTagSanitizerValidator but panics on invalid pattern.
+func MustTagSanitizerValidator(pattern string, opts ...Option) guardy.Validator[string] {
+	v, err := NewTagSanitizerValidator(pattern, opts...)
 	if err != nil {
 		panic(err)
 	}
-	return t
+	return v
 }
 
-// Name returns the validator name.
-func (t *TagSanitizer) Name() string {
-	if t.name != "" {
-		return t.name
-	}
-	return "tag_sanitizer"
-}
-
-// Validate blocks when system tags are found.
-func (t *TagSanitizer) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
+func (t *tagSanitizerValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
 	if t.re.MatchString(input) {
-		return input, &guardy.Report{
-			Action:    guardy.ActionBlock,
-			Validator: t.name,
-			Reason:    "system tag injection attempt",
-		}, nil
+		return input, violationReport(t.cfg, guardy.ActionBlock, "system tag injection attempt"), nil
 	}
-	return input, &guardy.Report{Action: guardy.ActionPass, Validator: t.name}, nil
+	return input, passReport(t.cfg), nil
 }

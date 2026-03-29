@@ -2,7 +2,7 @@
 // intervention actions (pass, block, redact, retry), and two-phase execution
 // (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
 //
-// See .cursor/docs/task7.md for the technical specification.
+// See .cursor/docs/task9.md for the v2 technical specification.
 package guardy
 
 // Action is the intervention outcome from a validator or pipeline.
@@ -32,17 +32,50 @@ const (
 	ActionRetry                // Orchestrator should retry with Feedback (e.g. LLM correction)
 )
 
+// Severity describes risk/importance of a rule hit.
+// It is string-based for interoperability while still supporting typed constants.
+type Severity string
+
+// Canonical severity values for built-in validators and telemetry.
+const (
+	SeverityLow      Severity = "low"
+	SeverityMedium   Severity = "medium"
+	SeverityHigh     Severity = "high"
+	SeverityCritical Severity = "critical"
+)
+
 // Report is the single result returned by a validator or the pipeline.
 // It maps to metry/security attributes for telemetry.
 // When Action == ActionRetry, Feedback contains the message for the LLM/orchestrator.
 type Report struct {
-	Action      Action  // ActionPass, ActionBlock, ActionRedact, ActionRetry
-	Validator   string  // Name of the validator that produced this report (e.g. "pii_masking")
-	Reason      string  // Human-readable reason
-	Feedback    string  // Message for LLM retry (when Action == ActionRetry)
-	Score       float64 // Confidence or distance (optional)
-	ShadowMode  bool    // If true, block was logged but did not stop the pipeline
-	MutatedText string  // Text after redaction (when Action == ActionRedact)
+	Action      Action   // ActionPass, ActionBlock, ActionRedact, ActionRetry
+	Validator   string   // Name of the validator that produced this report
+	Code        string   // Machine-readable rule code (for alerting/telemetry)
+	Severity    Severity // Risk level for the report
+	Reason      string   // Human-readable reason
+	Feedback    string   // Message for LLM retry (when Action == ActionRetry)
+	Score       float64  // Confidence or distance (optional)
+	ShadowMode  bool     // If true, block was logged but did not stop the pipeline
+	MutatedText string   // Text after redaction (when Action == ActionRedact)
+}
+
+// Clone returns a shallow copy of report.
+func (r *Report) Clone() *Report {
+	if r == nil {
+		return nil
+	}
+	cp := *r
+	return &cp
+}
+
+// CloneWithoutState returns a copy without input-specific runtime state.
+func (r *Report) CloneWithoutState() *Report {
+	cp := r.Clone()
+	if cp == nil {
+		return nil
+	}
+	cp.MutatedText = ""
+	return cp
 }
 
 // RunResult holds the output and all reports from Pipeline.Run.
@@ -52,7 +85,7 @@ type RunResult[T any] struct {
 }
 
 // Decision returns the report that determines the pipeline outcome.
-// Priority (per task7): Block > Retry > (last Redact) > (last Pass).
+// Priority (per task9): Block > Retry > (last Redact) > (last Pass).
 // Reports order is nondeterministic in slow path; must scan entire slice.
 func (r *RunResult[T]) Decision() *Report {
 	var block, retry, lastRedact, lastPass *Report

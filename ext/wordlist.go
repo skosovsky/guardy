@@ -3,13 +3,11 @@ package ext
 import (
 	"context"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/skosovsky/guardy"
 )
-
-// Ensure Wordlist implements guardy.Validator[string] at compile time.
-var _ guardy.Validator[string] = (*Wordlist)(nil)
 
 // WordlistMode defines whether the list is a blocklist or allowlist.
 type WordlistMode int
@@ -20,185 +18,160 @@ const (
 	Allowlist                     // Block when any word is not in the list
 )
 
-// Wordlist checks text against a set of words; returns block or redact per configuration.
-type Wordlist struct {
-	words             map[string]struct{}
-	mode              WordlistMode
-	action            guardy.Action // ActionBlock or ActionRedact
-	code              string
-	name              string
-	lowercase         bool
-	redactReplacement string
+type wordlistValidator struct {
+	words            map[string]struct{}
+	mode             WordlistMode
+	cfg              RuleConfig
+	blocklistReplace *regexp.Regexp
 }
 
-// WordlistOption configures a Wordlist validator.
-type WordlistOption func(*Wordlist)
+// Ensure wordlist validator implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*wordlistValidator)(nil)
 
-// WithWordlistName sets the validator name (default "wordlist").
-func WithWordlistName(name string) WordlistOption {
-	return func(w *Wordlist) {
-		w.name = name
-	}
-}
-
-// WithWordlistLowercase normalizes text and words to lowercase before matching.
-func WithWordlistLowercase(lower bool) WordlistOption {
-	return func(w *Wordlist) {
-		w.lowercase = lower
-	}
-}
-
-// WithWordlistRedaction sets the replacement for redact mode (default "[REDACTED]").
-func WithWordlistRedaction(replacement string) WordlistOption {
-	return func(w *Wordlist) {
-		w.redactReplacement = replacement
-	}
-}
-
-// NewWordlist creates a blocklist or allowlist validator.
-// action must be guardy.ActionBlock or guardy.ActionRedact; for redact use WithWordlistRedaction or default "[REDACTED]".
-func NewWordlist(words []string, mode WordlistMode, action guardy.Action, code string, opts ...WordlistOption) *Wordlist {
-	set := make(map[string]struct{}, len(words))
-	for _, w := range words {
-		set[w] = struct{}{}
-	}
-	wl := &Wordlist{
-		words:             set,
-		mode:              mode,
-		action:            action,
-		code:              code,
-		name:              "wordlist",
-		redactReplacement: "[REDACTED]",
-	}
-	for _, opt := range opts {
-		opt(wl)
-	}
-	if wl.lowercase {
-		newSet := make(map[string]struct{}, len(set))
-		for k := range set {
-			newSet[strings.ToLower(k)] = struct{}{}
-		}
-		wl.words = newSet
-	}
-	return wl
-}
-
-// Name returns the validator name.
-func (w *Wordlist) Name() string {
-	if w.name != "" {
-		return w.name
-	}
-	return "wordlist"
-}
-
-// Validate checks text against the word list and returns Report.
-func (w *Wordlist) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
-	run := input
-	if w.lowercase {
-		run = strings.ToLower(input)
-	}
-	tokens := tokenize(run)
-	switch w.mode {
-	case Blocklist:
-		for _, t := range tokens {
-			if _, ok := w.words[t]; ok {
-				if w.action == guardy.ActionRedact && w.redactReplacement != "" {
-					clean := replaceWordsInText(input, w.words, w.redactReplacement, w.lowercase)
-					return clean, &guardy.Report{
-						Action:      guardy.ActionRedact,
-						Validator:   w.name,
-						Reason:      "blocklisted word found",
-						MutatedText: clean,
-					}, nil
-				}
-				return input, &guardy.Report{
-					Action:    guardy.ActionBlock,
-					Validator: w.name,
-					Reason:    "blocklisted word found",
-				}, nil
-			}
-		}
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
-	case Allowlist:
-		if len(tokens) == 0 {
-			if w.action == guardy.ActionRedact {
-				return w.redactReplacement, &guardy.Report{
-					Action:      guardy.ActionRedact,
-					Validator:   w.name,
-					Reason:      "no tokens",
-					MutatedText: w.redactReplacement,
-				}, nil
-			}
-			return input, &guardy.Report{Action: guardy.ActionBlock, Validator: w.name, Reason: "no tokens"}, nil
-		}
-		for _, t := range tokens {
-			if _, ok := w.words[t]; !ok {
-				if w.action == guardy.ActionRedact {
-					clean := replaceAllowlistViolations(input, w.words, w.redactReplacement, w.lowercase)
-					return clean, &guardy.Report{
-						Action:      guardy.ActionRedact,
-						Validator:   w.name,
-						Reason:      "word not in allowlist",
-						MutatedText: clean,
-					}, nil
-				}
-				return input, &guardy.Report{
-					Action:    guardy.ActionBlock,
-					Validator: w.name,
-					Reason:    "word not in allowlist",
-				}, nil
-			}
-		}
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
-	default:
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: w.name}, nil
-	}
-}
+const defaultWordlistValidatorName = "wordlist_validator"
 
 // wordBoundaryRE matches sequences of word chars (letters, digits, underscore).
 var wordBoundaryRE = regexp.MustCompile(`\b[\p{L}\p{N}_]+\b`)
 
-// tokenize extracts words (sequences bounded by non-word chars) to prevent punctuation bypass.
-func tokenize(s string) []string {
-	matches := wordBoundaryRE.FindAllString(s, -1)
-	return matches
+// NewWordlistValidator creates a blocklist or allowlist validator.
+func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) guardy.Validator[string] {
+	cfg := applyOptions(RuleConfig{
+		Action:               guardy.ActionBlock,
+		Severity:             guardy.SeverityHigh,
+		Name:                 defaultWordlistValidatorName,
+		RedactionReplacement: "[REDACTED]",
+	}, opts...)
+	if cfg.Action != guardy.ActionRedact {
+		cfg.Action = guardy.ActionBlock
+	}
+
+	set := make(map[string]struct{}, len(words))
+	for _, w := range words {
+		key := w
+		if cfg.Lowercase {
+			key = strings.ToLower(key)
+		}
+		set[key] = struct{}{}
+	}
+
+	var blocklistRE *regexp.Regexp
+	if mode == Blocklist && cfg.Action == guardy.ActionRedact && len(set) > 0 {
+		blocklistRE = compileWordAlternation(set, cfg.Lowercase)
+	}
+
+	return &wordlistValidator{
+		words:            set,
+		mode:             mode,
+		cfg:              cfg,
+		blocklistReplace: blocklistRE,
+	}
 }
 
-// replaceWordsInText replaces blocklisted words with replacement, preserving formatting and punctuation.
-func replaceWordsInText(text string, words map[string]struct{}, replacement string, lowercase bool) string {
-	if len(words) == 0 {
-		return text
+func (w *wordlistValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
+	run := input
+	if w.cfg.Lowercase {
+		run = strings.ToLower(input)
 	}
-	// Build \b(word1|word2|...)\b pattern with escaped words.
-	var parts []string
+	tokens := tokenize(run)
+
+	switch w.mode {
+	case Blocklist:
+		for _, t := range tokens {
+			if _, ok := w.words[t]; ok {
+				if w.cfg.Action == guardy.ActionRedact {
+					clean := w.redactBlocklist(input)
+					rep := violationReport(w.cfg, guardy.ActionRedact, "blocklisted word found")
+					rep.MutatedText = clean
+					return clean, rep, nil
+				}
+				return input, violationReport(w.cfg, guardy.ActionBlock, "blocklisted word found"), nil
+			}
+		}
+		return input, passReport(w.cfg), nil
+	case Allowlist:
+		if len(tokens) == 0 {
+			if w.cfg.Action == guardy.ActionRedact {
+				clean := w.cfg.RedactionReplacement
+				rep := violationReport(w.cfg, guardy.ActionRedact, "no tokens")
+				rep.MutatedText = clean
+				return clean, rep, nil
+			}
+			return input, violationReport(w.cfg, guardy.ActionBlock, "no tokens"), nil
+		}
+		for _, t := range tokens {
+			if _, ok := w.words[t]; !ok {
+				if w.cfg.Action == guardy.ActionRedact {
+					clean := w.redactAllowlist(input)
+					rep := violationReport(w.cfg, guardy.ActionRedact, "word not in allowlist")
+					rep.MutatedText = clean
+					return clean, rep, nil
+				}
+				return input, violationReport(w.cfg, guardy.ActionBlock, "word not in allowlist"), nil
+			}
+		}
+		return input, passReport(w.cfg), nil
+	default:
+		return input, passReport(w.cfg), nil
+	}
+}
+
+// tokenize extracts words (sequences bounded by non-word chars) to prevent punctuation bypass.
+func tokenize(s string) []string {
+	return wordBoundaryRE.FindAllString(s, -1)
+}
+
+func compileWordAlternation(words map[string]struct{}, caseInsensitive bool) *regexp.Regexp {
+	parts := make([]string, 0, len(words))
 	for w := range words {
 		parts = append(parts, regexp.QuoteMeta(w))
 	}
+	sort.Strings(parts)
 	pat := `\b(` + strings.Join(parts, "|") + `)\b`
-	if lowercase {
+	if caseInsensitive {
 		pat = `(?i)` + pat
 	}
 	re, err := regexp.Compile(pat)
 	if err != nil {
-		return text
+		return nil
 	}
-	return re.ReplaceAllString(text, replacement)
+	return re
 }
 
-// replaceAllowlistViolations replaces words not in allowlist, preserving formatting.
-func replaceAllowlistViolations(text string, words map[string]struct{}, replacement string, lowercase bool) string {
-	tokens := tokenize(text)
-	if len(tokens) == 0 {
-		return replacement
+func (w *wordlistValidator) redactBlocklist(text string) string {
+	replacement := w.cfg.RedactionReplacement
+	if w.blocklistReplace == nil {
+		return text
 	}
-	allowedPat := regexp.MustCompile(`\b[\p{L}\p{N}_]+\b`)
-	return allowedPat.ReplaceAllStringFunc(text, func(m string) string {
-		key := m
-		if lowercase {
-			key = strings.ToLower(m)
+	if w.cfg.TokenVault == nil {
+		return w.blocklistReplace.ReplaceAllString(text, replacement)
+	}
+	return w.blocklistReplace.ReplaceAllStringFunc(text, func(match string) string {
+		return storeTokenOrFallback(
+			w.cfg.TokenVault,
+			TokenNamespaceWordlist,
+			match,
+			replacement,
+		)
+	})
+}
+
+func (w *wordlistValidator) redactAllowlist(text string) string {
+	replacement := w.cfg.RedactionReplacement
+	return wordBoundaryRE.ReplaceAllStringFunc(text, func(match string) string {
+		key := match
+		if w.cfg.Lowercase {
+			key = strings.ToLower(match)
 		}
-		if _, ok := words[key]; ok {
-			return m
+		if _, ok := w.words[key]; ok {
+			return match
+		}
+		if w.cfg.TokenVault != nil {
+			return storeTokenOrFallback(
+				w.cfg.TokenVault,
+				TokenNamespaceWordlist,
+				match,
+				replacement,
+			)
 		}
 		return replacement
 	})

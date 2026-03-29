@@ -5,6 +5,7 @@ package jsonschema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/xeipuuv/gojsonschema"
 
 	"github.com/skosovsky/guardy"
+	"github.com/skosovsky/guardy/ext"
 )
 
 // Ensure JSONSchemaValidator implements guardy.Validator[string] at compile time.
@@ -24,46 +26,51 @@ var _ guardy.Validator[string] = (*JSONSchemaValidator)(nil)
 //nolint:revive // keep the public type name stable for backward compatibility.
 type JSONSchemaValidator struct {
 	schema *gojsonschema.Schema
-	name   string
+	cfg    ext.RuleConfig
 }
 
-// Option configures JSONSchemaValidator.
-type Option func(*JSONSchemaValidator)
+const (
+	defaultJSONSchemaValidatorName = "jsonschema"
+	jsonInvalidCode                = "JSON_INVALID"
+	jsonSchemaInvalidCode          = "JSON_SCHEMA_INVALID"
+)
+
+// Option configures JSONSchemaValidator using shared ext validator options.
+type Option = ext.Option
 
 // WithJSONSchemaName sets the validator name (default "jsonschema").
 func WithJSONSchemaName(name string) Option {
-	return func(j *JSONSchemaValidator) {
-		j.name = name
-	}
+	return ext.WithName(name)
 }
 
 // NewJSONSchemaValidator creates a validator from a JSON Schema string.
 // The schema is compiled once at creation time.
 func NewJSONSchemaValidator(schema string, opts ...Option) (*JSONSchemaValidator, error) {
+	cfg, err := buildConfig(opts...)
+	if err != nil {
+		return nil, err
+	}
+
 	loader := gojsonschema.NewStringLoader(schema)
 	s, err := gojsonschema.NewSchema(loader)
 	if err != nil {
 		return nil, fmt.Errorf("jsonschema: compile schema: %w", err)
 	}
-	j := &JSONSchemaValidator{schema: s, name: "jsonschema"}
-	for _, opt := range opts {
-		opt(j)
-	}
-	return j, nil
+	return &JSONSchemaValidator{schema: s, cfg: cfg}, nil
 }
 
-// NewValidatorFromStruct generates a JSON schema from the provided Go struct
+// NewJSONSchemaValidatorFromStruct generates a JSON schema from the provided Go struct
 // and returns a Validator that enforces this schema.
-func NewValidatorFromStruct(v any) (*JSONSchemaValidator, error) {
+func NewJSONSchemaValidatorFromStruct(v any, opts ...Option) (*JSONSchemaValidator, error) {
 	if v == nil {
-		return nil, fmt.Errorf("jsonschema: expected struct or *struct, got nil")
+		return nil, errors.New("jsonschema: expected struct or *struct, got nil")
 	}
 
 	t := reflect.TypeOf(v)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		value := reflect.ValueOf(v)
 		if value.IsNil() {
-			return nil, fmt.Errorf("jsonschema: expected struct or *struct, got nil pointer")
+			return nil, errors.New("jsonschema: expected struct or *struct, got nil pointer")
 		}
 		t = t.Elem()
 	}
@@ -77,7 +84,34 @@ func NewValidatorFromStruct(v any) (*JSONSchemaValidator, error) {
 		return nil, fmt.Errorf("jsonschema: marshal generated schema: %w", err)
 	}
 
-	return NewJSONSchemaValidator(string(schemaBytes))
+	return NewJSONSchemaValidator(string(schemaBytes), opts...)
+}
+
+func buildConfig(opts ...Option) (ext.RuleConfig, error) {
+	cfg := ext.RuleConfig{
+		Action:   guardy.ActionRetry,
+		Severity: guardy.SeverityMedium,
+		Name:     defaultJSONSchemaValidatorName,
+	}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.Action != guardy.ActionRetry {
+		return ext.RuleConfig{}, fmt.Errorf(
+			"jsonschema: unsupported action %q: only retry is supported",
+			cfg.Action.String(),
+		)
+	}
+	if cfg.Lowercase {
+		return ext.RuleConfig{}, errors.New("jsonschema: WithLowercase is not supported")
+	}
+	if cfg.RedactionReplacement != "" {
+		return ext.RuleConfig{}, errors.New("jsonschema: WithRedactionReplacement is not supported")
+	}
+	if cfg.TokenVault != nil {
+		return ext.RuleConfig{}, errors.New("jsonschema: WithTokenVault is not supported")
+	}
+	return cfg, nil
 }
 
 // Validate checks that input is valid JSON conforming to the schema.
@@ -88,12 +122,15 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 	}
 
 	var doc any
-	if err := json.Unmarshal([]byte(input), &doc); err != nil {
+	if unmarshalErr := json.Unmarshal([]byte(input), &doc); unmarshalErr != nil {
+		//nolint:nilerr // parse failure is surfaced as ActionRetry + Feedback, not as error
 		return input, &guardy.Report{
 			Action:    guardy.ActionRetry,
-			Validator: j.name,
+			Validator: j.cfg.Name,
+			Code:      jsonInvalidCode,
+			Severity:  j.cfg.Severity,
 			Reason:    "invalid JSON",
-			Feedback:  err.Error(),
+			Feedback:  unmarshalErr.Error(),
 		}, nil
 	}
 
@@ -103,7 +140,12 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 		return input, nil, fmt.Errorf("jsonschema: validate: %w", err)
 	}
 	if result.Valid() {
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: j.name}, nil
+		return input, &guardy.Report{
+			Action:    guardy.ActionPass,
+			Validator: j.cfg.Name,
+			Code:      j.cfg.Code,
+			Severity:  j.cfg.Severity,
+		}, nil
 	}
 	var sb strings.Builder
 	for _, e := range result.Errors() {
@@ -113,10 +155,20 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 		sb.WriteString(e.String())
 	}
 	feedback := sb.String()
+	code := j.cfg.Code
+	if code == "" {
+		code = jsonSchemaInvalidCode
+	}
+	reason := "schema validation failed"
+	if j.cfg.Reason != "" {
+		reason = j.cfg.Reason
+	}
 	return input, &guardy.Report{
 		Action:    guardy.ActionRetry,
-		Validator: j.name,
-		Reason:    "schema validation failed",
+		Validator: j.cfg.Name,
+		Code:      code,
+		Severity:  j.cfg.Severity,
+		Reason:    reason,
 		Feedback:  feedback,
 	}, nil
 }

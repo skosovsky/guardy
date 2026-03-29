@@ -43,7 +43,7 @@ func TestFailingValidator(t *testing.T) {
 	v := FailingValidator("fail", e)
 	ctx := context.Background()
 	_, _, err := v.Validate(ctx, "any")
-	if err != e {
+	if !errors.Is(err, e) {
 		t.Errorf("err = %v", err)
 	}
 }

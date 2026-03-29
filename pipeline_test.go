@@ -137,7 +137,13 @@ func TestPipeline_FastPath_RedactKeepsValidatorAfterSubsequentPass(t *testing.T)
 	redactor := &fakeValidator{
 		name: "redactor",
 		validate: func(_ context.Context, _ string) (string, *Report, error) {
-			return "clean", &Report{Action: ActionRedact, Validator: "redactor", Reason: "mutated", MutatedText: "clean"}, nil
+			rep := &Report{
+				Action:      ActionRedact,
+				Validator:   "redactor",
+				Reason:      "mutated",
+				MutatedText: "clean",
+			}
+			return "clean", rep, nil
 		},
 	}
 	passer := &fakeValidator{
@@ -227,7 +233,7 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 		},
 	}
 	p := NewPipeline(
-		WithObserver[string](func(ctx context.Context, rep *Report) {
+		WithObserver[string](func(ctx context.Context, _ *Report) {
 			if ctx == nil {
 				t.Error("observer must receive non-nil context")
 			}
@@ -253,7 +259,13 @@ func TestPipeline_WordlistRedact(t *testing.T) {
 		name: "wordlist",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			if text == "hello spam world" {
-				return "hello [REDACTED] world", &Report{Action: ActionRedact, Validator: "wordlist", MutatedText: "hello [REDACTED] world"}, nil
+				out := "hello [REDACTED] world"
+				rep := &Report{
+					Action:      ActionRedact,
+					Validator:   "wordlist",
+					MutatedText: out,
+				}
+				return out, rep, nil
 			}
 			return text, &Report{Action: ActionPass, Validator: "wordlist"}, nil
 		},
@@ -294,7 +306,7 @@ func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
 	var runCount atomic.Int32
 	v1 := &fakeValidator{
 		name: "v1",
-		validate: func(ctx context.Context, t string) (string, *Report, error) {
+		validate: func(ctx context.Context, _ string) (string, *Report, error) {
 			runCount.Add(1)
 			<-ctx.Done()
 			return "", nil, ctx.Err()
@@ -414,7 +426,7 @@ func TestPipeline_MiddlewareOrder(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	p.Use(outer, inner)
+	p = p.Use(outer, inner)
 	_, err := p.Run(context.Background(), "x")
 	if err != nil {
 		t.Fatal(err)
@@ -459,5 +471,77 @@ func TestRunResult_Decision_BlockOverRetry(t *testing.T) {
 	r4 := RunResult[string]{Output: "x", Reports: []Report{shadowBlock, retryRep}}
 	if got := r4.Decision(); got.Action != ActionRetry {
 		t.Errorf("Decision(ShadowBlock,Retry) = %v, want Retry (shadow block ignored)", got)
+	}
+}
+
+func TestPipeline_UseImmutable(t *testing.T) {
+	v := &fakeValidator{
+		name: "v",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "v"}, nil
+		},
+	}
+	var mwCalls atomic.Int32
+	mw := func(next Validator[string]) Validator[string] {
+		return ValidatorFunc[string](func(ctx context.Context, s string) (string, *Report, error) {
+			mwCalls.Add(1)
+			return next.Validate(ctx, s)
+		})
+	}
+
+	original := NewPipeline(WithFastPath(v))
+	derived := original.Use(mw)
+
+	if original == derived {
+		t.Fatal("Use must return a new pipeline instance")
+	}
+
+	if _, err := original.Run(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mwCalls.Load(); got != 0 {
+		t.Fatalf("middleware calls for original pipeline = %d, want 0", got)
+	}
+
+	if _, err := derived.Run(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if got := mwCalls.Load(); got != 1 {
+		t.Fatalf("middleware calls after derived pipeline run = %d, want 1", got)
+	}
+}
+
+func TestPipeline_PhaseContext(t *testing.T) {
+	var fastSeen, slowSeen atomic.Bool
+	fastV := &fakeValidator{
+		name: "fast",
+		validate: func(ctx context.Context, text string) (string, *Report, error) {
+			phase, ok := ValidationPhaseFromContext(ctx)
+			if ok && phase == ValidationPhaseFast {
+				fastSeen.Store(true)
+			}
+			return text, &Report{Action: ActionPass, Validator: "fast"}, nil
+		},
+	}
+	slowV := &fakeValidator{
+		name: "slow",
+		validate: func(ctx context.Context, text string) (string, *Report, error) {
+			phase, ok := ValidationPhaseFromContext(ctx)
+			if ok && phase == ValidationPhaseSlow {
+				slowSeen.Store(true)
+			}
+			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
+		},
+	}
+
+	p := NewPipeline(WithFastPath(fastV), WithSlowPath(slowV))
+	if _, err := p.Run(context.Background(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	if !fastSeen.Load() {
+		t.Fatal("fast phase context was not set")
+	}
+	if !slowSeen.Load() {
+		t.Fatal("slow phase context was not set")
 	}
 }

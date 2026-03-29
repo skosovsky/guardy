@@ -7,85 +7,56 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-// Ensure Regex implements guardy.Validator[string] at compile time.
-var _ guardy.Validator[string] = (*Regex)(nil)
-
-// Regex matches text against a regular expression; on match returns block or redact (if placeholder set).
-type Regex struct {
-	re          *regexp.Regexp
-	action      guardy.Action
-	code        string
-	placeholder string
-	name        string
+type regexValidator struct {
+	re  *regexp.Regexp
+	cfg RuleConfig
 }
 
-// RegexOption configures a Regex validator.
-type RegexOption func(*Regex)
+// Ensure regex validator implements guardy.Validator[string] at compile time.
+var _ guardy.Validator[string] = (*regexValidator)(nil)
 
-// WithRegexRedaction sets the replacement for matches; when set, validator returns ActionRedact with MutatedText.
-func WithRegexRedaction(replacement string) RegexOption {
-	return func(r *Regex) {
-		r.placeholder = replacement
-	}
-}
+const defaultRegexValidatorName = "regex_validator"
 
-// WithRegexName sets the validator name (default "regex").
-func WithRegexName(name string) RegexOption {
-	return func(r *Regex) {
-		r.name = name
-	}
-}
-
-// NewRegex creates a validator that matches pattern. action is used when placeholder is not set (block).
-func NewRegex(pattern string, action guardy.Action, code string, opts ...RegexOption) (*Regex, error) {
+// NewRegexValidator creates a regex validator.
+func NewRegexValidator(pattern string, opts ...Option) (guardy.Validator[string], error) {
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	r := &Regex{re: re, action: action, code: code, name: "regex"}
-	for _, opt := range opts {
-		opt(r)
+	cfg := applyOptions(RuleConfig{
+		Action:               guardy.ActionBlock,
+		Severity:             guardy.SeverityHigh,
+		Name:                 defaultRegexValidatorName,
+		RedactionReplacement: "[REDACTED]",
+	}, opts...)
+	if cfg.Action != guardy.ActionRedact {
+		cfg.Action = guardy.ActionBlock
 	}
-	return r, nil
+	return &regexValidator{re: re, cfg: cfg}, nil
 }
 
-// MustRegex is like NewRegex but panics on invalid pattern.
-func MustRegex(pattern string, action guardy.Action, code string, opts ...RegexOption) *Regex {
-	r, err := NewRegex(pattern, action, code, opts...)
+// MustRegexValidator is like NewRegexValidator but panics on invalid pattern.
+func MustRegexValidator(pattern string, opts ...Option) guardy.Validator[string] {
+	v, err := NewRegexValidator(pattern, opts...)
 	if err != nil {
 		panic(err)
 	}
-	return r
+	return v
 }
 
-// Name returns the validator name.
-func (r *Regex) Name() string {
-	if r.name != "" {
-		return r.name
-	}
-	return "regex"
-}
-
-// Validate runs the regex against text. Uses single ReplaceAllString pass when placeholder is set to avoid double regex scan.
-func (r *Regex) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
-	if r.placeholder != "" {
-		clean := r.re.ReplaceAllString(input, r.placeholder)
+func (r *regexValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
+	if r.cfg.Action == guardy.ActionRedact {
+		clean := r.re.ReplaceAllString(input, r.cfg.RedactionReplacement)
 		if clean == input {
-			return input, &guardy.Report{Action: guardy.ActionPass, Validator: r.name}, nil
+			return input, passReport(r.cfg), nil
 		}
-		return clean, &guardy.Report{
-			Action:      guardy.ActionRedact,
-			Validator:   r.name,
-			Reason:      "pattern matched",
-			MutatedText: clean,
-		}, nil
+		rep := violationReport(r.cfg, guardy.ActionRedact, "pattern matched")
+		rep.MutatedText = clean
+		return clean, rep, nil
 	}
+
 	if !r.re.MatchString(input) {
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: r.name}, nil
+		return input, passReport(r.cfg), nil
 	}
-	return input, &guardy.Report{
-		Action:    r.action,
-		Validator: r.name,
-		Reason:    "pattern matched",
-	}, nil
+	return input, violationReport(r.cfg, guardy.ActionBlock, "pattern matched"), nil
 }

@@ -18,9 +18,8 @@ type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 // Pipeline orchestrates the execution of multiple Validators.
 //
 // THREAD SAFETY:
-// A Pipeline is safe for concurrent use (for example, calling Run from multiple goroutines)
-// only after it has been fully configured. Configuration methods such as Use mutate internal
-// cached chains and must not be called concurrently with Run.
+// A Pipeline is safe for concurrent use.
+// Configuration method Use returns a new instance and never mutates the original pipeline.
 type Pipeline[T any] struct {
 	fastPath    []Validator[T]
 	slowPath    []Validator[T]
@@ -56,15 +55,17 @@ func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
 	}
 }
 
-// Use appends middleware to the pipeline and rebuilds cached wrapped chains.
-// This method mutates the pipeline state and is not thread-safe.
-// Call it during initialization before the pipeline is executed concurrently.
-// The pipeline is returned to support fluent builder-style configuration.
+// Use appends middleware and returns a new immutable pipeline instance.
+// The original pipeline is not modified.
 func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
-	p.middlewares = append(p.middlewares, mw...)
-	p.fastPathWrapped = p.wrapAll(p.fastPath)
-	p.slowPathWrapped = p.wrapAll(p.slowPath)
-	return p
+	if len(mw) == 0 {
+		return p
+	}
+	next := p.clone()
+	next.middlewares = append(next.middlewares, mw...)
+	next.fastPathWrapped = next.wrapAll(next.fastPath)
+	next.slowPathWrapped = next.wrapAll(next.slowPath)
+	return next
 }
 
 // fastChain returns validators for phase 1 (cached if middlewares applied, else raw).
@@ -98,6 +99,18 @@ func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
 	return out
 }
 
+func (p *Pipeline[T]) clone() *Pipeline[T] {
+	next := &Pipeline[T]{
+		observer:    p.observer,
+		fastPath:    append([]Validator[T](nil), p.fastPath...),
+		slowPath:    append([]Validator[T](nil), p.slowPath...),
+		middlewares: append([]ValidatorMiddleware[T](nil), p.middlewares...),
+	}
+	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
+	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
+	return next
+}
+
 // NewPipeline builds a pipeline from options.
 func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
 	p := &Pipeline[T]{}
@@ -109,18 +122,21 @@ func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
 
 // Run executes the pipeline. Block and Retry short-circuit immediately.
 // Returns RunResult with Output and all Reports for telemetry.
+//
+//nolint:funlen,gocognit,gocyclo,cyclop // single orchestration function; splitting would obscure phase flow
 func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 	var zero RunResult[T]
 	var reports []Report
 
 	// Phase 1: sequential Fast-Path (uses cached wrapped chain when middlewares applied)
+	fastCtx := withValidationPhase(ctx, ValidationPhaseFast)
 	fastToRun := p.fastChain()
 	current := input
 	for _, v := range fastToRun {
-		if err := ctx.Err(); err != nil {
+		if err := fastCtx.Err(); err != nil {
 			return zero, err
 		}
-		out, rep, err := v.Validate(ctx, current)
+		out, rep, err := v.Validate(fastCtx, current)
 		if err != nil {
 			return zero, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
 		}
@@ -132,7 +148,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 		}
 		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 			if p.observer != nil {
-				p.observer(ctx, rep)
+				p.observer(fastCtx, rep)
 			}
 			continue
 		}
@@ -155,8 +171,9 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 	)
 	phase2Ctx, cancelPhase2 := context.WithCancel(ctx)
 	defer cancelPhase2()
+	slowCtx := withValidationPhase(phase2Ctx, ValidationPhaseSlow)
 	slowToRun := p.slowChain()
-	g, gctx := errgroup.WithContext(phase2Ctx)
+	g, gctx := errgroup.WithContext(slowCtx)
 	for i := range slowToRun {
 		v := slowToRun[i]
 		g.Go(func() (err error) {
@@ -208,7 +225,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 			}
 			if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 				if p.observer != nil {
-					p.observer(ctx, rep)
+					p.observer(gctx, rep)
 				}
 			}
 			return nil

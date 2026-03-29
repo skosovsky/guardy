@@ -19,12 +19,7 @@ func (m *mappedValidator[T, U]) Validate(ctx context.Context, input T) (T, *Repo
 	}
 	if rep != nil && rep.Action == ActionRedact {
 		input = m.inject(input, newSub)
-		// Clear MutatedText at T level: it describes U, not T; mutation applied via inject.
-		rep = &Report{
-			Action: rep.Action, Validator: rep.Validator, Reason: rep.Reason,
-			Feedback: rep.Feedback, Score: rep.Score, ShadowMode: rep.ShadowMode,
-			MutatedText: "",
-		}
+		rep = rep.CloneWithoutState()
 	}
 	return input, rep, nil
 }

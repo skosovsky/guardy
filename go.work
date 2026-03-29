@@ -4,8 +4,13 @@ use (
 	.
 	./examples/custom_validator
 	./examples/input_guard
+	./examples/json_streaming
+	./examples/multi_turn
+	./examples/otel_integration
 	./examples/output_guard
+	./examples/reversible_redaction
 	./examples/streaming_filter
 	./examples/struct_validation
+	./ext/guardyotel
 	./ext/jsonschema
 )

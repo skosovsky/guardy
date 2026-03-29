@@ -14,13 +14,18 @@ import (
 
 const maxPromptLen = 4000
 
+const (
+	exitBlocked = 3
+	regexPrompt = `(?i)(ignore previous|system prompt|disregard instructions)`
+)
+
 func main() {
-	regexV, err := ext.NewRegex(`(?i)(ignore previous|system prompt|disregard instructions)`, guardy.ActionBlock, "PROMPT_INJECTION")
+	regexV, err := ext.NewRegexValidator(regexPrompt, ext.WithCode("PROMPT_INJECTION"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "regex:", err)
 		os.Exit(1)
 	}
-	lengthV := ext.NewLength(1, maxPromptLen, guardy.ActionBlock, "TOO_LONG")
+	lengthV := ext.NewLengthValidator(1, maxPromptLen, ext.WithCode("TOO_LONG"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV, lengthV))
 
 	scanner := bufio.NewScanner(os.Stdin)
@@ -41,7 +46,7 @@ func main() {
 	case guardy.ActionBlock:
 		// #nosec G705 -- stderr output, not HTML
 		fmt.Fprintf(os.Stderr, "blocked: %s - %s\n", report.Validator, report.Reason)
-		os.Exit(3)
+		os.Exit(exitBlocked)
 	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println("OK")
 		fmt.Println(result.Output)

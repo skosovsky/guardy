@@ -8,8 +8,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-func ExampleLength_Validate_block() {
-	l := NewLength(5, 10, guardy.ActionBlock, "LENGTH")
+func ExampleNewLengthValidator() {
+	l := NewLengthValidator(5, 10, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, _ := l.Validate(ctx, "hi")
 	if rep != nil && rep.Action == guardy.ActionBlock {
@@ -20,7 +20,7 @@ func ExampleLength_Validate_block() {
 }
 
 func TestLength_WithinRange_Pass(t *testing.T) {
-	l := NewLength(1, 10, guardy.ActionBlock, "LENGTH")
+	l := NewLengthValidator(1, 10, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
@@ -31,8 +31,25 @@ func TestLength_WithinRange_Pass(t *testing.T) {
 	}
 }
 
+func TestLength_WithinRange_PassPreservesMetadata(t *testing.T) {
+	l := NewLengthValidator(1, 10, WithCode("LENGTH_OK"), WithSeverity(guardy.SeverityLow))
+	_, rep, err := l.Validate(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Action != guardy.ActionPass {
+		t.Fatalf("action = %v", rep.Action)
+	}
+	if rep.Code != "LENGTH_OK" {
+		t.Fatalf("code = %q", rep.Code)
+	}
+	if rep.Severity != guardy.SeverityLow {
+		t.Fatalf("severity = %q", rep.Severity)
+	}
+}
+
 func TestLength_TooShort_Block(t *testing.T) {
-	l := NewLength(5, 100, guardy.ActionBlock, "LENGTH")
+	l := NewLengthValidator(5, 100, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hi")
 	if err != nil {
@@ -44,7 +61,7 @@ func TestLength_TooShort_Block(t *testing.T) {
 }
 
 func TestLength_TooLong_Block(t *testing.T) {
-	l := NewLength(0, 3, guardy.ActionBlock, "LENGTH")
+	l := NewLengthValidator(0, 3, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
@@ -56,7 +73,7 @@ func TestLength_TooLong_Block(t *testing.T) {
 }
 
 func TestLength_ZeroMinMax_Pass(t *testing.T) {
-	l := NewLength(0, 0, guardy.ActionBlock, "X")
+	l := NewLengthValidator(0, 0, WithCode("X"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "anything")
 	if err != nil {
@@ -68,7 +85,7 @@ func TestLength_ZeroMinMax_Pass(t *testing.T) {
 }
 
 func TestLength_UnicodeRunes(t *testing.T) {
-	l := NewLength(2, 2, guardy.ActionBlock, "X")
+	l := NewLengthValidator(2, 2, WithCode("X"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "аб")
 	if err != nil {
@@ -83,9 +100,13 @@ func TestLength_UnicodeRunes(t *testing.T) {
 	}
 }
 
-func TestLength_WithLengthName(t *testing.T) {
-	l := NewLength(0, 10, guardy.ActionBlock, "X", WithLengthName("my-length"))
-	if l.Name() != "my-length" {
-		t.Errorf("Name() = %q, want my-length", l.Name())
+func TestLength_WithName(t *testing.T) {
+	l := NewLengthValidator(0, 10, WithCode("X"), WithName("my-length"))
+	_, rep, err := l.Validate(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Validator != "my-length" {
+		t.Errorf("Validator = %q, want my-length", rep.Validator)
 	}
 }

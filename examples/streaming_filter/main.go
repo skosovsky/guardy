@@ -13,16 +13,18 @@ import (
 	"github.com/skosovsky/guardy/ext"
 )
 
+const exampleChunkSize = 64
+
 func main() {
-	wordlistV := ext.NewWordlist([]string{"forbidden", "blocked"}, ext.Blocklist, guardy.ActionBlock, "FORBIDDEN")
+	wordlistV := ext.NewWordlistValidator([]string{"forbidden", "blocked"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 
 	mockStream := "Hello world this is forbidden content here."
 	var out bytes.Buffer
-	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(64))
+	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(exampleChunkSize))
 
 	_ = context.Background()
-	for _, token := range strings.Fields(mockStream) {
+	for token := range strings.FieldsSeq(mockStream) {
 		_, err := gw.Write([]byte(token + " "))
 		if err != nil {
 			if errors.Is(err, guardy.ErrBlocked) {

@@ -171,7 +171,7 @@ func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
 	}
 }
 
-func TestGuardWriter_ImplementsWriter(t *testing.T) {
+func TestGuardWriter_ImplementsWriter(_ *testing.T) {
 	var _ io.WriteCloser = (*GuardWriter)(nil)
 }
 
@@ -490,5 +490,201 @@ func TestGuardWriter_DefaultChunkSizeNotCappedForBoundaryRichText(t *testing.T) 
 	}
 	if out.String() != input {
 		t.Fatal("output mismatch for boundary-rich input")
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_WaitsForCompleteObject(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(4), WithJSONAwareSplitter())
+
+	if _, err := gw.Write([]byte(`{"a":`)); err != nil {
+		t.Fatal(err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("output should be empty for incomplete JSON, got %q", out.String())
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("validator calls = %d, want 0 for incomplete JSON", got)
+	}
+
+	if _, err := gw.Write([]byte(`"x"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := out.String(); got != `{"a":"x"}` {
+		t.Fatalf("output = %q, want complete JSON object", got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("validator calls = %d, want 1", got)
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_HandlesBracesInString(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithJSONAwareSplitter())
+
+	if _, err := gw.Write([]byte(`{"a":"{x}"`)); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("validator calls for incomplete JSON = %d, want 0", got)
+	}
+	if _, err := gw.Write([]byte(`}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != `{"a":"{x}"}` {
+		t.Fatalf("output = %q", got)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("validator calls = %d, want 1", got)
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_CloseWithIncompleteJSON(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(8), WithJSONAwareSplitter())
+
+	if _, err := gw.Write([]byte(`{"a":`)); err != nil {
+		t.Fatal(err)
+	}
+	err := gw.Close()
+	if err == nil {
+		t.Fatal("expected error for incomplete JSON on Close")
+	}
+	if !errors.Is(err, ErrValidatorFailed) {
+		t.Fatalf("err = %v, want ErrValidatorFailed", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("output must remain empty, got %q", out.String())
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("validator calls = %d, want 0", got)
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_IncompleteExceedsMaxChunk(t *testing.T) {
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(
+		&out,
+		p,
+		WithChunkSize(64),
+		WithMaxChunkSize(10),
+		WithJSONAwareSplitter(),
+	)
+
+	_, err := gw.Write([]byte(`{"a":"123456789`))
+	if err == nil {
+		t.Fatal("expected max chunk overflow error")
+	}
+	if !errors.Is(err, ErrValidatorFailed) {
+		t.Fatalf("err = %v, want ErrValidatorFailed", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("output must remain empty, got %q", out.String())
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_ArrayOfObjects(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(6), WithJSONAwareSplitter())
+
+	input := `[{"a":1},{"b":2}]`
+	if _, err := gw.Write([]byte(input[:8])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gw.Write([]byte(input[8:])); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != input {
+		t.Fatalf("output = %q, want %q", out.String(), input)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("validator calls = %d, want 1", got)
+	}
+}
+
+func TestGuardWriter_JSONAwareSplitter_EscapedQuotesAndPunctuationInString(t *testing.T) {
+	var calls atomic.Int32
+	v := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			calls.Add(1)
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithJSONAwareSplitter())
+
+	input := "{\"a\":\"x\\\"y [ ] { } , :\"}"
+	if _, err := gw.Write([]byte(input[:10])); err != nil {
+		t.Fatal(err)
+	}
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("validator calls for incomplete JSON = %d, want 0", got)
+	}
+	if _, err := gw.Write([]byte(input[10:])); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != input {
+		t.Fatalf("output = %q, want %q", out.String(), input)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("validator calls = %d, want 1", got)
 	}
 }

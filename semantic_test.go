@@ -67,7 +67,7 @@ func TestSemanticValidator_PropagatesMatcherError(t *testing.T) {
 		return 0, want
 	}}, 0.5, false)
 	_, _, err := v.Validate(context.Background(), "x")
-	if err != want {
+	if !errors.Is(err, want) {
 		t.Fatalf("err = %v", err)
 	}
 }
