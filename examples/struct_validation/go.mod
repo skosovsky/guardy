@@ -3,8 +3,8 @@ module github.com/skosovsky/guardy/examples/struct_validation
 go 1.26.1
 
 require (
-	github.com/skosovsky/guardy v0.0.0
-	github.com/skosovsky/guardy/ext/jsonschema v0.0.0
+	github.com/skosovsky/guardy v0.7.0
+	github.com/skosovsky/guardy/ext/jsonschema v0.7.0
 )
 
 require (
@@ -14,13 +14,9 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
-	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
+	github.com/xeipuuv/gojsonpointer v0.7.0-20190905194746-02993c407bfb // indirect
+	github.com/xeipuuv/gojsonreference v0.7.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/skosovsky/guardy => ../..
-
-replace github.com/skosovsky/guardy/ext/jsonschema => ../../ext/jsonschema
