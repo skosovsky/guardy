@@ -117,7 +117,7 @@ _, _ = gw.Write(data)
 _ = gw.Close()
 ```
 
-### Middleware (Guard)
+### HTTP Guard (`http_guard.go`)
 
 **Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **Block** or **Retry** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
 
@@ -128,6 +128,10 @@ extractor := func(r *http.Request) (string, error) {
 }
 handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHandler)
 ```
+
+### Generic decorators (`interceptor.go`)
+
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Block maps to an error wrapping **ErrBlocked**; retry maps to **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 

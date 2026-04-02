@@ -1,8 +1,9 @@
-go 1.26.0
+go 1.26.1
 
 use (
 	.
 	./examples/custom_validator
+	./examples/generic_decorator
 	./examples/input_guard
 	./examples/json_streaming
 	./examples/multi_turn

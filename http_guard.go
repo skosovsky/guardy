@@ -28,7 +28,8 @@ func PlainTextInjector() func(*http.Request, string) error {
 	}
 }
 
-// Guard returns an HTTP middleware that runs the pipeline on the request body.
+// Guard returns net/http middleware that runs the pipeline on the request body.
+// It is HTTP-specific; for generic func(context.Context, Req) (Res, error) wrapping use WrapInput / WrapOutput.
 // Extractor reads the request and returns value of type T to validate.
 // Injector applies mutated T to the request body on ActionRedact (required; format-aware).
 // On Block/Retry returns 422. On Pass restores original body.
@@ -117,7 +118,7 @@ func withReport(ctx context.Context, report *Report) context.Context {
 	return context.WithValue(ctx, reportKey{}, report)
 }
 
-// ReportFromContext returns the Report attached by Guard middleware, if any.
+// ReportFromContext returns the Report attached by HTTP Guard, if any.
 func ReportFromContext(ctx context.Context) (Report, bool) {
 	r, ok := ctx.Value(reportKey{}).(*Report)
 	if !ok || r == nil {

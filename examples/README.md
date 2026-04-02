@@ -5,7 +5,7 @@ Each subdirectory is a standalone example with its own `go.mod` (using `replace`
 Run from the example directory:
 
 ```bash
-cd input_guard   # or output_guard, streaming_filter, json_streaming, reversible_redaction, multi_turn, otel_integration, custom_validator, struct_validation
+cd input_guard   # or output_guard, streaming_filter, json_streaming, reversible_redaction, multi_turn, otel_integration, custom_validator, struct_validation, generic_decorator
 go mod tidy
 go run .
 ```
@@ -19,3 +19,4 @@ go run .
 - **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default.
 - **custom_validator** — Custom validator that calls a mock moderation HTTP API; integrates into a pipeline and runs two sample inputs.
 - **struct_validation** — Generates JSON Schema from a Go struct, validates an LLM-style JSON response, and prints `ActionRetry` feedback when the payload violates schema rules.
+- **generic_decorator** — Composes `WrapInput` and `WrapOutput` around a mock LLM call (wordlist on prompt, regex on response); shows typed `ErrBlocked` / `RetryError` handling without `net/http`.

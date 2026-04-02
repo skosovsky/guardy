@@ -1,6 +1,6 @@
 module github.com/skosovsky/guardy/ext/jsonschema
 
-go 1.26.0
+go 1.26.1
 
 require (
 	github.com/invopop/jsonschema v0.13.0

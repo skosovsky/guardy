@@ -1,6 +1,6 @@
 module github.com/skosovsky/guardy/examples/multi_turn
 
-go 1.26.0
+go 1.26.1
 
 require github.com/skosovsky/guardy v0.0.0
 

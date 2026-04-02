@@ -1,4 +1,4 @@
-module github.com/skosovsky/guardy/examples/json_streaming
+module github.com/skosovsky/guardy/examples/generic_decorator
 
 go 1.26.1
 
