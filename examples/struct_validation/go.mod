@@ -3,8 +3,8 @@ module github.com/skosovsky/guardy/examples/struct_validation
 go 1.26.1
 
 require (
-	github.com/skosovsky/guardy v0.0.0
-	github.com/skosovsky/guardy/ext/jsonschema v0.0.0
+	github.com/skosovsky/guardy v0.7.1
+	github.com/skosovsky/guardy/ext/jsonschema v0.7.1
 )
 
 require (
@@ -20,7 +20,3 @@ require (
 	golang.org/x/sync v0.20.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-replace github.com/skosovsky/guardy => ../..
-
-replace github.com/skosovsky/guardy/ext/jsonschema => ../../ext/jsonschema
