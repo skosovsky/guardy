@@ -8,6 +8,40 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
+func TestPIIValidator_Block_WithCode_NotRetryable(t *testing.T) {
+	p := NewPIIValidator(
+		WithAction(guardy.ActionBlock),
+		WithCode("PII"),
+	)
+	_, rep, err := p.Validate(context.Background(), "Contact user@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Action != guardy.ActionBlock {
+		t.Fatalf("action = %v", rep.Action)
+	}
+	if rep.Code != "PII" {
+		t.Fatalf("Code = %q, want PII", rep.Code)
+	}
+	if rep.Retryable {
+		t.Fatal("block must not be Retryable")
+	}
+}
+
+func TestPIIValidator_DefaultConfig_EmptyCode(t *testing.T) {
+	p := NewPIIValidator()
+	_, rep, err := p.Validate(context.Background(), "Contact user@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Action != guardy.ActionRedact {
+		t.Fatalf("action = %v", rep.Action)
+	}
+	if rep.Code != "" {
+		t.Fatalf("Code = %q, want empty without WithCode (use ext.WithCode in production)", rep.Code)
+	}
+}
+
 func TestPIIValidator_NoPII_Pass(t *testing.T) {
 	p := NewPIIValidator()
 	ctx := context.Background()

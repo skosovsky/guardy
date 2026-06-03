@@ -31,8 +31,15 @@ func (m *mappedValidator[T, U]) Validate(ctx context.Context, input T) (T, *Repo
 }
 
 // Map returns a Validator[T] that wraps Validator[U] with extract (getter) and inject (setter).
+// extract and inject must be non-nil (panics if nil).
 // When the inner validator returns ActionRedact, inject is called to apply the mutation to T.
 func Map[T any, U any](v Validator[U], extract func(T) U, inject func(T, U) T) Validator[T] {
+	if extract == nil {
+		panic("guardy: Map: extract must not be nil")
+	}
+	if inject == nil {
+		panic("guardy: Map: inject must not be nil")
+	}
 	return &mappedValidator[T, U]{
 		inner:   v,
 		extract: extract,
