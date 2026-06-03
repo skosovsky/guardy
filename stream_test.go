@@ -76,9 +76,9 @@ func TestGuardWriter_Retry(t *testing.T) {
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			if strings.Contains(text, "x") {
-				return text, &Report{Action: ActionRetry, Validator: "retry", Feedback: "fix it"}, nil
+				return text, &Report{Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it"}, nil
 			}
-			return text, &Report{Action: ActionPass, Validator: "retry"}, nil
+			return text, &Report{Action: ActionPass, Validator: ActionRetry.String()}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
@@ -770,12 +770,12 @@ func TestGuardWriter_Retry_ExposesReportViaErrorsAs(t *testing.T) {
 			if strings.Contains(text, "fix") {
 				return text, FinishReport(&Report{
 					Action:    ActionRetry,
-					Validator: "retry",
+					Validator: ActionRetry.String(),
 					Code:      "STREAM_RETRY",
 					Feedback:  "regenerate",
 				}, ControlSpec{Action: ActionRetry}), nil
 			}
-			return text, &Report{Action: ActionPass, Validator: "retry"}, nil
+			return text, &Report{Action: ActionPass, Validator: ActionRetry.String()}, nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))

@@ -446,7 +446,7 @@ func TestPipeline_RetryShortCircuit(t *testing.T) {
 	retryV := &fakeValidator{
 		name: "retry",
 		validate: func(context.Context, string) (string, *Report, error) {
-			return "x", &Report{Action: ActionRetry, Validator: "retry", Feedback: "fix it"}, nil
+			return "x", &Report{Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it"}, nil
 		},
 	}
 	blockV := &fakeValidator{
@@ -462,7 +462,7 @@ func TestPipeline_RetryShortCircuit(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := result.Decision()
-	if rep.Action != ActionRetry || rep.Validator != "retry" {
+	if rep.Action != ActionRetry || rep.Validator != ActionRetry.String() {
 		t.Errorf("Action = %v Validator = %q, want Retry from retry", rep.Action, rep.Validator)
 	}
 }
@@ -511,7 +511,7 @@ func TestPipeline_MiddlewareOrder(t *testing.T) {
 // TestRunResult_Decision_BlockOverRetry verifies Block > Retry priority regardless of Reports order.
 func TestRunResult_Decision_BlockOverRetry(t *testing.T) {
 	blockRep := Report{Action: ActionBlock, Validator: "blocker", Reason: "policy"}
-	retryRep := Report{Action: ActionRetry, Validator: "retry", Feedback: "fix it"}
+	retryRep := Report{Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it"}
 	passRep := Report{Action: ActionPass, Validator: "pass"}
 
 	// Retry first, Block second (nondeterministic slow-path order)
@@ -528,7 +528,7 @@ func TestRunResult_Decision_BlockOverRetry(t *testing.T) {
 
 	// Only Retry
 	r3 := RunResult[string]{Output: "x", Reports: []Report{passRep, retryRep}}
-	if got := r3.Decision(); got.Action != ActionRetry || got.Validator != "retry" {
+	if got := r3.Decision(); got.Action != ActionRetry || got.Validator != ActionRetry.String() {
 		t.Errorf("Decision(Pass,Retry) = %v, want Retry", got)
 	}
 

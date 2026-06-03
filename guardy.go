@@ -5,6 +5,15 @@
 // See .cursor/docs/task9.md for the v2 technical specification.
 package guardy
 
+// Canonical action names for [Action.String], logging, and telemetry.
+const (
+	actionStringPass    = "pass"
+	actionStringBlock   = "block"
+	actionStringRedact  = "redact"
+	actionStringRetry   = "retry"
+	actionStringUnknown = "unknown"
+)
+
 // Action is the intervention outcome from a validator or pipeline.
 type Action int
 
@@ -12,15 +21,15 @@ type Action int
 func (a Action) String() string {
 	switch a {
 	case ActionPass:
-		return "pass"
+		return actionStringPass
 	case ActionBlock:
-		return "block"
+		return actionStringBlock
 	case ActionRedact:
-		return "redact"
+		return actionStringRedact
 	case ActionRetry:
-		return "retry"
+		return actionStringRetry
 	default:
-		return "unknown"
+		return actionStringUnknown
 	}
 }
 

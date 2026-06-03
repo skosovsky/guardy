@@ -43,7 +43,7 @@ func TestGuard_Retry_PublicMessageDoesNotLeakFeedback(t *testing.T) {
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			return text, &Report{
-				Action: ActionRetry, Validator: "retry",
+				Action: ActionRetry, Validator: ActionRetry.String(),
 				Feedback: "field age must be >= 18",
 			}, nil
 		},

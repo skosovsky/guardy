@@ -60,7 +60,7 @@ func TestWrapInput_RetryReturnsRetryError(t *testing.T) {
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			return text, &Report{
-				Action: ActionRetry, Validator: "retry", Feedback: "fix it",
+				Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it",
 			}, nil
 		},
 	}
