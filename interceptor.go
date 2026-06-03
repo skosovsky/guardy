@@ -5,8 +5,6 @@ import (
 	"fmt"
 )
 
-const defaultInterceptorBlockMessage = "validation failed"
-
 // WrapInput runs the pipeline on the request value before calling next.
 // Deadlines and cancellation come from ctx (e.g. wrap with [context.WithTimeout] at the call site); no implicit timeout is applied.
 //
@@ -35,14 +33,10 @@ func WrapInput[Req, Res any](
 		switch rep.Action {
 		case ActionBlock:
 			var zero Res
-			msg := rep.Reason
-			if msg == "" {
-				msg = defaultInterceptorBlockMessage
-			}
-			return zero, fmt.Errorf("%w: %s", ErrBlocked, msg)
+			return zero, fmt.Errorf("%w: %s", ErrBlocked, rep.PublicMessage())
 		case ActionRetry:
 			var zero Res
-			return zero, &RetryError{Feedback: rep.Feedback, Report: *rep}
+			return zero, &RetryError{Feedback: rep.OrchestratorMessage(), Report: *rep}
 		case ActionPass, ActionRedact:
 			return next(ctx, result.Output)
 		default:
@@ -86,14 +80,10 @@ func WrapOutput[Req, Res any](
 		switch rep.Action {
 		case ActionBlock:
 			var zero Res
-			msg := rep.Reason
-			if msg == "" {
-				msg = defaultInterceptorBlockMessage
-			}
-			return zero, fmt.Errorf("%w: %s", ErrBlocked, msg)
+			return zero, fmt.Errorf("%w: %s", ErrBlocked, rep.PublicMessage())
 		case ActionRetry:
 			var zero Res
-			return zero, &RetryError{Feedback: rep.Feedback, Report: *rep}
+			return zero, &RetryError{Feedback: rep.OrchestratorMessage(), Report: *rep}
 		case ActionPass, ActionRedact:
 			return result.Output, nil
 		default:

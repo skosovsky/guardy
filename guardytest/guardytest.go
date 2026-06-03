@@ -43,6 +43,14 @@ func MustRedact(t testing.TB, report *guardy.Report) {
 	}
 }
 
+// MustRetry asserts that report indicates a retryable orchestrator correction.
+func MustRetry(t testing.TB, report *guardy.Report) {
+	t.Helper()
+	if report == nil || !report.ShouldRetry() {
+		t.Fatalf("expected retryable report, got %+v", report)
+	}
+}
+
 type fakeValidator struct {
 	name   string
 	report *guardy.Report
@@ -57,6 +65,7 @@ func (f *fakeValidator) Validate(_ context.Context, input string) (string, *guar
 	if rep.Action == 0 {
 		rep.Action = guardy.ActionPass
 	}
+	guardy.FinishReport(&rep, guardy.ControlSpec{Action: rep.Action})
 	if rep.Action == guardy.ActionRedact && rep.MutatedText != "" {
 		return rep.MutatedText, &rep, nil
 	}

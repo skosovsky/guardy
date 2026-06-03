@@ -2,6 +2,7 @@ package guardy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -55,6 +56,24 @@ func TestPipeline_FastPath_Pass(t *testing.T) {
 	}
 	if result.Output != "hello" {
 		t.Errorf("Output = %q", result.Output)
+	}
+}
+
+func TestPipeline_FastPath_PassMutatesOutput(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "mutate",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text + "-mutated", &Report{Action: ActionPass, Validator: "mutate"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	result, err := p.Run(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Output != "hello-mutated" {
+		t.Fatalf("Output = %q, want hello-mutated", result.Output)
 	}
 }
 
@@ -251,6 +270,53 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Errorf("observer calls = %d, want 1", calls)
+	}
+}
+
+func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
+	var calls int32
+	pass := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
+		},
+	}
+	shadowPolicy := PolicyFunc[string](func(_ context.Context, input string, _ Attributes) (string, *Report, error) {
+		return input, &Report{
+			Action:     ActionBlock,
+			ShadowMode: true,
+			Validator:  "policy-shadow",
+			Reason:     "would block",
+		}, nil
+	})
+	attrs := Attributes{"principal.role": "sales"}
+	ctx := WithAttributes(context.Background(), attrs)
+	var observedRole string
+	p := NewPipeline(
+		WithFastPath(pass),
+		WithPolicyValidators(shadowPolicy),
+		WithObserver[string](func(observerCtx context.Context, _ *Report) {
+			atomic.AddInt32(&calls, 1)
+			if a, ok := AttributesFromContext(observerCtx); ok {
+				if v, ok := a["principal.role"].(string); ok {
+					observedRole = v
+				}
+			}
+		}),
+	)
+	result, err := p.Run(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := result.Decision()
+	if rep.Action != ActionPass {
+		t.Errorf("Action = %v, want pass (shadow block ignored)", rep.Action)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Errorf("observer calls = %d, want 1", calls)
+	}
+	if observedRole != "sales" {
+		t.Errorf("observed role = %q, want sales", observedRole)
 	}
 }
 
@@ -511,6 +577,47 @@ func TestPipeline_UseImmutable(t *testing.T) {
 	}
 }
 
+func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
+	t.Parallel()
+	var order []string
+	fastV := &fakeValidator{
+		name: "fast",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			order = append(order, "fast")
+			return text, &Report{Action: ActionPass, Validator: "fast"}, nil
+		},
+	}
+	slowV := &fakeValidator{
+		name: "slow",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			order = append(order, "slow")
+			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
+		},
+	}
+	policyPV := PolicyFunc[string](func(_ context.Context, text string, _ Attributes) (string, *Report, error) {
+		order = append(order, "policy")
+		return text, &Report{Action: ActionPass, Validator: "policy"}, nil
+	})
+	p := NewPipeline(
+		WithFastPath(fastV),
+		WithPolicyValidators(policyPV),
+		WithSlowPath(slowV),
+	)
+	ctx := WithAttributes(context.Background(), Attributes{"k": "v"})
+	if _, err := p.Run(ctx, "x"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"fast", "policy", "slow"}
+	if len(order) != len(want) {
+		t.Fatalf("order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("order[%d] = %q, want %q", i, order[i], want[i])
+		}
+	}
+}
+
 func TestPipeline_PhaseContext(t *testing.T) {
 	var fastSeen, slowSeen atomic.Bool
 	fastV := &fakeValidator{
@@ -543,5 +650,43 @@ func TestPipeline_PhaseContext(t *testing.T) {
 	}
 	if !slowSeen.Load() {
 		t.Fatal("slow phase context was not set")
+	}
+}
+
+func TestPipeline_MapJSONRawMessage_RedactUpdatesOutput(t *testing.T) {
+	t.Parallel()
+	inner := ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
+		out := `{"email":"[REDACTED]"}`
+		return out, &Report{
+			Action:      ActionRedact,
+			Validator:   "test",
+			MutatedText: out,
+		}, nil
+	})
+	type pipelineToolArgs struct {
+		ToolArgs json.RawMessage `json:"tool_args"`
+	}
+	mapped := MapJSONRawMessage(
+		inner,
+		func(d *pipelineToolArgs) json.RawMessage { return d.ToolArgs },
+		func(d *pipelineToolArgs, raw json.RawMessage) *pipelineToolArgs {
+			d.ToolArgs = raw
+			return d
+		},
+	)
+	p := NewPipeline[pipelineToolArgs](WithFastPath(mapped))
+	in := pipelineToolArgs{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)}
+	result, err := p.Run(context.Background(), in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Decision().Action != ActionRedact {
+		t.Fatalf("decision = %+v", result.Decision())
+	}
+	if !json.Valid(result.Output.ToolArgs) {
+		t.Fatalf("invalid JSON: %s", result.Output.ToolArgs)
+	}
+	if string(result.Output.ToolArgs) != `{"email":"[REDACTED]"}` {
+		t.Fatalf("ToolArgs = %s", result.Output.ToolArgs)
 	}
 }

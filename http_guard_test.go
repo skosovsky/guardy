@@ -38,6 +38,55 @@ func TestGuard_Block(t *testing.T) {
 	}
 }
 
+func TestGuard_Retry_PublicMessageDoesNotLeakFeedback(t *testing.T) {
+	v := &fakeValidator{
+		name: "retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action: ActionRetry, Validator: "retry",
+				Feedback: "field age must be >= 18",
+			}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Error("next must not run on retry")
+		}),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "age must be") {
+		t.Fatalf("feedback leaked in body: %s", rec.Body.String())
+	}
+}
+
+func TestGuard_Block_UsesSafeUserMessage(t *testing.T) {
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action: ActionBlock, Validator: "block", Code: "DENIED",
+				Reason: "internal", SafeUserMessage: "Access denied",
+			}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), "Access denied") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
 func TestGuard_Block_UsesReportCode(t *testing.T) {
 	v := &fakeValidator{
 		name: "block",

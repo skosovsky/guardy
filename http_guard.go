@@ -34,8 +34,6 @@ func PlainTextInjector() func(*http.Request, string) error {
 // Injector applies mutated T to the request body on ActionRedact (required; format-aware).
 // On Block/Retry returns 422. On Pass restores original body.
 // Use Guard[string] with PlainTextInjector for string-based pipelines.
-//
-//nolint:gocognit // HTTP middleware: validation branches are clearer inline than split helpers.
 func Guard[T any](
 	p *Pipeline[T],
 	extractor func(*http.Request) (T, error),
@@ -80,13 +78,7 @@ func Guard[T any](
 				if code == "" {
 					code = "blocked"
 				}
-				msg := rep.Reason
-				if rep.Action == ActionRetry && rep.Feedback != "" {
-					msg = rep.Feedback
-				}
-				if msg == "" {
-					msg = "validation failed"
-				}
+				msg := rep.PublicMessage()
 				writeJSONError(w, http.StatusUnprocessableEntity, code, msg)
 				return
 			case ActionRedact:

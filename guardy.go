@@ -45,18 +45,22 @@ const (
 )
 
 // Report is the single result returned by a validator or the pipeline.
-// It maps to metry/security attributes for telemetry.
+// It maps to metry/security attributes for telemetry and control-flow decisions.
+// Consumers should use Code, Retryable, Fatal, and Action — not parse Reason strings.
 // When Action == ActionRetry, Feedback contains the message for the LLM/orchestrator.
 type Report struct {
-	Action      Action   // ActionPass, ActionBlock, ActionRedact, ActionRetry
-	Validator   string   // Name of the validator that produced this report
-	Code        string   // Machine-readable rule code (for alerting/telemetry)
-	Severity    Severity // Risk level for the report
-	Reason      string   // Human-readable reason
-	Feedback    string   // Message for LLM retry (when Action == ActionRetry)
-	Score       float64  // Confidence or distance (optional)
-	ShadowMode  bool     // If true, block was logged but did not stop the pipeline
-	MutatedText string   // Text after redaction (when Action == ActionRedact)
+	Action          Action   // ActionPass, ActionBlock, ActionRedact, ActionRetry
+	Validator       string   // Name of the validator that produced this report
+	Code            string   // Machine-readable rule code (for alerting/telemetry)
+	Severity        Severity // Risk level for the report
+	Reason          string   // Human-readable reason (internal/operator detail)
+	Feedback        string   // Message for LLM retry (when Action == ActionRetry)
+	Score           float64  // Confidence or distance (optional)
+	ShadowMode      bool     // If true, block was logged but did not stop the pipeline
+	MutatedText     string   // Text after redaction (when Action == ActionRedact); for string T mirrors Output
+	Retryable       bool     // Whether a retry may succeed (default true for ActionRetry)
+	Fatal           bool     // Hard stop for upstream pipeline; spec alias Escalate
+	SafeUserMessage string   // User-facing message without internal details
 }
 
 // Clone returns a shallow copy of report.

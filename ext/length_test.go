@@ -58,6 +58,12 @@ func TestLength_TooShort_Block(t *testing.T) {
 	if rep.Action != guardy.ActionBlock || rep.Reason != "text too short" {
 		t.Errorf("got Action=%v Reason=%s", rep.Action, rep.Reason)
 	}
+	if rep.Code != "LENGTH" {
+		t.Errorf("Code = %q, want LENGTH", rep.Code)
+	}
+	if rep.Retryable {
+		t.Error("block should not be Retryable")
+	}
 }
 
 func TestLength_TooLong_Block(t *testing.T) {

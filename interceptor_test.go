@@ -7,6 +7,30 @@ import (
 	"testing"
 )
 
+func TestWrapInput_BlockUsesSafeUserMessage(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action: ActionBlock, Validator: "block",
+				Reason: "internal detail", SafeUserMessage: "Access denied",
+			}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	wrapped := WrapInput(p, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := err.Error(); got != "guardy: input blocked: Access denied" {
+		t.Fatalf("error = %q", got)
+	}
+}
+
 func TestWrapInput_BlockSkipsNext(t *testing.T) {
 	t.Parallel()
 	var nextCalls atomic.Int32

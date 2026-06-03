@@ -82,7 +82,9 @@ func WithJSONAwareSplitter() GuardWriterOption {
 }
 
 // GuardWriter wraps an [io.Writer] and runs the pipeline on buffered chunks.
-// On Block it returns ErrBlocked; on Redact it writes the mutated text.
+// On Block or Retry it returns [*StreamError] (unwraps to [ErrBlocked] or [ErrRetryRequested]).
+// Use [errors.As] into *StreamError to read Report.Code and Retryable without string parsing.
+// On Redact it writes the mutated text.
 // Uses index-based buffering to avoid O(N^2) copy; overlap prevents boundary bypass.
 type GuardWriter struct {
 	w        io.Writer
@@ -375,14 +377,12 @@ func (g *GuardWriter) validateAndWrite(chunk []byte, overlapLen int) ([]byte, er
 	rep := result.Decision()
 	var output []byte
 	switch rep.Action {
-	case ActionBlock:
-		return nil, ErrBlocked
-	case ActionRetry:
-		return nil, ErrRetryRequested
-	case ActionRedact:
+	case ActionBlock, ActionRetry:
+		return nil, streamErrorFromDecision(rep)
+	case ActionPass, ActionRedact:
 		output = []byte(result.Output)
 	default:
-		output = chunk
+		output = []byte(result.Output)
 	}
 
 	if overlapLen < len(output) {

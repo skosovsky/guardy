@@ -63,6 +63,12 @@ func TestWordlist_Blocklist_Match_Block(t *testing.T) {
 	if rep.Action != guardy.ActionBlock || rep.Validator != "wordlist_validator" {
 		t.Errorf("got Action=%v Validator=%s", rep.Action, rep.Validator)
 	}
+	if rep.Code != "SPAM" {
+		t.Errorf("Code = %q, want SPAM", rep.Code)
+	}
+	if rep.Retryable {
+		t.Error("block must not be Retryable")
+	}
 }
 
 func TestWordlist_Blocklist_Lowercase(t *testing.T) {

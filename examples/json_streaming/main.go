@@ -35,6 +35,11 @@ func main() {
 	}
 	for _, part := range fragments {
 		if _, err := gw.Write([]byte(part)); err != nil {
+			var streamErr *guardy.StreamError
+			if errors.As(err, &streamErr) {
+				fmt.Println("blocked while streaming JSON:", streamErr.Report.Code)
+				return
+			}
 			if errors.Is(err, guardy.ErrBlocked) {
 				fmt.Println("blocked while streaming JSON:", err)
 				return
@@ -43,6 +48,11 @@ func main() {
 		}
 	}
 	if err := gw.Close(); err != nil {
+		var streamErr *guardy.StreamError
+		if errors.As(err, &streamErr) {
+			fmt.Println("blocked on JSON flush:", streamErr.Report.Code)
+			return
+		}
 		if errors.Is(err, guardy.ErrBlocked) {
 			fmt.Println("blocked on JSON flush:", err)
 			return

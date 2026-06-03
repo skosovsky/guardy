@@ -22,13 +22,15 @@ type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 // Configuration method Use returns a new instance and never mutates the original pipeline.
 type Pipeline[T any] struct {
 	fastPath    []Validator[T]
+	policyPath  []Validator[T]
 	slowPath    []Validator[T]
 	middlewares []ValidatorMiddleware[T]
 	observer    Observer
 
 	// Wrapped chains built at Use() time (zero-overhead hot path).
-	fastPathWrapped []Validator[T]
-	slowPathWrapped []Validator[T]
+	fastPathWrapped   []Validator[T]
+	policyPathWrapped []Validator[T]
+	slowPathWrapped   []Validator[T]
 }
 
 // PipelineOption configures a Pipeline.
@@ -55,6 +57,19 @@ func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
 	}
 }
 
+// WithPolicyValidators adds context-aware policy validators (sequential, after fast-path).
+// Validators run only when [Attributes] were stored with [WithAttributes] (including an empty map).
+// When attributes are absent from ctx, the policy phase is a no-op.
+func WithPolicyValidators[T any](pv ...PolicyValidator[T]) PipelineOption[T] {
+	adapters := make([]Validator[T], len(pv))
+	for i, p := range pv {
+		adapters[i] = policyValidatorAdapter[T]{p: p}
+	}
+	return func(pipe *Pipeline[T]) {
+		pipe.policyPath = append(pipe.policyPath, adapters...)
+	}
+}
+
 // Use appends middleware and returns a new immutable pipeline instance.
 // The original pipeline is not modified.
 func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
@@ -64,6 +79,7 @@ func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
 	next := p.clone()
 	next.middlewares = append(next.middlewares, mw...)
 	next.fastPathWrapped = next.wrapAll(next.fastPath)
+	next.policyPathWrapped = next.wrapAll(next.policyPath)
 	next.slowPathWrapped = next.wrapAll(next.slowPath)
 	return next
 }
@@ -74,6 +90,14 @@ func (p *Pipeline[T]) fastChain() []Validator[T] {
 		return p.fastPath
 	}
 	return p.fastPathWrapped
+}
+
+// policyChain returns validators for the policy phase.
+func (p *Pipeline[T]) policyChain() []Validator[T] {
+	if len(p.middlewares) == 0 {
+		return p.policyPath
+	}
+	return p.policyPathWrapped
 }
 
 // slowChain returns validators for phase 2 (cached if middlewares applied, else raw).
@@ -103,10 +127,12 @@ func (p *Pipeline[T]) clone() *Pipeline[T] {
 	next := &Pipeline[T]{
 		observer:    p.observer,
 		fastPath:    append([]Validator[T](nil), p.fastPath...),
+		policyPath:  append([]Validator[T](nil), p.policyPath...),
 		slowPath:    append([]Validator[T](nil), p.slowPath...),
 		middlewares: append([]ValidatorMiddleware[T](nil), p.middlewares...),
 	}
 	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
+	next.policyPathWrapped = append([]Validator[T](nil), p.policyPathWrapped...)
 	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
 	return next
 }
@@ -150,11 +176,37 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 			if p.observer != nil {
 				p.observer(fastCtx, rep)
 			}
+			current = out
 			continue
 		}
-		if rep != nil && rep.Action == ActionRedact {
-			current = out
+		current = out
+	}
+
+	// Policy phase: sequential, context-aware (no-op when Attributes absent from ctx)
+	policyToRun := p.policyChain()
+	policyCtx := ctx
+	for _, v := range policyToRun {
+		if err := policyCtx.Err(); err != nil {
+			return zero, err
 		}
+		out, rep, err := v.Validate(policyCtx, current)
+		if err != nil {
+			return zero, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+		}
+		if rep != nil {
+			reports = append(reports, *rep)
+		}
+		if rep != nil && (rep.Action == ActionBlock || rep.Action == ActionRetry) && !rep.ShadowMode {
+			return RunResult[T]{Output: out, Reports: reports}, nil
+		}
+		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
+			if p.observer != nil {
+				p.observer(policyCtx, rep)
+			}
+			current = out
+			continue
+		}
+		current = out
 	}
 
 	// Phase 2: parallel Slow-Path (read-only; Redact forbidden)

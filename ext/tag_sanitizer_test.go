@@ -43,7 +43,7 @@ func TestTagSanitizer_NoTag_PassPreservesMetadata(t *testing.T) {
 }
 
 func TestTagSanitizer_SystemTag_Block(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("")
+	tag, err := NewTagSanitizerValidator("", WithCode("TAG_INJECTION"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,12 @@ func TestTagSanitizer_SystemTag_Block(t *testing.T) {
 	}
 	if rep.Validator != defaultTagSanitizerName || rep.Reason != "system tag injection attempt" {
 		t.Errorf("got Validator=%s Reason=%v", rep.Validator, rep.Reason)
+	}
+	if rep.Code != "TAG_INJECTION" {
+		t.Errorf("Code = %q, want TAG_INJECTION", rep.Code)
+	}
+	if rep.Retryable {
+		t.Error("block must not be Retryable")
 	}
 }
 

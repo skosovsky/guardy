@@ -37,13 +37,15 @@ func (s *SemanticValidator) Validate(ctx context.Context, input string) (string,
 		return input, nil, err
 	}
 	if score > s.threshold {
-		return input, &Report{
+		return input, FinishReport(&Report{
 			Action:     ActionBlock,
 			Validator:  s.name,
 			Reason:     "semantic match above threshold",
 			Score:      score,
 			ShadowMode: s.shadow,
-		}, nil
+		}, ControlSpec{Action: ActionBlock}), nil
 	}
-	return input, &Report{Action: ActionPass, Validator: s.name}, nil
+	return input, FinishReport(&Report{
+		Action: ActionPass, Validator: s.name,
+	}, ControlSpec{Action: ActionPass}), nil
 }

@@ -27,6 +27,11 @@ func main() {
 	for token := range strings.FieldsSeq(mockStream) {
 		_, err := gw.Write([]byte(token + " "))
 		if err != nil {
+			var streamErr *guardy.StreamError
+			if errors.As(err, &streamErr) {
+				fmt.Println("Stream blocked:", streamErr.Report.Code, streamErr.Report.PublicMessage())
+				return
+			}
 			if errors.Is(err, guardy.ErrBlocked) {
 				fmt.Println("Stream blocked: forbidden word detected")
 				return
@@ -36,6 +41,11 @@ func main() {
 		}
 	}
 	if err := gw.Close(); err != nil {
+		var streamErr *guardy.StreamError
+		if errors.As(err, &streamErr) {
+			fmt.Println("Stream blocked on close:", streamErr.Report.Code)
+			return
+		}
 		if errors.Is(err, guardy.ErrBlocked) {
 			fmt.Println("Stream blocked on close")
 			return

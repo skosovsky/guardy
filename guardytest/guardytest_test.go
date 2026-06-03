@@ -63,6 +63,11 @@ func TestMustRedact(t *testing.T) {
 	MustRedact(t, &report)
 }
 
+func TestMustRetry(t *testing.T) {
+	report := guardy.Report{Action: guardy.ActionRetry, Retryable: true}
+	MustRetry(t, &report)
+}
+
 func TestPipelineWithFakeValidator(t *testing.T) {
 	v := FakeValidator("block", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
 	p := guardy.NewPipeline(guardy.WithFastPath(v))

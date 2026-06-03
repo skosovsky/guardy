@@ -2,6 +2,7 @@ go 1.26.1
 
 use (
 	.
+	./examples/agent_tool_args
 	./examples/custom_validator
 	./examples/generic_decorator
 	./examples/input_guard
@@ -9,9 +10,11 @@ use (
 	./examples/multi_turn
 	./examples/otel_integration
 	./examples/output_guard
+	./examples/policy_attributes
 	./examples/reversible_redaction
 	./examples/streaming_filter
 	./examples/struct_validation
 	./ext/guardyotel
+	./ext/jsonredact
 	./ext/jsonschema
 )

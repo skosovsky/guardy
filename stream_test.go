@@ -58,6 +58,13 @@ func TestGuardWriter_Block(t *testing.T) {
 	if !errors.Is(err, ErrBlocked) {
 		t.Errorf("err = %v", err)
 	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatal("expected StreamError")
+	}
+	if streamErr.Report.Action != ActionBlock {
+		t.Errorf("Report.Action = %v", streamErr.Report.Action)
+	}
 	_, _ = gw.Write([]byte("z"))
 	if out.String() != "ab" {
 		t.Errorf("out = %q (blocked content should not appear)", out.String())
@@ -84,6 +91,16 @@ func TestGuardWriter_Retry(t *testing.T) {
 	}
 	if !errors.Is(err, ErrRetryRequested) {
 		t.Errorf("err = %v, want ErrRetryRequested", err)
+	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatal("expected StreamError")
+	}
+	if !streamErr.Report.Retryable {
+		t.Error("retry decision should set Retryable")
+	}
+	if streamErr.Report.Feedback != "fix it" {
+		t.Errorf("Feedback = %q", streamErr.Report.Feedback)
 	}
 	if out.String() != "ab" {
 		t.Errorf("out = %q (retry must not write chunk)", out.String())
@@ -305,6 +322,24 @@ func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
 	outStr := out.String()
 	if outStr != "" && outStr != "ok " {
 		t.Errorf("out = %q (blocked content)", outStr)
+	}
+}
+
+func TestGuardWriter_StreamingPass_MutatedOutput(t *testing.T) {
+	t.Parallel()
+	mutator := &fakeValidator{
+		name: "mutate",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return strings.ToUpper(text), &Report{Action: ActionPass, Validator: "mutate"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(mutator))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(32))
+	_, _ = gw.Write([]byte("hello world "))
+	_ = gw.Close()
+	if got := out.String(); got != "HELLO WORLD " {
+		t.Fatalf("got = %q, want uppercased pipeline output", got)
 	}
 }
 
@@ -686,5 +721,79 @@ func TestGuardWriter_JSONAwareSplitter_EscapedQuotesAndPunctuationInString(t *te
 	}
 	if got := calls.Load(); got != 1 {
 		t.Fatalf("validator calls = %d, want 1", got)
+	}
+}
+
+func TestGuardWriter_Block_ExposesReportViaErrorsAs(t *testing.T) {
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "bad") {
+				return text, FinishReport(&Report{
+					Action:          ActionBlock,
+					Validator:       "block",
+					Code:            "STREAM_FORBIDDEN",
+					SafeUserMessage: "not allowed",
+				}, ControlSpec{Action: ActionBlock}), nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "block"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(64))
+	_, _ = gw.Write([]byte("ok "))
+	_, _ = gw.Write([]byte("bad"))
+	err := gw.Close()
+	if err == nil {
+		t.Fatal("expected block")
+	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatal("expected StreamError")
+	}
+	if streamErr.Report.Code != "STREAM_FORBIDDEN" {
+		t.Errorf("Code = %q", streamErr.Report.Code)
+	}
+	if streamErr.Report.PublicMessage() != "not allowed" {
+		t.Errorf("PublicMessage = %q", streamErr.Report.PublicMessage())
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Error("expected ErrBlocked via Unwrap")
+	}
+}
+
+func TestGuardWriter_Retry_ExposesReportViaErrorsAs(t *testing.T) {
+	v := &fakeValidator{
+		name: "retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "fix") {
+				return text, FinishReport(&Report{
+					Action:    ActionRetry,
+					Validator: "retry",
+					Code:      "STREAM_RETRY",
+					Feedback:  "regenerate",
+				}, ControlSpec{Action: ActionRetry}), nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "retry"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(64))
+	_, _ = gw.Write([]byte("fix"))
+	err := gw.Close()
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatalf("expected StreamError, got %v", err)
+	}
+	if streamErr.Report.Code != "STREAM_RETRY" {
+		t.Errorf("Code = %q", streamErr.Report.Code)
+	}
+	if !streamErr.Report.Retryable {
+		t.Error("expected Retryable")
+	}
+	if !errors.Is(err, ErrRetryRequested) {
+		t.Error("expected ErrRetryRequested via Unwrap")
 	}
 }

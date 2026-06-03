@@ -40,5 +40,7 @@ func (l *LLMJudge) Validate(ctx context.Context, input string) (string, *Report,
 	if rep.Validator == "" {
 		rep.Validator = l.name
 	}
-	return input, &rep, nil
+	out := rep
+	FinishReport(&out, ControlSpec{Action: out.Action})
+	return input, &out, nil
 }

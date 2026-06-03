@@ -32,7 +32,9 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 		return input, nil, errors.New("ext: MapSlice requires non-nil extract, inject, and validator")
 	}
 	if len(input) == 0 {
-		return input, &guardy.Report{Action: guardy.ActionPass, Validator: "map_slice"}, nil
+		return input, guardy.FinishReport(&guardy.Report{
+			Action: guardy.ActionPass, Validator: "map_slice",
+		}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
 	}
 
 	out := append([]T(nil), input...)
@@ -66,11 +68,15 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 
 	if mutated {
 		if lastRedact == nil {
-			lastRedact = &guardy.Report{Action: guardy.ActionRedact, Validator: "map_slice"}
+			lastRedact = guardy.FinishReport(&guardy.Report{
+				Action: guardy.ActionRedact, Validator: "map_slice",
+			}, guardy.ControlSpec{Action: guardy.ActionRedact})
 		}
 		return out, lastRedact, nil
 	}
-	return input, &guardy.Report{Action: guardy.ActionPass, Validator: "map_slice"}, nil
+	return input, guardy.FinishReport(&guardy.Report{
+		Action: guardy.ActionPass, Validator: "map_slice",
+	}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
 }
 
 func prefixIndex(rep *guardy.Report, idx int) {

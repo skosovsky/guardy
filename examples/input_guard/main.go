@@ -45,7 +45,7 @@ func main() {
 	switch report.Action {
 	case guardy.ActionBlock:
 		// #nosec G705 -- stderr output, not HTML
-		fmt.Fprintf(os.Stderr, "blocked: %s - %s\n", report.Validator, report.Reason)
+		fmt.Fprintf(os.Stderr, "blocked: code=%s msg=%s\n", report.Code, report.PublicMessage())
 		os.Exit(exitBlocked)
 	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println("OK")

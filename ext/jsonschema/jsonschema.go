@@ -29,11 +29,7 @@ type JSONSchemaValidator struct {
 	cfg    ext.RuleConfig
 }
 
-const (
-	defaultJSONSchemaValidatorName = "jsonschema"
-	jsonInvalidCode                = "JSON_INVALID"
-	jsonSchemaInvalidCode          = "JSON_SCHEMA_INVALID"
-)
+const defaultJSONSchemaValidatorName = "jsonschema"
 
 // Option configures JSONSchemaValidator using shared ext validator options.
 type Option = ext.Option
@@ -122,16 +118,17 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 	}
 
 	var doc any
-	if unmarshalErr := json.Unmarshal([]byte(input), &doc); unmarshalErr != nil {
-		//nolint:nilerr // parse failure is surfaced as ActionRetry + Feedback, not as error
-		return input, &guardy.Report{
+	if err := json.Unmarshal([]byte(input), &doc); err != nil {
+		rep := &guardy.Report{
 			Action:    guardy.ActionRetry,
 			Validator: j.cfg.Name,
-			Code:      jsonInvalidCode,
+			Code:      guardy.CodeJSONInvalid,
 			Severity:  j.cfg.Severity,
 			Reason:    "invalid JSON",
-			Feedback:  unmarshalErr.Error(),
-		}, nil
+			Feedback:  err.Error(),
+		}
+		ext.FinalizeRuleReport(rep, j.cfg, guardy.ActionRetry)
+		return input, rep, nil //nolint:nilerr // parse failure is surfaced as ActionRetry + Feedback, not as error
 	}
 
 	docLoader := gojsonschema.NewGoLoader(doc)
@@ -140,12 +137,14 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 		return input, nil, fmt.Errorf("jsonschema: validate: %w", err)
 	}
 	if result.Valid() {
-		return input, &guardy.Report{
+		rep := &guardy.Report{
 			Action:    guardy.ActionPass,
 			Validator: j.cfg.Name,
 			Code:      j.cfg.Code,
 			Severity:  j.cfg.Severity,
-		}, nil
+		}
+		ext.FinalizeRuleReport(rep, j.cfg, guardy.ActionPass)
+		return input, rep, nil
 	}
 	var sb strings.Builder
 	for _, e := range result.Errors() {
@@ -157,18 +156,20 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 	feedback := sb.String()
 	code := j.cfg.Code
 	if code == "" {
-		code = jsonSchemaInvalidCode
+		code = guardy.CodeJSONSchemaInvalid
 	}
 	reason := "schema validation failed"
 	if j.cfg.Reason != "" {
 		reason = j.cfg.Reason
 	}
-	return input, &guardy.Report{
+	rep := &guardy.Report{
 		Action:    guardy.ActionRetry,
 		Validator: j.cfg.Name,
 		Code:      code,
 		Severity:  j.cfg.Severity,
 		Reason:    reason,
 		Feedback:  feedback,
-	}, nil
+	}
+	ext.FinalizeRuleReport(rep, j.cfg, guardy.ActionRetry)
+	return input, rep, nil
 }

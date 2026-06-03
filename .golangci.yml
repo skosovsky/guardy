@@ -281,6 +281,8 @@ linters:
         - ^github.com/skosovsky/guardy/ext\.Regex$
         - ^github.com/skosovsky/guardy/ext\.Wordlist$
         - ^github.com/skosovsky/guardy/ext\.RuleConfig$
+        - ^github.com/skosovsky/guardy\.PolicyConfig$
+        - ^github.com/skosovsky/guardy\.ControlSpec$
         - ^github.com/skosovsky/guardy/ext\.InMemoryTokenVault$
       # Allows empty structures in return statements.
       # Default: false

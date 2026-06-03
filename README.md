@@ -72,26 +72,46 @@ type Validator[T any] interface {
 }
 ```
 
-For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. Report holds **Action** (`ActionPass`, `ActionBlock`, `ActionRedact`, `ActionRetry`), **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **MutatedText**, **Score**, **ShadowMode**.
+For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**. Use **Code**, **Retryable**, **Fatal**, and **Action** for control flow — not `strings.Contains` on **Reason**. Helpers: `ShouldRetry()`, `ShouldStop()`, `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
 
 ### Pipeline (two-phase)
 
-- **Construction**: `NewPipeline[string](WithFastPath(...), WithSlowPath(...))`.
+- **Construction**: `NewPipeline[string](WithFastPath(...), WithPolicyValidators(...), WithSlowPath(...))`.
 - **Execution**: `Run(ctx, text)` returns `(RunResult[string], error)`. Use `result.Output` for mutated text and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry.
 
 `pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
 
-**Phase 1 — Fast path (sequential)**  
+### Struct pipelines (`Pipeline[MyDTO]`)
+
+Use `NewPipeline[MyDTO](...)` when the payload is a struct (tool calls, agent state), not only `string`:
+
+```go
+type AgentCall struct {
+    ToolArgs json.RawMessage `json:"tool_args"`
+}
+piiV := ext.NewPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
+rawV := guardy.MapJSONRawMessage(piiV,
+    func(c *AgentCall) json.RawMessage { return c.ToolArgs },
+    func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
+)
+pipeline := guardy.NewPipeline[AgentCall](guardy.WithFastPath(rawV))
+result, _ := pipeline.Run(ctx, AgentCall{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)})
+// result.Output.ToolArgs — redacted when ActionRedact
+```
+
+For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + `WithAttributes`.
+
+**Phase 1 — Fast path (sequential)**
 Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
 
-**Phase 2 — Slow path (parallel)**  
+**Phase 2 — Slow path (parallel)**
 Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `Block > Retry > last Redact > last Pass`. Context is cancelled only on **Block** (not Retry) so all reports are collected. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
 
 **Recommended order in fast path:** WAF (TagSanitizerValidator) → PII (PIIValidator) → WordlistValidator → RegexValidator/LengthValidator.
 
 ### Report
 
-**Report** holds: **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Score**, **ShadowMode**, **MutatedText**. After `Run`, use the first return value (mutated text) and `report.Action`.
+**Report** holds control-flow fields (**Retryable**, **Fatal**, **SafeUserMessage**) plus **Action**, **Code**, **Reason**, **Feedback**, and telemetry fields. After `Run`, use `result.Output` and `result.Decision()`; for HTTP/API responses prefer `report.PublicMessage()`.
 
 ### Stream (GuardWriter)
 
@@ -129,20 +149,48 @@ extractor := func(r *http.Request) (string, error) {
 handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHandler)
 ```
 
+### Policy validators (context-aware)
+
+Pass host-defined metadata with `guardy.WithAttributes(ctx, guardy.Attributes{"principal.role": "viewer"})`. Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in builders: `NewAttributeEquals`, `NewAttributePresent`. Policy validators are no-ops when attributes are not in context. See `examples/policy_attributes`.
+
+### ValidateAndBind
+
+Single step from JSON string to typed struct after the pipeline:
+
+```go
+user, rep, err := guardy.ValidateAndBind[User](ctx, pipeline, rawJSON)
+```
+
+Block → `ErrBlocked`; retry / bind JSON failure / post-bind domain rule → `RetryError`. Optional `PostBindValidator` on `*T` (pointer receiver) runs after `json.Unmarshal`. See `examples/struct_validation`.
+
+### GuardWriter (streaming)
+
+`GuardWriter` returns `*StreamError` on block or retry. Use `errors.As` (with a `*StreamError` variable) for `Report.Code` and `Retryable`; `errors.Is` still works via `Unwrap`:
+
+```go
+var streamErr *guardy.StreamError
+if errors.As(err, &streamErr) {
+    log.Println(streamErr.Report.Code, streamErr.Report.PublicMessage())
+}
+```
+
+See `examples/streaming_filter` and `examples/json_streaming`.
+
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Block maps to an error wrapping **ErrBlocked**; retry maps to **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Block maps to an error wrapping **ErrBlocked** (message from `PublicMessage()`); retry maps to **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
-| Validator       | Description |
-|----------------|-------------|
-| **TagSanitizerValidator** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`. |
-| **PIIValidator**   | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
+| Validator                 | Description                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TagSanitizerValidator** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
+| **PIIValidator**          | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
 | **WordlistValidator**     | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
-| **RegexValidator**        | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`. |
-| **LengthValidator**       | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`. |
-| **JSON Schema**  | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation. |
+| **RegexValidator**        | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
+| **LengthValidator**       | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
+| **JSON Schema**           | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
+| **JSON Redact**           | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
 
 ### Structured Output / JSON Schema
 
@@ -235,6 +283,24 @@ v := guardy.Map(regexV, func(s *AgentState) string { return s.Text },
 	func(s *AgentState, t string) *AgentState { s.Text = t; return s })
 ```
 
+### MapJSONRawMessage (`json.RawMessage` fields)
+
+Use **MapJSONRawMessage** when a struct field holds opaque JSON (tool calling, structured outputs). `extract` and `inject` must be non-nil (panics if nil). It skips `nil`, empty, and exact JSON `null` literals (not whitespace-padded `" null "`), runs a `Validator[string]` on the raw text, and after **ActionRedact** only calls `inject` when `json.Valid` succeeds. Broken redaction returns **ActionRetry** with **CodeJSONRedactCorrupted** (`JSON_REDACT_CORRUPTED`) and **Retryable** (pipeline contract; not `RetryError`).
+
+```go
+type AgentCall struct {
+    ToolArgs json.RawMessage `json:"tool_args"`
+}
+piiV := ext.NewPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
+v := guardy.MapJSONRawMessage(piiV,
+    func(c *AgentCall) json.RawMessage { return c.ToolArgs },
+    func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
+)
+pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+```
+
+Use `T` as a struct value (`Validator[AgentCall]`). For nested keys inside JSON, use `ext/jsonredact` instead. See `examples/agent_tool_args`.
+
 ## Core validators (guardy)
 
 - **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (slow path).
@@ -257,9 +323,13 @@ guardytest.MustBlock(t, result.Decision())
 
 ## Error handling
 
-- **ErrBlocked** — returned by GuardWriter when report.Action == ActionBlock.
-- **ErrRetryRequested** — returned by GuardWriter when report.Action == ActionRetry.
+- **StreamError** — returned by GuardWriter on block/retry; embeds a cloned `Report` snapshot; unwraps to **ErrBlocked** or **ErrRetryRequested**.
+- **ErrBlocked** — block decisions (Guard, WrapInput, ValidateAndBind, StreamError).
+- **ErrRetryRequested** — retry decisions (WrapOutput, StreamError, RetryError).
+- **RetryError** — structured retry from interceptors and ValidateAndBind.
 - **ErrValidatorFailed** — wraps a validator’s system error from `Run`.
+
+Production `ext` validators should always set **`ext.WithCode(...)`** so hosts never parse `Reason` strings.
 
 ## Packages
 
@@ -270,6 +340,27 @@ guardytest.MustBlock(t, result.Decision())
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact.
 
 See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical specification.
+
+## Migration from v2 (task11 — Policy & Safety Engine)
+
+- **Report control flow:** `Retryable`, `Fatal`, `SafeUserMessage`; use `report.Code`, `ShouldRetry()`, `ShouldStop()`, `PublicMessage()` instead of parsing `Reason`.
+- **Policy phase:** `WithPolicyValidators` + `WithAttributes(ctx, Attributes{...})` for context-aware rules; shadow blocks in policy phase call `WithObserver` like fast-path.
+- **ValidateAndBind:** pipeline + `json.Unmarshal` + optional `PostBindValidator` on `*T`.
+- **Streaming:** `errors.As(err, &streamErr)` where `streamErr` is `*StreamError`.
+- **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
+- **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.
+
+## Migration (task12 — stream, policy shadow, post-bind)
+
+- **GuardWriter:** handle `*StreamError` instead of relying only on `errors.Is(ErrBlocked)`.
+- **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
+- **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`.
+- **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).
+
+## Migration (task13 — `MapJSONRawMessage`)
+
+- **Broken JSON after redact:** branch on `CodeJSONRedactCorrupted`, not `CodeJSONInvalid` (parse/bind errors).
+- **Struct tool args:** `NewPipeline[MyDTO]` + `MapJSONRawMessage`; see `examples/agent_tool_args`.
 
 ## v2 Migration Highlights
 

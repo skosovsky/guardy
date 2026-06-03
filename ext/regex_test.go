@@ -68,6 +68,12 @@ func TestRegex_Match_Block(t *testing.T) {
 	if rep.Action != guardy.ActionBlock || rep.Validator != "regex_validator" {
 		t.Errorf("got Action=%v Validator=%s", rep.Action, rep.Validator)
 	}
+	if rep.Code != "PROMPT_INJECTION" {
+		t.Errorf("Code = %q, want PROMPT_INJECTION", rep.Code)
+	}
+	if rep.Retryable {
+		t.Error("block should not be Retryable")
+	}
 }
 
 func TestRegex_Match_Redact(t *testing.T) {

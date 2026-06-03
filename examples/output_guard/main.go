@@ -29,7 +29,7 @@ func main() {
 	report := result.Decision()
 	switch report.Action {
 	case guardy.ActionBlock:
-		fmt.Fprintf(os.Stderr, "blocked: %s\n", report.Reason)
+		fmt.Fprintf(os.Stderr, "blocked: code=%s msg=%s\n", report.Code, report.PublicMessage())
 		os.Exit(1)
 	case guardy.ActionPass, guardy.ActionRedact:
 		fmt.Println(result.Output)

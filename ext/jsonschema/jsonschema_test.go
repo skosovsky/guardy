@@ -115,8 +115,8 @@ func TestJSONSchemaValidator_InvalidJSON_RetryWithFeedback(t *testing.T) {
 	if rep.Validator != "jsonschema_custom" {
 		t.Fatalf("validator = %q, want %q", rep.Validator, "jsonschema_custom")
 	}
-	if rep.Code != "JSON_INVALID" {
-		t.Fatalf("Code = %q, want JSON_INVALID", rep.Code)
+	if rep.Code != guardy.CodeJSONInvalid {
+		t.Fatalf("Code = %q, want %q", rep.Code, guardy.CodeJSONInvalid)
 	}
 	if rep.Reason != "invalid JSON" {
 		t.Fatalf("Reason = %q, want invalid JSON", rep.Reason)
@@ -126,6 +126,9 @@ func TestJSONSchemaValidator_InvalidJSON_RetryWithFeedback(t *testing.T) {
 	}
 	if rep.Feedback == "" {
 		t.Fatal("Feedback should contain parse error details")
+	}
+	if !rep.Retryable {
+		t.Fatal("invalid JSON retry should be Retryable")
 	}
 }
 
@@ -169,6 +172,32 @@ func TestNewJSONSchemaValidatorFromStruct_Invalid_RetryWithFeedback(t *testing.T
 	}
 	if !strings.Contains(rep.Feedback, "5") {
 		t.Fatalf("Feedback = %q, want min length details", rep.Feedback)
+	}
+	if !rep.Retryable {
+		t.Fatal("schema violation retry should be Retryable")
+	}
+}
+
+func TestNewJSONSchemaValidatorFromStruct_DefaultCodeAndRetryable(t *testing.T) {
+	type User struct {
+		Name string `json:"name" jsonschema:"required,minLength=5"`
+	}
+	j, err := NewJSONSchemaValidatorFromStruct(&User{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, rep, err := j.Validate(context.Background(), `{"name":"ab"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep == nil || rep.Action != guardy.ActionRetry {
+		t.Fatalf("got Action=%v", rep.Action)
+	}
+	if rep.Code != guardy.CodeJSONSchemaInvalid {
+		t.Fatalf("Code = %q, want %q", rep.Code, guardy.CodeJSONSchemaInvalid)
+	}
+	if !rep.Retryable {
+		t.Fatal("schema violation should be Retryable")
 	}
 }
 

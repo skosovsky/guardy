@@ -12,6 +12,9 @@ type RuleConfig struct {
 	RedactionReplacement string
 	Lowercase            bool
 	TokenVault           TokenVault
+	Retryable            *bool
+	Fatal                bool
+	SafeUserMessage      string
 }
 
 // Option configures RuleConfig for built-in validators.
@@ -77,6 +80,28 @@ func WithTokenVault(vault TokenVault) Option {
 	}
 }
 
+// WithRetryable overrides the default retryability for the report action.
+func WithRetryable(retryable bool) Option {
+	return func(c *RuleConfig) {
+		v := retryable
+		c.Retryable = &v
+	}
+}
+
+// WithFatal marks the violation as a hard escalation (stop upstream flow).
+func WithFatal(fatal bool) Option {
+	return func(c *RuleConfig) {
+		c.Fatal = fatal
+	}
+}
+
+// WithSafeUserMessage sets an end-user safe message (no internal details).
+func WithSafeUserMessage(msg string) Option {
+	return func(c *RuleConfig) {
+		c.SafeUserMessage = msg
+	}
+}
+
 func applyOptions(defaults RuleConfig, opts ...Option) RuleConfig {
 	cfg := defaults
 	for _, opt := range opts {
@@ -86,12 +111,14 @@ func applyOptions(defaults RuleConfig, opts ...Option) RuleConfig {
 }
 
 func passReport(cfg RuleConfig) *guardy.Report {
-	return &guardy.Report{
+	rep := &guardy.Report{
 		Action:    guardy.ActionPass,
 		Validator: cfg.Name,
 		Code:      cfg.Code,
 		Severity:  cfg.Severity,
 	}
+	finalizeReport(rep, cfg, guardy.ActionPass)
+	return rep
 }
 
 func violationReport(cfg RuleConfig, action guardy.Action, fallbackReason string) *guardy.Report {
@@ -99,11 +126,27 @@ func violationReport(cfg RuleConfig, action guardy.Action, fallbackReason string
 	if cfg.Reason != "" {
 		reason = cfg.Reason
 	}
-	return &guardy.Report{
+	rep := &guardy.Report{
 		Action:    action,
 		Validator: cfg.Name,
 		Code:      cfg.Code,
 		Severity:  cfg.Severity,
 		Reason:    reason,
 	}
+	finalizeReport(rep, cfg, action)
+	return rep
+}
+
+func finalizeReport(rep *guardy.Report, cfg RuleConfig, action guardy.Action) {
+	FinalizeRuleReport(rep, cfg, action)
+}
+
+// FinalizeRuleReport applies RuleConfig control-flow fields to a manually built report.
+func FinalizeRuleReport(rep *guardy.Report, cfg RuleConfig, action guardy.Action) {
+	guardy.ApplyControlDefaults(rep, guardy.ControlSpec{
+		Action:          action,
+		Retryable:       cfg.Retryable,
+		Fatal:           cfg.Fatal,
+		SafeUserMessage: cfg.SafeUserMessage,
+	})
 }
