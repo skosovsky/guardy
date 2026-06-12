@@ -1,8 +1,4 @@
-// Generic decorator example: WrapInput + WrapOutput around a func(ctx, prompt) (reply, err)
-// without net/http — suitable for any router Executor-style API.
-//
-// The output guard uses a regex on "secret" to model a leak check. For real PII redaction/block,
-// swap in ext.NewPIIValidator with the same WrapOutput pattern.
+// Generic decorator: scope-aware input policy + user channel output guard in one flow.
 package main
 
 import (
@@ -16,52 +12,64 @@ import (
 	"github.com/skosovsky/guardy/ext"
 )
 
-// askLLM simulates an LLM: normal prompts get a safe reply; prompts containing "LEAKY"
-// get a reply that triggers the output guard (regex on "secret").
 func askLLM(_ context.Context, prompt string) (string, error) {
 	if strings.Contains(prompt, "LEAKY") {
-		return "Here is the secret token for you.", nil
+		return `{"tool":"search","arguments":{"query":"secret"}}`, nil
 	}
 	return "Hello! How can I help?", nil
 }
 
 func main() {
 	ctx := context.Background()
+	scope := guardy.MapScope{"principal.role": "user"}
 
-	inGuard := ext.NewWordlistValidator(
-		[]string{"forbidden"},
-		ext.Blocklist,
-		ext.WithCode("TOXIC_INPUT"),
+	inPipe := guardy.NewPipeline(
+		guardy.WithPolicyValidators(
+			guardy.NewAttributeEquals[string]("principal.role", "admin"),
+		),
+		guardy.WithFastPath(ext.NewWordlistValidator(
+			[]string{"forbidden"},
+			ext.Blocklist,
+			ext.WithCode("TOXIC_INPUT"),
+		)),
 	)
-	inPipe := guardy.NewPipeline(guardy.WithFastPath(inGuard))
 
-	outRe, reErr := ext.NewRegexValidator(`(?i)secret`, ext.WithCode("SECRET_IN_OUTPUT"))
-	if reErr != nil {
-		log.Fatal(reErr)
-	}
-	outPipe := guardy.NewPipeline(guardy.WithFastPath(outRe))
+	classifier := ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
+	outPipe := guardy.NewPipeline(
+		guardy.WithUserChannel[string](),
+		guardy.WithUserChannelFallback[string]("Output blocked for user safety."),
+		guardy.WithFastPath(classifier),
+	)
 
-	safe := guardy.WrapOutput(outPipe, guardy.WrapInput(inPipe, askLLM))
+	safe := guardy.WrapOutput(outPipe, scope, guardy.WrapInput(inPipe, scope, askLLM))
 
-	if _, inErr := safe(ctx, "forbidden word in prompt"); inErr != nil {
-		if errors.Is(inErr, guardy.ErrBlocked) {
-			fmt.Println("input blocked:", inErr)
-		} else {
-			log.Fatal(inErr)
-		}
+	if _, err := safe(ctx, "forbidden word"); err != nil {
+		printBlock("input wordlist", err)
 	}
 
-	if _, outErr := safe(ctx, "LEAKY prompt"); outErr != nil {
-		if errors.Is(outErr, guardy.ErrBlocked) {
-			fmt.Println("output blocked:", outErr)
-		} else {
-			log.Fatal(outErr)
-		}
+	if _, err := safe(ctx, "LEAKY prompt"); err != nil {
+		printBlock("output user channel", err)
 	}
 
-	out, err := safe(ctx, "nice user question")
+	adminScope := guardy.MapScope{"principal.role": "admin"}
+	adminSafe := guardy.WrapOutput(outPipe, adminScope, guardy.WrapInput(inPipe, adminScope, askLLM))
+	out, err := adminSafe(ctx, "nice user question")
+	if err != nil {
+		log.Fatal(err)
+	}
+	outResult, err := outPipe.Run(ctx, adminScope, out)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Println("ok:", out)
+	fmt.Println("OutputKind:", outResult.OutputKind)
+}
+
+func printBlock(label string, err error) {
+	var blockErr *guardy.BlockError
+	if errors.As(err, &blockErr) {
+		fmt.Printf("%s blocked: disposition=%s msg=%s\n", label, blockErr.Report.Disposition, blockErr.Message)
+		return
+	}
+	log.Fatal(err)
 }

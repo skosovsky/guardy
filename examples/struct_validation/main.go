@@ -1,4 +1,4 @@
-// Struct validation: JSON schema pipeline plus ValidateAndBind into a typed struct.
+// Struct validation: JSON schema pipeline plus ValidateAndDecode into a typed struct.
 package main
 
 import (
@@ -34,7 +34,7 @@ func main() {
 	// Schema allows age 12; post-bind enforces business minimum 18.
 	const sampleJSON = `{"name":"Ivan","age":12}`
 
-	user, rep, err := guardy.ValidateAndBind[User](context.Background(), pipeline, sampleJSON)
+	user, rep, err := guardy.ValidateAndDecode[User](context.Background(), nil, pipeline, sampleJSON)
 	var retry *guardy.RetryError
 	if errors.As(err, &retry) {
 		fmt.Println("Action:", rep.Action)

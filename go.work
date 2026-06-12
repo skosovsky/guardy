@@ -2,8 +2,10 @@ go 1.26.1
 
 use (
 	.
+	./build
 	./examples/agent_tool_args
 	./examples/custom_validator
+	./examples/declarative_guard
 	./examples/generic_decorator
 	./examples/input_guard
 	./examples/json_streaming

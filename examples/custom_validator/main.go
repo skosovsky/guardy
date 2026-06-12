@@ -78,13 +78,13 @@ func main() {
 	ctx := context.Background()
 
 	for _, text := range []string{"Hello world", "This has badword in it"} {
-		result, err := pipeline.Run(ctx, text)
+		result, err := pipeline.Run(ctx, nil, text)
 		if err != nil {
 			fmt.Println("Error:", err)
 			continue
 		}
 		report := result.Decision()
-		if report.Action == guardy.ActionBlock {
+		if report.IsTerminalDeny() {
 			fmt.Printf("Blocked: %q -> %s\n", text, report.Validator)
 		} else {
 			fmt.Printf("Pass: %q\n", text)

@@ -294,3 +294,56 @@ func TestGuard_ExtractorError(t *testing.T) {
 		t.Errorf("status = %d, want 400", rec.Code)
 	}
 }
+
+func TestGuard_ScopeIncompleteBeforeBody(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(WithPolicyValidators(NewAttributePresent[string]("resource.id")))
+	var nextCalled bool
+	handler := Guard(
+		p,
+		bodyExtractor,
+		PlainTextInjector(),
+		WithGuardScope(MapScope{}),
+	)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		nextCalled = true
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"secret":"data"}`))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if nextCalled {
+		t.Fatal("next handler must not run on incomplete scope")
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestGuard_TerminalRetry_Returns422WithTerminalDenyDisposition(t *testing.T) {
+	v := &fakeValidator{
+		name: "terminal-retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, FinishReport(&Report{
+				Action:    ActionRetry,
+				Validator: ActionRetry.String(),
+				Retryable: false,
+				Reason:    "terminal",
+				Code:      "TERMINAL_RETRY",
+			}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	handler := Guard(p, bodyExtractor, PlainTextInjector())(
+		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+			t.Error("next must not run on terminal retry")
+		}),
+	)
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("payload"))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "TERMINAL_RETRY") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}

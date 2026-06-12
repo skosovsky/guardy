@@ -10,18 +10,19 @@ import (
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
+	jsonschemaext "github.com/skosovsky/guardy/ext/jsonschema"
 )
 
 func ExamplePipeline_Run() {
 	wordlistV := ext.NewWordlistValidator([]string{"bad"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 	ctx := context.Background()
-	result, err := pipeline.Run(ctx, "this is bad")
+	result, err := pipeline.Run(ctx, nil, "this is bad")
 	if err != nil {
 		panic(err)
 	}
 	report := result.Decision()
-	if report != nil && report.Action == guardy.ActionBlock {
+	if report != nil && report.IsTerminalDeny() {
 		fmt.Println("blocked:", report.Reason)
 	}
 	// Output:
@@ -37,25 +38,68 @@ func ExampleNewPipeline() {
 	)
 
 	ctx := context.Background()
-	result, err := pipeline.Run(ctx, "Hello, what is the weather?")
+	result, err := pipeline.Run(ctx, nil, "Hello, what is the weather?")
 	if err != nil {
 		panic(err)
 	}
 	report := result.Decision()
 	if report != nil {
-		switch report.Action {
-		case guardy.ActionBlock:
+		switch {
+		case report.IsTerminalDeny():
 			// handle block
-		case guardy.ActionPass, guardy.ActionRedact:
+		case report.IsRetryableCorrection():
+			_ = report.OrchestratorMessage()
+		default:
 			_ = result.Output
 			_ = report.MutatedText
-		case guardy.ActionRetry:
-			_ = report.Feedback
 		}
 	}
 	fmt.Println("configured")
 	// Output:
 	// configured
+}
+
+func ExamplePipeline_Run_withScope() {
+	pipeline := guardy.NewPipeline(
+		guardy.WithPolicyValidators(guardy.NewAttributeEquals[string](
+			"principal.role",
+			"admin",
+			guardy.WithPolicyCode(guardy.CodeAttributeMismatch),
+		)),
+	)
+	scope := guardy.MapScope{"principal.role": "viewer"}
+	result, err := pipeline.Run(context.Background(), scope, "hello")
+	if err != nil {
+		panic(err)
+	}
+	if result.Decision().IsTerminalDeny() {
+		fmt.Println("denied:", result.Decision().Disposition)
+	}
+	// Output:
+	// denied: terminal_deny
+}
+
+func ExampleValidateAndDecode() {
+	type payload struct {
+		Name string `json:"name"`
+	}
+	schema := []byte(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`)
+	schemaV, err := jsonschemaext.NewJSONSchemaValidator(string(schema), ext.WithCode("JSON_SCHEMA_INVALID"))
+	if err != nil {
+		panic(err)
+	}
+	pipeline := guardy.NewPipeline(guardy.WithFastPath(schemaV))
+	decoded, report, err := guardy.ValidateAndDecode[payload](context.Background(), nil, pipeline, `{"name":"Ada"}`)
+	if err != nil {
+		panic(err)
+	}
+	if report.IsRetryableCorrection() {
+		fmt.Println("retry:", report.OrchestratorMessage())
+		return
+	}
+	fmt.Println(decoded.Name, report.Disposition)
+	// Output:
+	// Ada none
 }
 
 func ExampleGuard() {

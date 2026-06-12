@@ -39,7 +39,7 @@ func main() {
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "password=super-secret"},
 	}
-	result, err := pipeline.Run(context.Background(), messages)
+	result, err := pipeline.Run(context.Background(), nil, messages)
 	if err != nil {
 		panic(err)
 	}

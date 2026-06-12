@@ -19,7 +19,7 @@ func TestWrapInput_BlockUsesSafeUserMessage(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	wrapped := WrapInput(p, func(_ context.Context, s string) (string, error) {
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})
 	_, err := wrapped(context.Background(), "x")
@@ -41,7 +41,7 @@ func TestWrapInput_BlockSkipsNext(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	wrapped := WrapInput(p, func(_ context.Context, s string) (string, error) {
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		nextCalls.Add(1)
 		return s, nil
 	})
@@ -59,13 +59,13 @@ func TestWrapInput_RetryReturnsRetryError(t *testing.T) {
 	v := &fakeValidator{
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{
+			return text, FinishReport(&Report{
 				Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it",
-			}, nil
+			}, ControlSpec{Action: ActionRetry}), nil
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	wrapped := WrapInput(p, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapInput(p, nil, func(_ context.Context, _ string) (string, error) {
 		t.Error("next must not run on retry")
 		return "", errors.New("unexpected next")
 	})
@@ -98,7 +98,7 @@ func TestWrapInput_PassAndRedact(t *testing.T) {
 			},
 		}
 		p := NewPipeline(WithFastPath(v))
-		wrapped := WrapInput(p, func(_ context.Context, s string) (string, error) {
+		wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 			return "out:" + s, nil
 		})
 		got, err := wrapped(ctx, "in")
@@ -121,7 +121,7 @@ func TestWrapInput_PassAndRedact(t *testing.T) {
 			},
 		}
 		p := NewPipeline(WithFastPath(v))
-		wrapped := WrapInput(p, func(_ context.Context, s string) (string, error) {
+		wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 			if s != "clean" {
 				t.Fatalf("next got %q, want clean", s)
 			}
@@ -154,7 +154,7 @@ func TestWrapOutput_BlockAfterNext(t *testing.T) {
 	}
 	inP := NewPipeline(WithFastPath(inV))
 	outP := NewPipeline(WithFastPath(outV))
-	wrapped := WrapOutput(outP, WrapInput(inP, func(_ context.Context, s string) (string, error) {
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, s string) (string, error) {
 		nextCalls.Add(1)
 		return "llm:" + s, nil
 	}))
@@ -183,7 +183,7 @@ func TestWrapOutput_Pass(t *testing.T) {
 	}
 	inP := NewPipeline(WithFastPath(inV))
 	outP := NewPipeline(WithFastPath(outV))
-	wrapped := WrapOutput(outP, WrapInput(inP, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		return "resp", nil
 	}))
 	got, err := wrapped(context.Background(), "q")
@@ -205,7 +205,7 @@ func TestWrapInput_PipelineErrorSkipsNext(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	wrapped := WrapInput(p, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapInput(p, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "", nil
 	})
@@ -230,14 +230,14 @@ func TestWrapOutput_RetryAfterNext(t *testing.T) {
 	outV := &fakeValidator{
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{
+			return text, FinishReport(&Report{
 				Action: ActionRetry, Validator: "out", Feedback: "rewrite",
-			}, nil
+			}, ControlSpec{Action: ActionRetry}), nil
 		},
 	}
 	inP := NewPipeline(WithFastPath(inV))
 	outP := NewPipeline(WithFastPath(outV))
-	wrapped := WrapOutput(outP, WrapInput(inP, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "model out", nil
 	}))
@@ -248,6 +248,9 @@ func TestWrapOutput_RetryAfterNext(t *testing.T) {
 	var re *RetryError
 	if !errors.As(err, &re) || re.Feedback != "rewrite" {
 		t.Fatalf("err = %v", err)
+	}
+	if !re.Report.IsRetryableCorrection() {
+		t.Fatalf("disposition = %v, want retryable correction", re.Report.Disposition)
 	}
 }
 
@@ -269,7 +272,7 @@ func TestWrapOutput_RedactAfterNext(t *testing.T) {
 	}
 	inP := NewPipeline(WithFastPath(inV))
 	outP := NewPipeline(WithFastPath(outV))
-	wrapped := WrapOutput(outP, WrapInput(inP, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		return "dirty-out", nil
 	}))
 	got, err := wrapped(context.Background(), "q")
@@ -298,7 +301,7 @@ func TestWrapOutput_PipelineErrorAfterNext(t *testing.T) {
 	}
 	inP := NewPipeline(WithFastPath(inV))
 	outP := NewPipeline(WithFastPath(outV))
-	wrapped := WrapOutput(outP, WrapInput(inP, func(_ context.Context, _ string) (string, error) {
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "ok", nil
 	}))
@@ -308,5 +311,114 @@ func TestWrapOutput_PipelineErrorAfterNext(t *testing.T) {
 	}
 	if !errors.Is(err, ErrValidatorFailed) {
 		t.Fatalf("err = %v, want wrap ErrValidatorFailed", err)
+	}
+}
+
+func TestWrapInput_BlockErrorCarriesDisposition(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, FinishReport(&Report{
+				Action: ActionBlock, Validator: "block", Reason: "nope",
+			}, ControlSpec{Action: ActionBlock}), nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	var blockErr *BlockError
+	if !errors.As(err, &blockErr) {
+		t.Fatalf("expected BlockError, got %v", err)
+	}
+	if blockErr.Report.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	}
+}
+
+func TestWrapOutput_UserChannelBlocksTechnicalPayload(t *testing.T) {
+	t.Parallel()
+	inV := &fakeValidator{
+		name: "pass",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{Action: ActionPass, Validator: "in"}, nil
+		},
+	}
+	outV := ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		return input, FinishReport(&Report{
+			Action: ActionPass, Validator: "classifier", PayloadKind: PayloadTechnicalPayload,
+		}, ControlSpec{Action: ActionPass}), nil
+	})
+	inP := NewPipeline(WithFastPath(inV))
+	outP := NewPipeline(WithUserChannel[string](), WithFastPath(outV))
+	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
+		return `{"tool":"search"}`, nil
+	}))
+	_, err := wrapped(context.Background(), "prompt")
+	var blockErr *BlockError
+	if !errors.As(err, &blockErr) {
+		t.Fatalf("expected BlockError, got %v", err)
+	}
+}
+
+func TestWrapInput_ValidatorFaultCarriesSystemFault(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "fail",
+		validate: func(_ context.Context, _ string) (string, *Report, error) {
+			return "", nil, errors.New("validator boom")
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	var fault *ValidatorFaultError
+	if !errors.As(err, &fault) {
+		t.Fatalf("expected ValidatorFaultError, got %v", err)
+	}
+	if fault.Report.Disposition != DispositionSystemFault {
+		t.Fatalf("disposition = %v", fault.Report.Disposition)
+	}
+}
+
+func TestWrapInput_TerminalRetryReturnsBlockError(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "terminal-retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, FinishReport(&Report{
+				Action:    ActionRetry,
+				Retryable: false,
+				Reason:    "no retry",
+			}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	var blockErr *BlockError
+	if !errors.As(err, &blockErr) {
+		t.Fatalf("expected BlockError, got %v", err)
+	}
+	if blockErr.Report.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	}
+}
+
+func TestWrapInput_ScopeIncomplete(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(WithPolicyValidators(NewAttributePresent[string]("resource.id")))
+	wrapped := WrapInput(p, MapScope{}, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	if !errors.Is(err, ErrScopeIncomplete) {
+		t.Fatalf("err = %v", err)
 	}
 }

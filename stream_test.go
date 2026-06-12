@@ -76,7 +76,9 @@ func TestGuardWriter_Retry(t *testing.T) {
 		name: "retry",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			if strings.Contains(text, "x") {
-				return text, &Report{Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it"}, nil
+				return text, FinishReport(&Report{
+					Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it",
+				}, ControlSpec{Action: ActionRetry}), nil
 			}
 			return text, &Report{Action: ActionPass, Validator: ActionRetry.String()}, nil
 		},
@@ -104,6 +106,54 @@ func TestGuardWriter_Retry(t *testing.T) {
 	}
 	if out.String() != "ab" {
 		t.Errorf("out = %q (retry must not write chunk)", out.String())
+	}
+}
+
+func TestGuardWriter_UserChannelBlocksTechnicalPayload(t *testing.T) {
+	t.Parallel()
+	v := ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		return input, FinishReport(&Report{
+			Action: ActionPass, Validator: "classifier", PayloadKind: PayloadTechnicalPayload,
+		}, ControlSpec{Action: ActionPass}), nil
+	})
+	p := NewPipeline(WithUserChannel[string](), WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(64))
+	_, err := gw.Write([]byte(`{"tool":"search"}`))
+	if err == nil {
+		err = gw.Close()
+	}
+	if err == nil {
+		t.Fatal("expected block error")
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("err = %v", err)
+	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatal("expected StreamError")
+	}
+	if streamErr.Report.Validator != "user_channel" {
+		t.Fatalf("Validator = %q, want user_channel", streamErr.Report.Validator)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("out = %q, want empty", out.String())
+	}
+}
+
+func TestGuardWriter_ScopeIncompleteBeforeValidation(t *testing.T) {
+	t.Parallel()
+	p := NewPipeline(
+		WithPolicyValidators(NewAttributePresent[string]("resource.id")),
+	)
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(8), WithExecutionScope(MapScope{}))
+	_, err := gw.Write([]byte("hello"))
+	if err == nil {
+		err = gw.Close()
+	}
+	if !errors.Is(err, ErrScopeIncomplete) {
+		t.Fatalf("err = %v, want ErrScopeIncomplete", err)
 	}
 }
 
@@ -795,5 +845,45 @@ func TestGuardWriter_Retry_ExposesReportViaErrorsAs(t *testing.T) {
 	}
 	if !errors.Is(err, ErrRetryRequested) {
 		t.Error("expected ErrRetryRequested via Unwrap")
+	}
+}
+
+func TestGuardWriter_TerminalRetryReturnsBlockError(t *testing.T) {
+	v := &fakeValidator{
+		name: "terminal-retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			if strings.Contains(text, "x") {
+				return text, FinishReport(&Report{
+					Action:    ActionRetry,
+					Validator: ActionRetry.String(),
+					Retryable: false,
+					Reason:    "no retry",
+				}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
+			}
+			return text, &Report{Action: ActionPass, Validator: "terminal-retry"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(2))
+	if _, err := gw.Write([]byte("ab")); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gw.Write([]byte("xy"))
+	if err == nil {
+		t.Fatal("expected error on terminal retry")
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("err = %v, want ErrBlocked", err)
+	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatal("expected StreamError")
+	}
+	if streamErr.Action != ActionBlock {
+		t.Fatalf("Action = %v, want ActionBlock", streamErr.Action)
+	}
+	if streamErr.Report.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", streamErr.Report.Disposition)
 	}
 }

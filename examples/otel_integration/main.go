@@ -25,7 +25,7 @@ func main() {
 		guardyotel.WithIncludePayloads(false), // secure-by-default; keep payloads disabled
 	))
 
-	result, err := pipeline.Run(context.Background(), "this text is forbidden")
+	result, err := pipeline.Run(context.Background(), nil, "this text is forbidden")
 	if err != nil {
 		panic(err)
 	}

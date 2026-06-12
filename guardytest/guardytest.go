@@ -3,6 +3,7 @@ package guardytest
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/skosovsky/guardy"
@@ -28,6 +29,7 @@ func MustPass(t testing.TB, report *guardy.Report) {
 }
 
 // MustBlock asserts that report.Action == ActionBlock. It calls t.Fatal on failure.
+// Prefer [MustTerminalDeny] for disposition-based control-flow tests (task14 §2.2).
 func MustBlock(t testing.TB, report *guardy.Report) {
 	t.Helper()
 	if report == nil || report.Action != guardy.ActionBlock {
@@ -48,6 +50,46 @@ func MustRetry(t testing.TB, report *guardy.Report) {
 	t.Helper()
 	if report == nil || !report.ShouldRetry() {
 		t.Fatalf("expected retryable report, got %+v", report)
+	}
+}
+
+// MustTerminalDeny asserts DispositionTerminalDeny.
+func MustTerminalDeny(t testing.TB, report *guardy.Report) {
+	t.Helper()
+	if report == nil || !report.IsTerminalDeny() {
+		t.Fatalf("expected terminal deny, got %+v", report)
+	}
+}
+
+// MustRetryableCorrection asserts DispositionRetryableCorrection.
+func MustRetryableCorrection(t testing.TB, report *guardy.Report) {
+	t.Helper()
+	if report == nil || !report.IsRetryableCorrection() {
+		t.Fatalf("expected retryable correction, got %+v", report)
+	}
+}
+
+// MustSystemFault asserts DispositionSystemFault.
+func MustSystemFault(t testing.TB, report *guardy.Report) {
+	t.Helper()
+	if report == nil || !report.IsSystemFault() {
+		t.Fatalf("expected system fault, got %+v", report)
+	}
+}
+
+// MustOutputKind asserts RunResult.OutputKind.
+func MustOutputKind[T any](t testing.TB, result guardy.RunResult[T], kind guardy.PayloadKind) {
+	t.Helper()
+	if result.OutputKind != kind {
+		t.Fatalf("OutputKind = %v, want %v", result.OutputKind, kind)
+	}
+}
+
+// MustScopeIncomplete asserts ErrScopeIncomplete from Run or scope-aware entry points.
+func MustScopeIncomplete(t testing.TB, err error) {
+	t.Helper()
+	if !errors.Is(err, guardy.ErrScopeIncomplete) {
+		t.Fatalf("expected ErrScopeIncomplete, got %v", err)
 	}
 }
 

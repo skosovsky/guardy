@@ -30,7 +30,7 @@ func main() {
 
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(piiValidator, wordlistValidator))
 	input := "Contact alice@example.com. Internal customer: ACME."
-	result, err := pipeline.Run(context.Background(), input)
+	result, err := pipeline.Run(context.Background(), nil, input)
 	if err != nil {
 		panic(err)
 	}

@@ -21,16 +21,18 @@ type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 // A Pipeline is safe for concurrent use.
 // Configuration method Use returns a new instance and never mutates the original pipeline.
 type Pipeline[T any] struct {
-	fastPath    []Validator[T]
-	policyPath  []Validator[T]
-	slowPath    []Validator[T]
-	middlewares []ValidatorMiddleware[T]
-	observer    Observer
+	fastPath            []Validator[T]
+	policyValidators    []PolicyValidator[T]
+	slowPath            []Validator[T]
+	middlewares         []ValidatorMiddleware[T]
+	observer            Observer
+	requiredKeys        []string
+	userChannel         bool
+	userChannelFallback string
 
 	// Wrapped chains built at Use() time (zero-overhead hot path).
-	fastPathWrapped   []Validator[T]
-	policyPathWrapped []Validator[T]
-	slowPathWrapped   []Validator[T]
+	fastPathWrapped []Validator[T]
+	slowPathWrapped []Validator[T]
 }
 
 // PipelineOption configures a Pipeline.
@@ -57,16 +59,28 @@ func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
 	}
 }
 
-// WithPolicyValidators adds context-aware policy validators (sequential, after fast-path).
-// Validators run only when [Attributes] were stored with [WithAttributes] (including an empty map).
-// When attributes are absent from ctx, the policy phase is a no-op.
+// WithPolicyValidators adds scope-aware policy validators (sequential, after fast-path).
+// Required scope keys are compiled once at pipeline construction; [Pipeline.Run] fails closed when keys are missing.
 func WithPolicyValidators[T any](pv ...PolicyValidator[T]) PipelineOption[T] {
-	adapters := make([]Validator[T], len(pv))
-	for i, p := range pv {
-		adapters[i] = policyValidatorAdapter[T]{p: p}
-	}
 	return func(pipe *Pipeline[T]) {
-		pipe.policyPath = append(pipe.policyPath, adapters...)
+		for _, pv := range pv {
+			pipe.requiredKeys = mergeRequiredKeys(pipe.requiredKeys, pv.RequiredScopeKeys())
+			pipe.policyValidators = append(pipe.policyValidators, pv)
+		}
+	}
+}
+
+// WithUserChannel enables terminal filtering: non-safe [PayloadKind] becomes ActionBlock.
+func WithUserChannel[T any]() PipelineOption[T] {
+	return func(p *Pipeline[T]) {
+		p.userChannel = true
+	}
+}
+
+// WithUserChannelFallback sets the SafeUserMessage when user channel blocks technical output.
+func WithUserChannelFallback[T any](msg string) PipelineOption[T] {
+	return func(p *Pipeline[T]) {
+		p.userChannelFallback = msg
 	}
 }
 
@@ -79,12 +93,20 @@ func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
 	next := p.clone()
 	next.middlewares = append(next.middlewares, mw...)
 	next.fastPathWrapped = next.wrapAll(next.fastPath)
-	next.policyPathWrapped = next.wrapAll(next.policyPath)
 	next.slowPathWrapped = next.wrapAll(next.slowPath)
 	return next
 }
 
-// fastChain returns validators for phase 1 (cached if middlewares applied, else raw).
+// RequiredScopeKeys returns keys compiled at pipeline construction (immutable after clone).
+func (p *Pipeline[T]) RequiredScopeKeys() []string {
+	if p == nil || len(p.requiredKeys) == 0 {
+		return nil
+	}
+	out := make([]string, len(p.requiredKeys))
+	copy(out, p.requiredKeys)
+	return out
+}
+
 func (p *Pipeline[T]) fastChain() []Validator[T] {
 	if len(p.middlewares) == 0 {
 		return p.fastPath
@@ -92,15 +114,22 @@ func (p *Pipeline[T]) fastChain() []Validator[T] {
 	return p.fastPathWrapped
 }
 
-// policyChain returns validators for the policy phase.
-func (p *Pipeline[T]) policyChain() []Validator[T] {
-	if len(p.middlewares) == 0 {
-		return p.policyPath
+func (p *Pipeline[T]) policyChain(scope ExecutionScope) []Validator[T] {
+	if len(p.policyValidators) == 0 {
+		return nil
 	}
-	return p.policyPathWrapped
+	out := make([]Validator[T], len(p.policyValidators))
+	for i, pv := range p.policyValidators {
+		base := policyValidatorAdapter[T]{p: pv, scope: scope}
+		wrapped := Validator[T](base)
+		for j := len(p.middlewares) - 1; j >= 0; j-- {
+			wrapped = p.middlewares[j](wrapped)
+		}
+		out[i] = wrapped
+	}
+	return out
 }
 
-// slowChain returns validators for phase 2 (cached if middlewares applied, else raw).
 func (p *Pipeline[T]) slowChain() []Validator[T] {
 	if len(p.middlewares) == 0 {
 		return p.slowPath
@@ -125,14 +154,16 @@ func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
 
 func (p *Pipeline[T]) clone() *Pipeline[T] {
 	next := &Pipeline[T]{
-		observer:    p.observer,
-		fastPath:    append([]Validator[T](nil), p.fastPath...),
-		policyPath:  append([]Validator[T](nil), p.policyPath...),
-		slowPath:    append([]Validator[T](nil), p.slowPath...),
-		middlewares: append([]ValidatorMiddleware[T](nil), p.middlewares...),
+		observer:            p.observer,
+		userChannel:         p.userChannel,
+		userChannelFallback: p.userChannelFallback,
+		fastPath:            append([]Validator[T](nil), p.fastPath...),
+		policyValidators:    append([]PolicyValidator[T](nil), p.policyValidators...),
+		slowPath:            append([]Validator[T](nil), p.slowPath...),
+		middlewares:         append([]ValidatorMiddleware[T](nil), p.middlewares...),
+		requiredKeys:        append([]string(nil), p.requiredKeys...),
 	}
 	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
-	next.policyPathWrapped = append([]Validator[T](nil), p.policyPathWrapped...)
 	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
 	return next
 }
@@ -146,12 +177,99 @@ func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
 	return p
 }
 
+// normalizeReport copies a validator report and derives Disposition.
+// Validators should set Retryable/Fatal via [FinishReport] or ext.FinalizeRuleReport before reports reach the pipeline.
+func normalizeReport(rep *Report) Report {
+	if rep == nil {
+		return Report{Action: ActionPass, Disposition: DispositionNone}
+	}
+	cp := *rep
+	cp.Disposition = DeriveDisposition(&cp, nil)
+	return cp
+}
+
+func shouldShortCircuitValidator(rep *Report) bool {
+	if rep == nil {
+		return false
+	}
+	if rep.ShadowMode && rep.Action == ActionBlock {
+		return false
+	}
+	nr := normalizeReport(rep)
+	return nr.IsRetryableCorrection() || nr.IsTerminalDeny()
+}
+
+func recordSlowPathDecision(rep *Report, block, retry **Report, cancel context.CancelFunc) {
+	nr := normalizeReport(rep)
+	if nr.IsRetryableCorrection() {
+		if *retry == nil {
+			*retry = rep
+		}
+		return
+	}
+	if nr.IsTerminalDeny() && *block == nil {
+		*block = rep
+		cancel()
+	}
+}
+
+func (p *Pipeline[T]) finalizeResult(output T, reports []Report) RunResult[T] {
+	kind := AggregatePayloadKind(reports)
+	out := output
+	if p.userChannel && kind != PayloadSafeUserText {
+		blockRep := FinishReport(&Report{
+			Action:          ActionBlock,
+			Validator:       "user_channel",
+			Code:            CodePolicyViolation,
+			Reason:          "output not safe for user channel",
+			SafeUserMessage: p.userChannelFallback,
+			PayloadKind:     kind,
+		}, ControlSpec{Action: ActionBlock})
+		reports = append(reports, *blockRep)
+		var zero T
+		out = zero
+	}
+	if p.userChannel {
+		partial := RunResult[T]{
+			Output:     out,
+			Reports:    reports,
+			OutputKind: AggregatePayloadKind(reports),
+		}
+		if rep := partial.Decision(); rep != nil && rep.IsTerminalDeny() && !rep.ShadowMode {
+			var zero T
+			out = zero
+		}
+	}
+	return RunResult[T]{
+		Output:     out,
+		Reports:    reports,
+		OutputKind: AggregatePayloadKind(reports),
+	}
+}
+
+func (p *Pipeline[T]) validatorFaultResult(output T, reports []Report, cause error) (RunResult[T], error) {
+	faultRep := validatorFaultReport(cause)
+	reports = append(reports, faultRep)
+	return RunResult[T]{
+		Output:     output,
+		Reports:    reports,
+		OutputKind: AggregatePayloadKind(reports),
+	}, validatorFaultError(cause)
+}
+
 // Run executes the pipeline. Block and Retry short-circuit immediately.
-// Returns RunResult with Output and all Reports for telemetry.
+// scope supplies policy keys; fail-closed when compiled required keys are missing.
 //
 //nolint:funlen,gocognit,gocyclo,cyclop // single orchestration function; splitting would obscure phase flow
-func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
+func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (RunResult[T], error) {
 	var zero RunResult[T]
+	if err := checkScopeComplete(scope, p.requiredKeys); err != nil {
+		return zero, err
+	}
+	if scope == nil {
+		scope = MapScope{}
+	}
+
 	var reports []Report
 
 	// Phase 1: sequential Fast-Path (uses cached wrapped chain when middlewares applied)
@@ -164,13 +282,13 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 		}
 		out, rep, err := v.Validate(fastCtx, current)
 		if err != nil {
-			return zero, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+			return p.validatorFaultResult(current, reports, err)
 		}
 		if rep != nil {
-			reports = append(reports, *rep)
+			reports = append(reports, normalizeReport(rep))
 		}
-		if rep != nil && (rep.Action == ActionBlock || rep.Action == ActionRetry) && !rep.ShadowMode {
-			return RunResult[T]{Output: out, Reports: reports}, nil
+		if shouldShortCircuitValidator(rep) {
+			return p.finalizeResult(out, reports), nil
 		}
 		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 			if p.observer != nil {
@@ -182,26 +300,25 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 		current = out
 	}
 
-	// Policy phase: sequential, context-aware (no-op when Attributes absent from ctx)
-	policyToRun := p.policyChain()
-	policyCtx := ctx
+	// Policy phase: sequential, scope-aware
+	policyToRun := p.policyChain(scope)
 	for _, v := range policyToRun {
-		if err := policyCtx.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
-		out, rep, err := v.Validate(policyCtx, current)
+		out, rep, err := v.Validate(ctx, current)
 		if err != nil {
-			return zero, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+			return p.validatorFaultResult(current, reports, err)
 		}
 		if rep != nil {
-			reports = append(reports, *rep)
+			reports = append(reports, normalizeReport(rep))
 		}
-		if rep != nil && (rep.Action == ActionBlock || rep.Action == ActionRetry) && !rep.ShadowMode {
-			return RunResult[T]{Output: out, Reports: reports}, nil
+		if shouldShortCircuitValidator(rep) {
+			return p.finalizeResult(out, reports), nil
 		}
 		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
 			if p.observer != nil {
-				p.observer(policyCtx, rep)
+				p.observer(ctx, rep)
 			}
 			current = out
 			continue
@@ -211,7 +328,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 
 	// Phase 2: parallel Slow-Path (read-only; Redact forbidden)
 	if len(p.slowPath) == 0 {
-		return RunResult[T]{Output: current, Reports: reports}, nil
+		return p.finalizeResult(current, reports), nil
 	}
 
 	var (
@@ -255,23 +372,12 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 			}
 			if rep != nil {
 				mu.Lock()
-				slowReps = append(slowReps, *rep)
+				slowReps = append(slowReps, normalizeReport(rep))
 				mu.Unlock()
 			}
-			if rep != nil && rep.Action == ActionBlock && !rep.ShadowMode {
+			if rep != nil && shouldShortCircuitValidator(rep) {
 				mu.Lock()
-				if block == nil {
-					block = rep
-					cancelPhase2()
-				}
-				mu.Unlock()
-				return nil
-			}
-			if rep != nil && rep.Action == ActionRetry {
-				mu.Lock()
-				if retry == nil {
-					retry = rep
-				}
+				recordSlowPathDecision(rep, &block, &retry, cancelPhase2)
 				mu.Unlock()
 				return nil
 			}
@@ -286,15 +392,15 @@ func (p *Pipeline[T]) Run(ctx context.Context, input T) (RunResult[T], error) {
 
 	err := g.Wait()
 	reports = append(reports, slowReps...)
-	partial := RunResult[T]{Output: current, Reports: reports}
+	partial := p.finalizeResult(current, reports)
 	if block != nil || retry != nil {
 		return partial, nil
 	}
 	if err != nil {
-		return partial, fmt.Errorf("%w: %w", ErrValidatorFailed, err)
+		return partial, validatorFaultError(err)
 	}
 	if firstErr != nil {
-		return partial, fmt.Errorf("%w: %w", ErrValidatorFailed, firstErr)
+		return partial, validatorFaultError(firstErr)
 	}
 	return partial, nil
 }

@@ -44,17 +44,17 @@ func main() {
 
 	ctx := context.Background()
 	text := "Contact me at user@example.com"
-	result, err := pipeline.Run(ctx, text)
+	result, err := pipeline.Run(ctx, nil, text)
 	if err != nil {
 		panic(err)
 	}
 	report := result.Decision()
-	switch report.Action {
-	case guardy.ActionBlock:
-		fmt.Println("blocked:", report.Reason)
-	case guardy.ActionRedact:
-		fmt.Println("ok (redacted):", result.Output)
-	case guardy.ActionPass:
+	switch {
+	case report.IsTerminalDeny():
+		fmt.Println("blocked:", report.PublicMessage())
+	case report.IsRetryableCorrection():
+		fmt.Println("retry:", report.OrchestratorMessage())
+	default:
 		fmt.Println("ok:", result.Output)
 	}
 }
@@ -72,12 +72,12 @@ type Validator[T any] interface {
 }
 ```
 
-For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**. Use **Code**, **Retryable**, **Fatal**, and **Action** for control flow — not `strings.Contains` on **Reason**. Helpers: `ShouldRetry()`, `ShouldStop()`, `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
+For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**, **Disposition** (typed control flow), **PayloadKind** (output classification). Route control flow with **IsTerminalDeny()** and **IsRetryableCorrection()** — not `strings.Contains` on **Reason** or raw **Action**. **Action** remains for telemetry and redact semantics. Helpers: `ShouldStop()` / `ShouldRetry()` (aliases), `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
 
 ### Pipeline (two-phase)
 
 - **Construction**: `NewPipeline[string](WithFastPath(...), WithPolicyValidators(...), WithSlowPath(...))`.
-- **Execution**: `Run(ctx, text)` returns `(RunResult[string], error)`. Use `result.Output` for mutated text and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry.
+- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or `guardy.MapScope{...}` for scope. Use `result.Output`, `result.OutputKind`, and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry. Policy validators declare required keys at compile time; missing keys → `ErrScopeIncomplete` (fail-closed).
 
 `pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
 
@@ -95,11 +95,11 @@ rawV := guardy.MapJSONRawMessage(piiV,
     func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
 )
 pipeline := guardy.NewPipeline[AgentCall](guardy.WithFastPath(rawV))
-result, _ := pipeline.Run(ctx, AgentCall{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)})
+result, _ := pipeline.Run(ctx, nil, AgentCall{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)})
 // result.Output.ToolArgs — redacted when ActionRedact
 ```
 
-For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + `WithAttributes`.
+For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + explicit `ExecutionScope` in `Run`.
 
 **Phase 1 — Fast path (sequential)**
 Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
@@ -111,15 +111,14 @@ Heavy validators that only **block** or **pass** run in parallel via `errgroup` 
 
 ### Report
 
-**Report** holds control-flow fields (**Retryable**, **Fatal**, **SafeUserMessage**) plus **Action**, **Code**, **Reason**, **Feedback**, and telemetry fields. After `Run`, use `result.Output` and `result.Decision()`; for HTTP/API responses prefer `report.PublicMessage()`.
+**Report** holds control-flow fields (**Retryable**, **Fatal**, **SafeUserMessage**) plus **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, and telemetry fields. After `Run`, use `result.Output` and `result.Decision()`; route control flow with `report.IsTerminalDeny()` and `report.IsRetryableCorrection()` — not string parsing on `Code`/`Reason`. For HTTP/API responses prefer `report.PublicMessage()`.
 
 ### Stream (GuardWriter)
 
 Use **GuardWriter** to validate streaming output in chunks:
 
 - Buffers until a semantic boundary (space, newline, punctuation) or a delimiterless hard cap is reached; runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
-- On **Block** — returns `ErrBlocked`.
-- On **Retry** — returns `ErrRetryRequested` (orchestrator should retry with Feedback).
+- On **terminal deny** or **retryable correction** — returns `*StreamError` (`errors.As` for `Report`; `errors.Is` via `Unwrap` to `ErrBlocked` / `ErrRetryRequested`). Terminal retry maps to block-style `StreamError`.
 - On **Redact** — writes the mutated text for that chunk.
 - On **Pass** — writes the original chunk.
 - In JSON-aware mode, incomplete JSON is never validated/written; `Close()` on incomplete JSON returns `ErrValidatorFailed`.
@@ -135,11 +134,18 @@ gw := guardy.NewGuardWriter(
 )
 _, _ = gw.Write(data)
 _ = gw.Close()
+
+var streamErr *guardy.StreamError
+if errors.As(err, &streamErr) {
+    log.Println(streamErr.Report.Code, streamErr.Report.Disposition, streamErr.Report.PublicMessage())
+}
 ```
+
+See `examples/streaming_filter` and `examples/json_streaming`.
 
 ### HTTP Guard (`http_guard.go`)
 
-**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **Block** or **Retry** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
+**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **terminal deny** or **retryable correction** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
 
 ```go
 extractor := func(r *http.Request) (string, error) {
@@ -149,48 +155,75 @@ extractor := func(r *http.Request) (string, error) {
 handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHandler)
 ```
 
-### Policy validators (context-aware)
+### Policy validators (scope-aware)
 
-Pass host-defined metadata with `guardy.WithAttributes(ctx, guardy.Attributes{"principal.role": "viewer"})`. Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in builders: `NewAttributeEquals`, `NewAttributePresent`. Policy validators are no-ops when attributes are not in context. See `examples/policy_attributes`.
+Pass host-defined metadata with `guardy.MapScope{"principal.role": "viewer"}` as the second argument to `Run`. Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in builders: `NewAttributeEquals`, `NewAttributePresent` (declare `RequiredScopeKeys()`; merged at pipeline compile time). Custom rules: `NewPolicyFunc(keys, fn)`. Missing scope keys fail closed with `ErrScopeIncomplete`. See `examples/policy_attributes`.
 
-### ValidateAndBind
+### ValidateAndDecode (raw-first)
 
-Single step from JSON string to typed struct after the pipeline:
-
-```go
-user, rep, err := guardy.ValidateAndBind[User](ctx, pipeline, rawJSON)
-```
-
-Block → `ErrBlocked`; retry / bind JSON failure / post-bind domain rule → `RetryError`. Optional `PostBindValidator` on `*T` (pointer receiver) runs after `json.Unmarshal`. See `examples/struct_validation`.
-
-### GuardWriter (streaming)
-
-`GuardWriter` returns `*StreamError` on block or retry. Use `errors.As` (with a `*StreamError` variable) for `Report.Code` and `Retryable`; `errors.Is` still works via `Unwrap`:
+Single step from JSON string to typed struct after the raw interception pipeline:
 
 ```go
-var streamErr *guardy.StreamError
-if errors.As(err, &streamErr) {
-    log.Println(streamErr.Report.Code, streamErr.Report.PublicMessage())
-}
+user, rep, err := guardy.ValidateAndDecode[User](ctx, scope, pipeline, rawJSON)
 ```
 
-See `examples/streaming_filter` and `examples/json_streaming`.
+Phase Raw: fast + policy + slow on the string. Phase Structured: `json.Unmarshal` + optional `PostBindValidator`. Block → `ErrBlocked`; retry / decode failure / post-bind domain rule → `RetryError`. See `examples/struct_validation`.
+
+### User channel (`WithUserChannel`)
+
+For output guards, enable terminal filtering so non-safe `PayloadKind` is blocked inside the library:
+
+```go
+pipeline := guardy.NewPipeline(
+    guardy.WithUserChannel[string](),
+    guardy.WithUserChannelFallback[string]("Sorry, I can't show that."),
+    guardy.WithFastPath(classifier),
+)
+```
+
+Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`.
+
+### Declarative guards (`guardy/build`)
+
+Compile intent without wiring ext validators manually:
+
+```go
+import "github.com/skosovsky/guardy/build"
+
+pipeline, err := build.CompileStringGuard(build.GuardSpec{
+    WordlistBlock: []string{"bad"},
+    PIIRedact:     true,
+    LengthMax:     4096,
+}, build.WithJSONSchema(schemaBytes))
+
+// Output guards: user channel + technical JSON classifier
+outPipeline, err := build.CompileStringGuard(build.GuardSpec{},
+    build.WithUserChannel(),
+    build.WithUserChannelFallback("Output blocked."),
+    build.WithOutputClassifier(),
+)
+```
+
+See `examples/declarative_guard`.
+
+**Sensitivity levels** (`build.SensitivityStrict`, `SensitivityNormal`, `SensitivityPermissive`): Strict enables PII redaction and tightens `LengthMax` when set; Permissive keeps only explicit wordlist/policy rules; Normal uses spec fields as-is.
 
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Block maps to an error wrapping **ErrBlocked** (message from `PublicMessage()`); retry maps to **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError** (unwraps to **ErrBlocked**; use `errors.As` for **Report.Disposition**). Retryable correction returns **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
-| Validator                 | Description                                                                                                                                                                                             |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TagSanitizerValidator** | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
-| **PIIValidator**          | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
-| **WordlistValidator**     | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
-| **RegexValidator**        | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
-| **LengthValidator**       | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
-| **JSON Schema**           | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
-| **JSON Redact**           | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
+| Validator                   | Description                                                                                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **TagSanitizerValidator**   | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
+| **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
+| **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
+| **RegexValidator**          | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
+| **LengthValidator**         | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
+| **TechnicalJSONClassifier** | Classifies tool-call JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
+| **JSON Schema**             | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
+| **JSON Redact**             | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
 
 ### Structured Output / JSON Schema
 
@@ -235,7 +268,7 @@ piiV := ext.NewPIIValidator(
 	ext.WithAction(guardy.ActionRedact),
 	ext.WithTokenVault(vault),
 )
-result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, "email: a@b.com")
+result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, nil, "email: a@b.com")
 restored := ext.UnredactText("model: "+result.Output, vault)
 ```
 
@@ -312,40 +345,62 @@ Use **guardy/guardytest** for unit tests:
 
 - **FakeValidator(name, *guardy.Report)** — validator that always returns the given report (nil or zero = pass).
 - **FailingValidator(name, err)** — validator that always returns the given error.
-- **MustPass**, **MustBlock**, **MustRedact** — assert `report.Action`.
+- **MustPass**, **MustBlock**, **MustRedact**, **MustRetry** — assert `report.Action`.
+- **MustTerminalDeny**, **MustRetryableCorrection**, **MustSystemFault** — assert `report.Disposition`.
+- **MustOutputKind** — assert `RunResult.OutputKind` (user channel / classifier tests).
+- **MustScopeIncomplete** — assert `errors.Is(err, ErrScopeIncomplete)`.
 
 ```go
 v := guardytest.FakeValidator("mock", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
 pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
-result, _ := pipeline.Run(ctx, "x")
-guardytest.MustBlock(t, result.Decision())
+result, _ := pipeline.Run(ctx, nil, "x")
+guardytest.MustTerminalDeny(t, result.Decision()) // prefer over MustBlock for control-flow tests
 ```
 
 ## Error handling
 
+- **BlockError** — block from WrapInput, WrapOutput, ValidateAndDecode; carries `Report.Disposition`; unwraps to **ErrBlocked**.
+- **ValidatorFaultError** — validator/pipeline infrastructure failure; `DispositionSystemFault`; unwraps to **ErrValidatorFailed**.
 - **StreamError** — returned by GuardWriter on block/retry; embeds a cloned `Report` snapshot; unwraps to **ErrBlocked** or **ErrRetryRequested**.
-- **ErrBlocked** — block decisions (Guard, WrapInput, ValidateAndBind, StreamError).
+- **ErrBlocked** — block decisions (Guard, WrapInput, ValidateAndDecode, StreamError).
 - **ErrRetryRequested** — retry decisions (WrapOutput, StreamError, RetryError).
-- **RetryError** — structured retry from interceptors and ValidateAndBind.
-- **ErrValidatorFailed** — wraps a validator’s system error from `Run`.
+- **RetryError** — structured retry from interceptors and ValidateAndDecode; use `errors.As` for `Report.Disposition`.
+- **ErrScopeIncomplete** — `Run` called without required policy scope keys.
+- **ErrValidatorFailed** — wraps a validator’s system error from `Run`; prefer `errors.As` into **ValidatorFaultError** for disposition.
+
+Use `report.Disposition` (`DispositionTerminalDeny`, `DispositionRetryableCorrection`, `DispositionSystemFault`) for control flow — not string parsing on `Code` or `Reason`.
 
 Production `ext` validators should always set **`ext.WithCode(...)`** so hosts never parse `Reason` strings.
 
 ## Packages
 
-- **guardy** — core types (Action, Report, Validator), Pipeline, SemanticValidator, LLMJudge, GuardWriter, Guard middleware, errors.
-- **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator.
+- **guardy** — core types (Action, Report, Disposition, PayloadKind, Validator), Pipeline, ExecutionScope, SemanticValidator, LLMJudge, GuardWriter, Guard middleware, errors.
+- **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
+- **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
 - **guardy/ext/guardyotel** — optional OTel middleware module (metrics + tracing).
-- **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact.
+- **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact/MustRetry, MustTerminalDeny/MustRetryableCorrection/MustSystemFault, MustOutputKind, MustScopeIncomplete.
 
 See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical specification.
 
+## Migration (task14 — typed scope, disposition, output kind)
+
+- **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; use `guardy.MapScope` or a host `ExecutionScope`.
+- **Fail-closed policy:** `RequiredScopeKeys()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` before fast-path.
+- **Disposition:** route with `report.IsTerminalDeny()` and `report.IsRetryableCorrection()` — not string parsing on `Code`/`Reason` or raw `report.Disposition` (use helpers for derive-on-read).
+- **Output kind:** `RunResult.OutputKind` + `WithUserChannel()` for user-facing output filters (any `Pipeline[T]`).
+- **ValidateAndDecode:** replaces `ValidateAndBind`; signature `(ctx, scope, pipeline, raw)`.
+- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused).
+- **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
+- **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
+
 ## Migration from v2 (task11 — Policy & Safety Engine)
 
-- **Report control flow:** `Retryable`, `Fatal`, `SafeUserMessage`; use `report.Code`, `ShouldRetry()`, `ShouldStop()`, `PublicMessage()` instead of parsing `Reason`.
-- **Policy phase:** `WithPolicyValidators` + `WithAttributes(ctx, Attributes{...})` for context-aware rules; shadow blocks in policy phase call `WithObserver` like fast-path.
-- **ValidateAndBind:** pipeline + `json.Unmarshal` + optional `PostBindValidator` on `*T`.
+Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-redaction.md) (`ValidateAndDecode`, `Map`, `MapJSONRawMessage`).
+
+- **Report control flow:** `Retryable`, `Fatal`, `SafeUserMessage`; prefer `IsTerminalDeny()` / `IsRetryableCorrection()` for routing; `ShouldStop()` / `ShouldRetry()` are aliases; use `report.Code`, `PublicMessage()` instead of parsing `Reason`.
+- **Policy phase:** `WithPolicyValidators` + explicit `ExecutionScope` in `Run` (task14 replaces `WithAttributes`).
+- **ValidateAndDecode:** pipeline + `json.Unmarshal` + optional `PostBindValidator` on `*T`.
 - **Streaming:** `errors.As(err, &streamErr)` where `streamErr` is `*StreamError`.
 - **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
 - **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.

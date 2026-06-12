@@ -68,10 +68,54 @@ func TestMustRetry(t *testing.T) {
 	MustRetry(t, &report)
 }
 
+func TestMustTerminalDeny(t *testing.T) {
+	report := guardy.FinishReport(
+		&guardy.Report{Action: guardy.ActionBlock},
+		guardy.ControlSpec{Action: guardy.ActionBlock},
+	)
+	MustTerminalDeny(t, report)
+}
+
+func TestMustRetryableCorrection(t *testing.T) {
+	report := guardy.FinishReport(
+		&guardy.Report{Action: guardy.ActionRetry, Retryable: true},
+		guardy.ControlSpec{Action: guardy.ActionRetry},
+	)
+	MustRetryableCorrection(t, report)
+}
+
+func TestMustSystemFault(t *testing.T) {
+	report := guardy.Report{
+		Action:      guardy.ActionPass,
+		Disposition: guardy.DispositionSystemFault,
+	}
+	MustSystemFault(t, &report)
+}
+
+func TestMustOutputKind(t *testing.T) {
+	result := guardy.RunResult[string]{
+		Output:     "hello",
+		OutputKind: guardy.PayloadTechnicalPayload,
+	}
+	MustOutputKind(t, result, guardy.PayloadTechnicalPayload)
+}
+
+func TestMustScopeIncomplete(t *testing.T) {
+	MustScopeIncomplete(t, guardy.ErrScopeIncomplete)
+}
+
+func TestMustScopeIncomplete_viaRun(t *testing.T) {
+	p := guardy.NewPipeline(
+		guardy.WithPolicyValidators(guardy.NewAttributePresent[string]("tenant.id")),
+	)
+	_, err := p.Run(context.Background(), guardy.MapScope{}, "x")
+	MustScopeIncomplete(t, err)
+}
+
 func TestPipelineWithFakeValidator(t *testing.T) {
 	v := FakeValidator("block", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
 	p := guardy.NewPipeline(guardy.WithFastPath(v))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}

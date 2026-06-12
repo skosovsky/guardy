@@ -33,6 +33,7 @@ type guardWriterConfig struct {
 	maxChunkSize int
 	contextFn    func() (context.Context, context.CancelFunc)
 	splitMode    splitMode
+	scope        ExecutionScope
 }
 
 type chunkSplitStrategy interface {
@@ -78,6 +79,13 @@ func WithTimeout(d time.Duration) GuardWriterOption {
 func WithJSONAwareSplitter() GuardWriterOption {
 	return func(c *guardWriterConfig) {
 		c.splitMode = splitModeJSONAware
+	}
+}
+
+// WithExecutionScope sets the scope passed to [Pipeline.Run] for each chunk.
+func WithExecutionScope(scope ExecutionScope) GuardWriterOption {
+	return func(c *guardWriterConfig) {
+		c.scope = scope
 	}
 }
 
@@ -370,20 +378,16 @@ func (g *GuardWriter) validateAndWrite(chunk []byte, overlapLen int) ([]byte, er
 	}
 	defer cancel()
 
-	result, err := g.p.Run(ctx, string(chunk))
+	result, err := g.p.Run(ctx, g.config.scope, string(chunk))
 	if err != nil {
 		return nil, err
 	}
 	rep := result.Decision()
 	var output []byte
-	switch rep.Action {
-	case ActionBlock, ActionRetry:
+	if rep.IsRetryableCorrection() || rep.IsTerminalDeny() {
 		return nil, streamErrorFromDecision(rep)
-	case ActionPass, ActionRedact:
-		output = []byte(result.Output)
-	default:
-		output = []byte(result.Output)
 	}
+	output = []byte(result.Output)
 
 	if overlapLen < len(output) {
 		if _, err = g.w.Write(output[overlapLen:]); err != nil {

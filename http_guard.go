@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -28,6 +29,20 @@ func PlainTextInjector() func(*http.Request, string) error {
 	}
 }
 
+// GuardOption configures HTTP Guard middleware.
+type GuardOption func(*guardConfig)
+
+type guardConfig struct {
+	scope ExecutionScope
+}
+
+// WithGuardScope sets the execution scope for pipeline runs.
+func WithGuardScope(scope ExecutionScope) GuardOption {
+	return func(c *guardConfig) {
+		c.scope = scope
+	}
+}
+
 // Guard returns net/http middleware that runs the pipeline on the request body.
 // It is HTTP-specific; for generic func(context.Context, Req) (Res, error) wrapping use WrapInput / WrapOutput.
 // Extractor reads the request and returns value of type T to validate.
@@ -38,6 +53,7 @@ func Guard[T any](
 	p *Pipeline[T],
 	extractor func(*http.Request) (T, error),
 	injector func(*http.Request, T) error,
+	opts ...GuardOption,
 ) func(http.Handler) http.Handler {
 	if p == nil {
 		panic("guardy: Guard requires non-nil Pipeline")
@@ -48,9 +64,17 @@ func Guard[T any](
 	if injector == nil {
 		panic("guardy: Guard requires non-nil injector")
 	}
+	cfg := guardConfig{scope: nil}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
+			if err := checkScopeComplete(cfg.scope, p.RequiredScopeKeys()); err != nil {
+				writeJSONError(w, http.StatusBadRequest, CodeAttributeMissing, "execution scope incomplete")
+				return
+			}
 			limitedBody := http.MaxBytesReader(w, r.Body, DefaultMaxBodyBytes)
 			bodyBytes, err := io.ReadAll(limitedBody)
 			if err != nil {
@@ -63,14 +87,18 @@ func Guard[T any](
 				writeJSONError(w, http.StatusBadRequest, "invalid_input", "extraction failed")
 				return
 			}
-			result, err := p.Run(ctx, text)
+			result, err := p.Run(ctx, cfg.scope, text)
 			if err != nil {
-				writeJSONError(w, http.StatusInternalServerError, "pipeline_error", "validation failed")
+				if errors.Is(err, ErrScopeIncomplete) {
+					writeJSONError(w, http.StatusBadRequest, CodeAttributeMissing, "execution scope incomplete")
+					return
+				}
+				writeJSONError(w, http.StatusInternalServerError, CodeValidatorFailed, "validation failed")
 				return
 			}
 			rep := result.Decision()
-			switch rep.Action {
-			case ActionBlock, ActionRetry:
+			switch {
+			case rep.IsTerminalDeny(), rep.IsRetryableCorrection():
 				code := rep.Code
 				if code == "" {
 					code = rep.Validator
@@ -81,7 +109,7 @@ func Guard[T any](
 				msg := rep.PublicMessage()
 				writeJSONError(w, http.StatusUnprocessableEntity, code, msg)
 				return
-			case ActionRedact:
+			case rep.Action == ActionRedact:
 				r2 := r.WithContext(withReport(r.Context(), rep))
 				if err := injector(r2, result.Output); err != nil {
 					writeJSONError(w, http.StatusInternalServerError, "inject_failed", "injection failed")

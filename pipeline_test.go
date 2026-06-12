@@ -1,6 +1,7 @@
 package guardy
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,7 +26,7 @@ func (f *fakeValidator) Validate(ctx context.Context, text string) (string, *Rep
 func TestPipeline_Empty(t *testing.T) {
 	p := NewPipeline[string]()
 	ctx := context.Background()
-	result, err := p.Run(ctx, "hello")
+	result, err := p.Run(ctx, nil, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,7 +47,7 @@ func TestPipeline_FastPath_Pass(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	result, err := p.Run(context.Background(), "hello")
+	result, err := p.Run(context.Background(), nil, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +69,7 @@ func TestPipeline_FastPath_PassMutatesOutput(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	result, err := p.Run(context.Background(), "hello")
+	result, err := p.Run(context.Background(), nil, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +86,7 @@ func TestPipeline_FastPath_Block(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	result, err := p.Run(context.Background(), "bad")
+	result, err := p.Run(context.Background(), nil, "bad")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestPipeline_FastPath_RedactChain(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v1, v2))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +140,7 @@ func TestPipeline_FastPath_RedactToEmptyText(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(wiper))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +173,7 @@ func TestPipeline_FastPath_RedactKeepsValidatorAfterSubsequentPass(t *testing.T)
 		},
 	}
 	p := NewPipeline(WithFastPath(redactor, passer))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +206,7 @@ func TestPipeline_ShortCircuit(t *testing.T) {
 	}
 	p := NewPipeline(WithSlowPath(blocker, sleeper))
 	start := time.Now()
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	elapsed := time.Since(start)
 	rep := result.Decision()
 	if err != nil {
@@ -233,7 +234,7 @@ func TestPipeline_ShadowMode(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithSlowPath(blockShadow, passer))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +261,7 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 		}),
 		WithFastPath(shadowBlock),
 	)
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,14 +275,17 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 }
 
 func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
-	var calls int32
 	pass := &fakeValidator{
 		name: "pass",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	shadowPolicy := PolicyFunc[string](func(_ context.Context, input string, _ Attributes) (string, *Report, error) {
+	shadowPolicy := NewPolicyFunc[string](nil, func(
+		_ context.Context,
+		input string,
+		_ ExecutionScope,
+	) (string, *Report, error) {
 		return input, &Report{
 			Action:     ActionBlock,
 			ShadowMode: true,
@@ -289,22 +293,16 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 			Reason:     "would block",
 		}, nil
 	})
-	attrs := Attributes{"principal.role": "sales"}
-	ctx := WithAttributes(context.Background(), attrs)
-	var observedRole string
+	scope := MapScope{"principal.role": "sales"}
+	var observed int32
 	p := NewPipeline(
 		WithFastPath(pass),
 		WithPolicyValidators(shadowPolicy),
-		WithObserver[string](func(observerCtx context.Context, _ *Report) {
-			atomic.AddInt32(&calls, 1)
-			if a, ok := AttributesFromContext(observerCtx); ok {
-				if v, ok := a["principal.role"].(string); ok {
-					observedRole = v
-				}
-			}
+		WithObserver[string](func(_ context.Context, _ *Report) {
+			atomic.AddInt32(&observed, 1)
 		}),
 	)
-	result, err := p.Run(ctx, "hello")
+	result, err := p.Run(context.Background(), scope, "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,11 +310,8 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 	if rep.Action != ActionPass {
 		t.Errorf("Action = %v, want pass (shadow block ignored)", rep.Action)
 	}
-	if atomic.LoadInt32(&calls) != 1 {
-		t.Errorf("observer calls = %d, want 1", calls)
-	}
-	if observedRole != "sales" {
-		t.Errorf("observed role = %q, want sales", observedRole)
+	if atomic.LoadInt32(&observed) != 1 {
+		t.Errorf("observer calls = %d, want 1", atomic.LoadInt32(&observed))
 	}
 }
 
@@ -337,7 +332,7 @@ func TestPipeline_WordlistRedact(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	result, err := p.Run(context.Background(), "hello spam world")
+	result, err := p.Run(context.Background(), nil, "hello spam world")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +354,7 @@ func TestPipeline_ValidatorError(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(v))
-	_, err := p.Run(context.Background(), "x")
+	_, err := p.Run(context.Background(), nil, "x")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -386,7 +381,7 @@ func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithSlowPath(v1, v2))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -407,7 +402,7 @@ func TestPipeline_SlowPath_InvalidActionReturnsError(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithSlowPath(badSlow))
-	_, err := p.Run(context.Background(), "x")
+	_, err := p.Run(context.Background(), nil, "x")
 	if err == nil {
 		t.Fatal("expected error for redact in slow-path")
 	}
@@ -431,7 +426,7 @@ func TestPipeline_SlowPath_BlockPriorityOverError(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithSlowPath(blocker, failer))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatalf("expected block to win, got err: %v", err)
 	}
@@ -457,7 +452,7 @@ func TestPipeline_RetryShortCircuit(t *testing.T) {
 		},
 	}
 	p := NewPipeline(WithFastPath(retryV, blockV))
-	result, err := p.Run(context.Background(), "x")
+	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +488,7 @@ func TestPipeline_MiddlewareOrder(t *testing.T) {
 	}
 	p := NewPipeline(WithFastPath(v))
 	p = p.Use(outer, inner)
-	_, err := p.Run(context.Background(), "x")
+	_, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -562,14 +557,14 @@ func TestPipeline_UseImmutable(t *testing.T) {
 		t.Fatal("Use must return a new pipeline instance")
 	}
 
-	if _, err := original.Run(context.Background(), "x"); err != nil {
+	if _, err := original.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
 	if got := mwCalls.Load(); got != 0 {
 		t.Fatalf("middleware calls for original pipeline = %d, want 0", got)
 	}
 
-	if _, err := derived.Run(context.Background(), "x"); err != nil {
+	if _, err := derived.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
 	if got := mwCalls.Load(); got != 1 {
@@ -594,7 +589,11 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
 		},
 	}
-	policyPV := PolicyFunc[string](func(_ context.Context, text string, _ Attributes) (string, *Report, error) {
+	policyPV := NewPolicyFunc[string](nil, func(
+		_ context.Context,
+		text string,
+		_ ExecutionScope,
+	) (string, *Report, error) {
 		order = append(order, "policy")
 		return text, &Report{Action: ActionPass, Validator: "policy"}, nil
 	})
@@ -603,8 +602,7 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 		WithPolicyValidators(policyPV),
 		WithSlowPath(slowV),
 	)
-	ctx := WithAttributes(context.Background(), Attributes{"k": "v"})
-	if _, err := p.Run(ctx, "x"); err != nil {
+	if _, err := p.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{"fast", "policy", "slow"}
@@ -642,7 +640,7 @@ func TestPipeline_PhaseContext(t *testing.T) {
 	}
 
 	p := NewPipeline(WithFastPath(fastV), WithSlowPath(slowV))
-	if _, err := p.Run(context.Background(), "x"); err != nil {
+	if _, err := p.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
 	if !fastSeen.Load() {
@@ -676,7 +674,7 @@ func TestPipeline_MapJSONRawMessage_RedactUpdatesOutput(t *testing.T) {
 	)
 	p := NewPipeline[pipelineToolArgs](WithFastPath(mapped))
 	in := pipelineToolArgs{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)}
-	result, err := p.Run(context.Background(), in)
+	result, err := p.Run(context.Background(), nil, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -688,5 +686,102 @@ func TestPipeline_MapJSONRawMessage_RedactUpdatesOutput(t *testing.T) {
 	}
 	if string(result.Output.ToolArgs) != `{"email":"[REDACTED]"}` {
 		t.Fatalf("ToolArgs = %s", result.Output.ToolArgs)
+	}
+}
+
+func TestPipeline_ValidatorFaultCarriesSystemFault(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "fail",
+		validate: func(_ context.Context, _ string) (string, *Report, error) {
+			return "", nil, errors.New("boom")
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+	_, err := p.Run(context.Background(), nil, "x")
+	var fault *ValidatorFaultError
+	if !errors.As(err, &fault) {
+		t.Fatalf("expected ValidatorFaultError, got %v", err)
+	}
+	if !fault.Report.IsSystemFault() {
+		t.Fatalf("report = %+v", fault.Report)
+	}
+}
+
+func TestNormalizeReport_RawActionRetryWithoutFinishReport_ConsistentDeny(t *testing.T) {
+	t.Parallel()
+	v := &fakeValidator{
+		name: "raw-retry",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action:    ActionRetry,
+				Validator: ActionRetry.String(),
+				Feedback:  "fix it",
+			}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(v))
+
+	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
+		return s, nil
+	})
+	_, err := wrapped(context.Background(), "x")
+	var blockErr *BlockError
+	if !errors.As(err, &blockErr) {
+		t.Fatalf("WrapInput: expected BlockError, got %v", err)
+	}
+	if blockErr.Report.Disposition != DispositionTerminalDeny {
+		t.Fatalf("WrapInput disposition = %v", blockErr.Report.Disposition)
+	}
+
+	var out bytes.Buffer
+	gw := NewGuardWriter(&out, p, WithChunkSize(8))
+	if _, err = gw.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	err = gw.Close()
+	if err == nil {
+		t.Fatal("GuardWriter: expected error on raw ActionRetry without FinishReport")
+	}
+	if !errors.Is(err, ErrBlocked) {
+		t.Fatalf("GuardWriter: err = %v, want ErrBlocked", err)
+	}
+	var streamErr *StreamError
+	if !errors.As(err, &streamErr) {
+		t.Fatalf("GuardWriter: expected StreamError, got %v", err)
+	}
+	if streamErr.Action != ActionBlock {
+		t.Fatalf("GuardWriter Action = %v, want ActionBlock", streamErr.Action)
+	}
+}
+
+func TestPipeline_FatalPassShortCircuits(t *testing.T) {
+	t.Parallel()
+	fatalV := &fakeValidator{
+		name: "fatal",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, FinishReport(&Report{
+				Action:    ActionPass,
+				Validator: "fatal",
+				Fatal:     true,
+				Reason:    "fatal escalation",
+			}, ControlSpec{Action: ActionPass, Fatal: true}), nil
+		},
+	}
+	blockV := &fakeValidator{
+		name: "block",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			t.Error("block validator must not run after fatal pass")
+			return text, &Report{Action: ActionBlock, Validator: "block"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(fatalV, blockV))
+	result, err := p.Run(context.Background(), nil, "x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep := result.Decision()
+	if !rep.IsTerminalDeny() {
+		t.Fatalf("decision = %+v, want terminal deny", rep)
 	}
 }

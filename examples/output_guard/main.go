@@ -1,5 +1,4 @@
-// Output guard: validate and redact PII in LLM response.
-// Uses PIIValidator in the Fast-Path to redact email, phone, credit card.
+// Output guard: validate and redact PII in LLM response; block technical JSON on user channel.
 package main
 
 import (
@@ -12,29 +11,45 @@ import (
 )
 
 func main() {
-	piiV := ext.NewPIIValidator()
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(piiV))
-
-	llmOutput := `The user can be reached at john@example.com or 555-123-4567.`
-	if len(os.Args) > 1 {
-		llmOutput = os.Args[1]
-	}
+	piiV := ext.NewPIIValidator(ext.WithCode("PII_DETECTED"))
+	classifier := ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
+	pipeline := guardy.NewPipeline(
+		guardy.WithUserChannel[string](),
+		guardy.WithUserChannelFallback[string]("Sorry, I can't show that response."),
+		guardy.WithFastPath(piiV, classifier),
+	)
 
 	ctx := context.Background()
-	result, err := pipeline.Run(ctx, llmOutput)
+
+	// Scenario 1: PII redact on safe user text.
+	piiOutput := `The user can be reached at john@example.com or 555-123-4567.`
+	if len(os.Args) > 1 {
+		piiOutput = os.Args[1]
+	}
+	runPipeline(ctx, pipeline, piiOutput, "PII demo")
+
+	// Scenario 2: user channel blocks technical JSON without CLI args.
+	technicalJSON := `{"tool":"search","arguments":{"query":"secret"}}`
+	runPipeline(ctx, pipeline, technicalJSON, "technical JSON demo")
+}
+
+func runPipeline(ctx context.Context, pipeline *guardy.Pipeline[string], input, label string) {
+	fmt.Println("---", label, "---")
+	result, err := pipeline.Run(ctx, nil, input)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
 	report := result.Decision()
-	switch report.Action {
-	case guardy.ActionBlock:
-		fmt.Fprintf(os.Stderr, "blocked: code=%s msg=%s\n", report.Code, report.PublicMessage())
-		os.Exit(1)
-	case guardy.ActionPass, guardy.ActionRedact:
-		fmt.Println(result.Output)
+	switch {
+	case report.IsTerminalDeny():
+		fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
+			report.Code, report.Disposition, report.PublicMessage())
+		fmt.Fprintln(os.Stderr, "OutputKind:", result.OutputKind)
+	case report.IsRetryableCorrection():
+		fmt.Fprintf(os.Stderr, "retry: %s\n", report.OrchestratorMessage())
 	default:
-		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
-		os.Exit(2)
+		fmt.Println(result.Output)
+		fmt.Println("OutputKind:", result.OutputKind)
 	}
 }

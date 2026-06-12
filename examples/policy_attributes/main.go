@@ -1,8 +1,9 @@
-// Policy attributes: context-aware rules without domain-specific types in guardy.
+// Policy attributes: scope-aware rules without domain-specific types in guardy.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/skosovsky/guardy"
@@ -20,17 +21,24 @@ func main() {
 		guardy.WithFastPath(noopPassValidator()),
 	)
 
-	ctx := guardy.WithAttributes(context.Background(), guardy.Attributes{
-		"principal.role": "viewer",
-	})
-	result, err := pipeline.Run(ctx, "hello")
+	scope := guardy.MapScope{"principal.role": "viewer"}
+	result, err := pipeline.Run(context.Background(), scope, "hello")
 	if err != nil {
 		panic(err)
 	}
 	rep := result.Decision()
+	fmt.Println("--- policy mismatch ---")
 	fmt.Println("Action:", rep.Action)
 	fmt.Println("Code:", rep.Code)
 	fmt.Println("Message:", rep.PublicMessage())
+	fmt.Println("Disposition:", rep.Disposition)
+
+	_, err = pipeline.Run(context.Background(), guardy.MapScope{}, "hello")
+	if !errors.Is(err, guardy.ErrScopeIncomplete) {
+		panic(fmt.Sprintf("expected ErrScopeIncomplete, got %v", err))
+	}
+	fmt.Println("--- missing scope ---")
+	fmt.Println("ErrScopeIncomplete:", err)
 }
 
 func noopPassValidator() guardy.ValidatorFunc[string] {

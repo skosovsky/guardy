@@ -8,7 +8,7 @@ import (
 var (
 	// ErrBlocked is returned when the pipeline result is Block (e.g. by GuardWriter, WrapInput, WrapOutput).
 	// Match with [errors.Is] against err and ErrBlocked. [GuardWriter] returns [*StreamError], which unwraps to ErrBlocked —
-	// use [errors.As] into *StreamError for Code and Report. WrapInput/WrapOutput may wrap ErrBlocked with [fmt.Errorf]("%w: ...", ErrBlocked, reason).
+	// use [errors.As] into *StreamError for Code and Report. WrapInput/WrapOutput return [*BlockError] — use [errors.As] for Report.Disposition.
 	ErrBlocked = errors.New("guardy: input blocked")
 
 	// ErrRetryRequested is returned when the pipeline result is Retry; the orchestrator should retry with Feedback.
@@ -17,8 +17,31 @@ var (
 	ErrRetryRequested = errors.New("guardy: retry requested")
 
 	// ErrValidatorFailed is returned when a validator returns a system error.
+	// Use [errors.As] into [*ValidatorFaultError] for Report.Disposition == DispositionSystemFault.
 	ErrValidatorFailed = errors.New("guardy: validator failed")
 )
+
+// BlockError carries pipeline block metadata from WrapInput, WrapOutput, or ValidateAndDecode.
+type BlockError struct {
+	Message string
+	Report  Report
+}
+
+// Error implements error.
+func (e *BlockError) Error() string {
+	if e == nil {
+		return ErrBlocked.Error()
+	}
+	if e.Message != "" {
+		return fmt.Sprintf("%s: %s", ErrBlocked.Error(), e.Message)
+	}
+	return ErrBlocked.Error()
+}
+
+// Unwrap returns ErrBlocked so [errors.Is] matches *BlockError.
+func (e *BlockError) Unwrap() error {
+	return ErrBlocked
+}
 
 // RetryError carries pipeline retry metadata from WrapInput or WrapOutput when Decision() is ActionRetry.
 type RetryError struct {
@@ -45,6 +68,28 @@ func (e *RetryError) Unwrap() error {
 	return ErrRetryRequested
 }
 
+// ValidatorFaultError carries system-fault metadata when a validator or pipeline infrastructure fails.
+type ValidatorFaultError struct {
+	Cause  error
+	Report Report
+}
+
+// Error implements error.
+func (e *ValidatorFaultError) Error() string {
+	if e == nil {
+		return "guardy: validator failed"
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("guardy: validator failed: %v", e.Cause)
+	}
+	return "guardy: validator failed"
+}
+
+// Unwrap returns ErrValidatorFailed so [errors.Is] matches *ValidatorFaultError.
+func (e *ValidatorFaultError) Unwrap() error {
+	return ErrValidatorFailed
+}
+
 // StreamError is returned by [GuardWriter] when a chunk decision is Block or Retry.
 // Report is a snapshot (cloned from the pipeline decision); safe to read after the writer returns.
 // Use [errors.As] into *StreamError to read Report metadata without string parsing.
@@ -64,7 +109,7 @@ func (e *StreamError) Error() string {
 		if e.Report.PublicMessage() != "" {
 			return fmt.Sprintf("guardy stream blocked: %s", e.Report.PublicMessage())
 		}
-		return "guardy: input blocked"
+		return ErrBlocked.Error()
 	case ActionRetry:
 		if e.Report.OrchestratorMessage() != "" {
 			return fmt.Sprintf("guardy stream retry: %s", e.Report.OrchestratorMessage())
@@ -83,26 +128,110 @@ func (e *StreamError) Unwrap() error {
 	return ErrBlocked
 }
 
-func streamErrorFromDecision(rep *Report) error {
+func blockErrorFromReport(rep *Report) error {
 	if rep == nil {
 		return ErrBlocked
 	}
 	cloned := rep.Clone()
-	errSentinel := ErrBlocked
-	switch rep.Action {
-	case ActionRetry:
-		if !cloned.Retryable {
-			cloned.Retryable = true
-		}
-		errSentinel = ErrRetryRequested
-	case ActionBlock:
-		cloned.Retryable = false
-	case ActionPass, ActionRedact:
-		// GuardWriter only surfaces Block and Retry.
+	if cloned.Disposition == DispositionNone {
+		cloned.Disposition = DeriveDisposition(cloned, nil)
 	}
-	return &StreamError{
-		Action: rep.Action,
-		Report: *cloned,
-		Err:    errSentinel,
+	return &BlockError{
+		Message: cloned.PublicMessage(),
+		Report:  *cloned,
+	}
+}
+
+// errorFromDecision maps a pipeline decision to BlockError, RetryError, or nil (pass/redact).
+// Control flow uses Disposition, not Action (task14 §2.2).
+func errorFromDecision(rep *Report) error {
+	if rep == nil {
+		return blockErrorFromReport(rep)
+	}
+	if rep.IsRetryableCorrection() {
+		return &RetryError{Feedback: rep.OrchestratorMessage(), Report: *rep}
+	}
+	if rep.IsTerminalDeny() {
+		return blockErrorFromReport(rep)
+	}
+	switch rep.Action {
+	case ActionPass, ActionRedact:
+		return nil
+	default:
+		return fmt.Errorf(
+			"%w: unsupported pipeline action %s",
+			ErrValidatorFailed,
+			rep.Action.String(),
+		)
+	}
+}
+
+func validatorFaultReport(cause error) Report {
+	reason := "validator failed"
+	if cause != nil {
+		reason = cause.Error()
+	}
+	return Report{
+		Validator:   "pipeline",
+		Code:        CodeValidatorFailed,
+		Reason:      reason,
+		Disposition: DispositionSystemFault,
+	}
+}
+
+func validatorFaultError(cause error) error {
+	return &ValidatorFaultError{
+		Cause:  cause,
+		Report: validatorFaultReport(cause),
+	}
+}
+
+func streamErrorFromDecision(rep *Report) error {
+	if rep == nil {
+		blockRep := FinishReport(&Report{
+			Action: ActionBlock,
+			Code:   CodePolicyViolation,
+			Reason: "stream blocked",
+		}, ControlSpec{Action: ActionBlock})
+		return &StreamError{
+			Action: ActionBlock,
+			Report: *blockRep,
+			Err:    ErrBlocked,
+		}
+	}
+	cloned := rep.Clone()
+	if cloned.Disposition == DispositionNone {
+		cloned.Disposition = DeriveDisposition(cloned, nil)
+	}
+	if rep.IsRetryableCorrection() {
+		return &StreamError{
+			Action: ActionRetry,
+			Report: *cloned,
+			Err:    ErrRetryRequested,
+		}
+	}
+	if rep.IsTerminalDeny() {
+		if cloned.Action == ActionRetry {
+			cloned.Retryable = false
+		}
+		return &StreamError{
+			Action: ActionBlock,
+			Report: *cloned,
+			Err:    ErrBlocked,
+		}
+	}
+	switch rep.Action {
+	case ActionPass, ActionRedact:
+		return fmt.Errorf(
+			"%w: streamErrorFromDecision called with action %s",
+			ErrValidatorFailed,
+			rep.Action.String(),
+		)
+	default:
+		return fmt.Errorf(
+			"%w: streamErrorFromDecision called with action %s",
+			ErrValidatorFailed,
+			rep.Action.String(),
+		)
 	}
 }

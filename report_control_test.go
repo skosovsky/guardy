@@ -18,11 +18,11 @@ func TestApplyControlDefaults_RetryableByAction(t *testing.T) {
 
 func TestReport_ShouldRetry(t *testing.T) {
 	t.Parallel()
-	if (&Report{Action: ActionRetry, Retryable: true}).ShouldRetry() != true {
-		t.Fatal("expected ShouldRetry true")
+	if !(&Report{Action: ActionRetry, Retryable: true}).ShouldRetry() {
+		t.Fatal("expected ShouldRetry true for retryable correction")
 	}
-	if (&Report{Action: ActionRetry, Retryable: false}).ShouldRetry() != false {
-		t.Fatal("expected ShouldRetry false when Retryable false")
+	if (&Report{Action: ActionRetry, Retryable: false}).ShouldRetry() {
+		t.Fatal("expected ShouldRetry false for terminal retry")
 	}
 }
 
@@ -33,6 +33,9 @@ func TestReport_ShouldStop(t *testing.T) {
 	}
 	if !(&Report{Fatal: true, Action: ActionPass}).ShouldStop() {
 		t.Fatal("fatal should stop")
+	}
+	if !(&Report{Action: ActionRetry, Retryable: false}).ShouldStop() {
+		t.Fatal("terminal retry should stop")
 	}
 }
 

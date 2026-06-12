@@ -37,6 +37,7 @@ func main() {
 		if _, err := gw.Write([]byte(part)); err != nil {
 			var streamErr *guardy.StreamError
 			if errors.As(err, &streamErr) {
+				// Route by disposition: IsRetryableCorrection() vs IsTerminalDeny() (not StreamError.Action alone).
 				fmt.Println("blocked while streaming JSON:", streamErr.Report.Code)
 				return
 			}

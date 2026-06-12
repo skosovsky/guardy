@@ -9,4 +9,5 @@ const (
 	CodeAttributeMissing    = "ATTRIBUTE_MISSING"
 	CodeAttributeMismatch   = "ATTRIBUTE_MISMATCH"
 	CodePostBindViolation   = "POST_BIND_VIOLATION"
+	CodeValidatorFailed     = "VALIDATOR_FAILED"
 )

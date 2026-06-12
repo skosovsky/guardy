@@ -2,7 +2,11 @@
 // intervention actions (pass, block, redact, retry), and two-phase execution
 // (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
 //
-// See .cursor/docs/task9.md for the v2 technical specification.
+// Task14 contracts: typed [ExecutionScope], [FailureDisposition] on [Report],
+// [PayloadKind] / [WithUserChannel], [ValidateAndDecode], and disposition-based
+// control flow (IsTerminalDeny / IsRetryableCorrection).
+//
+// See .cursor/docs/task14.md and .cursor/docs/task9.md.
 package guardy
 
 // Canonical action names for [Action.String], logging, and telemetry.
@@ -55,21 +59,24 @@ const (
 
 // Report is the single result returned by a validator or the pipeline.
 // It maps to metry/security attributes for telemetry and control-flow decisions.
-// Consumers should use Code, Retryable, Fatal, and Action — not parse Reason strings.
+// Route control flow with IsTerminalDeny() and IsRetryableCorrection() — not Reason string parsing.
+// Action, Code, Retryable, and Fatal remain for telemetry and validator semantics.
 // When Action == ActionRetry, Feedback contains the message for the LLM/orchestrator.
 type Report struct {
-	Action          Action   // ActionPass, ActionBlock, ActionRedact, ActionRetry
-	Validator       string   // Name of the validator that produced this report
-	Code            string   // Machine-readable rule code (for alerting/telemetry)
-	Severity        Severity // Risk level for the report
-	Reason          string   // Human-readable reason (internal/operator detail)
-	Feedback        string   // Message for LLM retry (when Action == ActionRetry)
-	Score           float64  // Confidence or distance (optional)
-	ShadowMode      bool     // If true, block was logged but did not stop the pipeline
-	MutatedText     string   // Text after redaction (when Action == ActionRedact); for string T mirrors Output
-	Retryable       bool     // Whether a retry may succeed (default true for ActionRetry)
-	Fatal           bool     // Hard stop for upstream pipeline; spec alias Escalate
-	SafeUserMessage string   // User-facing message without internal details
+	Action          Action             // ActionPass, ActionBlock, ActionRedact, ActionRetry
+	Validator       string             // Name of the validator that produced this report
+	Code            string             // Machine-readable rule code (for alerting/telemetry)
+	Severity        Severity           // Risk level for the report
+	Reason          string             // Human-readable reason (internal/operator detail)
+	Feedback        string             // Message for LLM retry (when Action == ActionRetry)
+	Score           float64            // Confidence or distance (optional)
+	ShadowMode      bool               // If true, block was logged but did not stop the pipeline
+	MutatedText     string             // Text after redaction (when Action == ActionRedact); for string T mirrors Output
+	Retryable       bool               // Whether a retry may succeed (default true for ActionRetry)
+	Fatal           bool               // Hard stop for upstream pipeline; spec alias Escalate
+	SafeUserMessage string             // User-facing message without internal details
+	Disposition     FailureDisposition // Control-flow classification; set by FinishReport
+	PayloadKind     PayloadKind        // Optional output classification from validator
 }
 
 // Clone returns a shallow copy of report.
@@ -95,6 +102,8 @@ func (r *Report) CloneWithoutState() *Report {
 type RunResult[T any] struct {
 	Output  T        // Mutated output (after redactions)
 	Reports []Report // All validator reports for telemetry
+	// OutputKind is the most restrictive PayloadKind from all reports (incl. user_channel blocks).
+	OutputKind PayloadKind
 }
 
 // Decision returns the report that determines the pipeline outcome.
@@ -131,5 +140,5 @@ func (r *RunResult[T]) Decision() *Report {
 	if lastPass != nil {
 		return lastPass
 	}
-	return &Report{Action: ActionPass}
+	return FinishReport(&Report{Action: ActionPass}, ControlSpec{Action: ActionPass})
 }

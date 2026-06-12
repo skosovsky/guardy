@@ -36,23 +36,23 @@ func main() {
 	prompt := scanner.Text()
 
 	ctx := context.Background()
-	result, err := pipeline.Run(ctx, prompt)
+	result, err := pipeline.Run(ctx, nil, prompt)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
 	report := result.Decision()
-	switch report.Action {
-	case guardy.ActionBlock:
+	switch {
+	case report.IsTerminalDeny():
 		// #nosec G705 -- stderr output, not HTML
-		fmt.Fprintf(os.Stderr, "blocked: code=%s msg=%s\n", report.Code, report.PublicMessage())
+		fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
+			report.Code, report.Disposition, report.PublicMessage())
 		os.Exit(exitBlocked)
-	case guardy.ActionPass, guardy.ActionRedact:
+	case report.IsRetryableCorrection():
+		fmt.Fprintf(os.Stderr, "retry: %s\n", report.OrchestratorMessage())
+		os.Exit(2)
+	default:
 		fmt.Println("OK")
 		fmt.Println(result.Output)
-	default:
-		// #nosec G705 -- stderr output, not HTML
-		fmt.Fprintln(os.Stderr, "unexpected action:", report.Action)
-		os.Exit(2)
 	}
 }

@@ -10,4 +10,5 @@
 //   - WordlistValidator: blocklist or allowlist by tokens (words)
 //   - LengthValidator: min/max rune length
 //   - MLValidator: fast-path contract for local classifiers
+//   - NewTechnicalJSONClassifier: classifies tool-call JSON as PayloadTechnicalPayload for [guardy.WithUserChannel]
 package ext

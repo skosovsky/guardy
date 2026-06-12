@@ -34,7 +34,7 @@ func main() {
 		ToolName: "lookup",
 		ToolArgs: json.RawMessage(`{"user":"alice","email":"alice@example.com"}`),
 	}
-	result, err := pipeline.Run(context.Background(), in)
+	result, err := pipeline.Run(context.Background(), nil, in)
 	if err != nil {
 		panic(err)
 	}

@@ -26,20 +26,15 @@ func ApplyControlDefaults(rep *Report, spec ControlSpec) {
 }
 
 // ShouldRetry reports whether the caller should attempt a retry (e.g. LLM correction).
+// Prefer [Report.IsRetryableCorrection] for control flow (task14 §2.2).
 func (r *Report) ShouldRetry() bool {
-	if r == nil {
-		return false
-	}
-	return r.Retryable && r.Action == ActionRetry
+	return r.IsRetryableCorrection()
 }
 
 // ShouldStop reports whether the upstream pipeline or request must halt.
-// Fatal is an alias for hard escalation in the spec (stop entire upstream flow).
+// Prefer [Report.IsTerminalDeny] for control flow (task14 §2.2).
 func (r *Report) ShouldStop() bool {
-	if r == nil {
-		return false
-	}
-	return r.Fatal || r.Action == ActionBlock
+	return r.IsTerminalDeny()
 }
 
 // PublicMessage returns text safe for external APIs and end users.

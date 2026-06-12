@@ -29,6 +29,7 @@ func main() {
 		if err != nil {
 			var streamErr *guardy.StreamError
 			if errors.As(err, &streamErr) {
+				// Route by disposition: IsRetryableCorrection() vs IsTerminalDeny() (not StreamError.Action alone).
 				fmt.Println("Stream blocked:", streamErr.Report.Code, streamErr.Report.PublicMessage())
 				return
 			}
