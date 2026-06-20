@@ -44,7 +44,7 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Println("decision:", result.Decision().Action)
+	fmt.Println("decision:", result.PolicyDecision().Action)
 	for i, msg := range result.Output {
 		fmt.Printf("%d [%s] %s\n", i, msg.Role, msg.Content)
 	}

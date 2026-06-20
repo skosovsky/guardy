@@ -10,7 +10,6 @@ import (
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
-	jsonschemaext "github.com/skosovsky/guardy/ext/jsonschema"
 )
 
 func ExamplePipeline_Run() {
@@ -21,12 +20,12 @@ func ExamplePipeline_Run() {
 	if err != nil {
 		panic(err)
 	}
-	report := result.Decision()
-	if report != nil && report.IsTerminalDeny() {
-		fmt.Println("blocked:", report.Reason)
+	decision := result.PolicyDecision()
+	if decision.IsTerminal() {
+		fmt.Println("blocked:", decision.Code)
 	}
 	// Output:
-	// blocked: blocklisted word found
+	// blocked: FORBIDDEN
 }
 
 func ExampleNewPipeline() {
@@ -42,17 +41,14 @@ func ExampleNewPipeline() {
 	if err != nil {
 		panic(err)
 	}
-	report := result.Decision()
-	if report != nil {
-		switch {
-		case report.IsTerminalDeny():
-			// handle block
-		case report.IsRetryableCorrection():
-			_ = report.OrchestratorMessage()
-		default:
-			_ = result.Output
-			_ = report.MutatedText
-		}
+	decision := result.PolicyDecision()
+	switch {
+	case decision.IsTerminal():
+		// handle block
+	case decision.IsRetryable():
+		_ = decision.RetryFeedback
+	default:
+		_ = result.Output
 	}
 	fmt.Println("configured")
 	// Output:
@@ -60,46 +56,24 @@ func ExampleNewPipeline() {
 }
 
 func ExamplePipeline_Run_withScope() {
+	roleKey := guardy.NewScopeKey[string]("principal.role")
 	pipeline := guardy.NewPipeline(
-		guardy.WithPolicyValidators(guardy.NewAttributeEquals[string](
-			"principal.role",
+		guardy.WithPolicyValidators(guardy.NewTypedAttributeEquals[string, string](
+			roleKey,
 			"admin",
 			guardy.WithPolicyCode(guardy.CodeAttributeMismatch),
 		)),
 	)
-	scope := guardy.MapScope{"principal.role": "viewer"}
+	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))
 	result, err := pipeline.Run(context.Background(), scope, "hello")
 	if err != nil {
 		panic(err)
 	}
-	if result.Decision().IsTerminalDeny() {
-		fmt.Println("denied:", result.Decision().Disposition)
+	if result.PolicyDecision().IsTerminal() {
+		fmt.Println("denied:", result.PolicyDecision().Disposition)
 	}
 	// Output:
 	// denied: terminal_deny
-}
-
-func ExampleValidateAndDecode() {
-	type payload struct {
-		Name string `json:"name"`
-	}
-	schema := []byte(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`)
-	schemaV, err := jsonschemaext.NewJSONSchemaValidator(string(schema), ext.WithCode("JSON_SCHEMA_INVALID"))
-	if err != nil {
-		panic(err)
-	}
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(schemaV))
-	decoded, report, err := guardy.ValidateAndDecode[payload](context.Background(), nil, pipeline, `{"name":"Ada"}`)
-	if err != nil {
-		panic(err)
-	}
-	if report.IsRetryableCorrection() {
-		fmt.Println("retry:", report.OrchestratorMessage())
-		return
-	}
-	fmt.Println(decoded.Name, report.Disposition)
-	// Output:
-	// Ada none
 }
 
 func ExampleGuard() {

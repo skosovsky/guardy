@@ -77,8 +77,8 @@ func TestWrapInput_RetryReturnsRetryError(t *testing.T) {
 	if re.Feedback != "fix it" {
 		t.Errorf("Feedback = %q", re.Feedback)
 	}
-	if re.Report.Action != ActionRetry {
-		t.Errorf("Report.Action = %v", re.Report.Action)
+	if re.Failure.Decision.Action != ActionRetry {
+		t.Errorf("Decision.Action = %v", re.Failure.Decision.Action)
 	}
 	if !errors.Is(err, ErrRetryRequested) {
 		t.Errorf("errors.Is ErrRetryRequested: %v", err)
@@ -249,8 +249,8 @@ func TestWrapOutput_RetryAfterNext(t *testing.T) {
 	if !errors.As(err, &re) || re.Feedback != "rewrite" {
 		t.Fatalf("err = %v", err)
 	}
-	if !re.Report.IsRetryableCorrection() {
-		t.Fatalf("disposition = %v, want retryable correction", re.Report.Disposition)
+	if !re.Failure.Decision.IsRetryable() {
+		t.Fatalf("disposition = %v, want retryable correction", re.Failure.Decision.Disposition)
 	}
 }
 
@@ -333,8 +333,8 @@ func TestWrapInput_BlockErrorCarriesDisposition(t *testing.T) {
 	if !errors.As(err, &blockErr) {
 		t.Fatalf("expected BlockError, got %v", err)
 	}
-	if blockErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	if blockErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Failure.Decision.Disposition)
 	}
 }
 
@@ -380,8 +380,8 @@ func TestWrapInput_ValidatorFaultCarriesSystemFault(t *testing.T) {
 	if !errors.As(err, &fault) {
 		t.Fatalf("expected ValidatorFaultError, got %v", err)
 	}
-	if fault.Report.Disposition != DispositionSystemFault {
-		t.Fatalf("disposition = %v", fault.Report.Disposition)
+	if fault.Failure.Decision.Disposition != DispositionSystemFault {
+		t.Fatalf("disposition = %v", fault.Failure.Decision.Disposition)
 	}
 }
 
@@ -406,14 +406,15 @@ func TestWrapInput_TerminalRetryReturnsBlockError(t *testing.T) {
 	if !errors.As(err, &blockErr) {
 		t.Fatalf("expected BlockError, got %v", err)
 	}
-	if blockErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	if blockErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Failure.Decision.Disposition)
 	}
 }
 
 func TestWrapInput_ScopeIncomplete(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(WithPolicyValidators(NewAttributePresent[string]("resource.id")))
+	resourceKey := NewScopeKey[string]("resource.id")
+	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
 	wrapped := WrapInput(p, MapScope{}, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})

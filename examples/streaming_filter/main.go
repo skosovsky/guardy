@@ -27,10 +27,9 @@ func main() {
 	for token := range strings.FieldsSeq(mockStream) {
 		_, err := gw.Write([]byte(token + " "))
 		if err != nil {
-			var streamErr *guardy.StreamError
-			if errors.As(err, &streamErr) {
-				// Route by disposition: IsRetryableCorrection() vs IsTerminalDeny() (not StreamError.Action alone).
-				fmt.Println("Stream blocked:", streamErr.Report.Code, streamErr.Report.PublicMessage())
+			var failure *guardy.PolicyFailure
+			if errors.As(err, &failure) {
+				fmt.Println("Stream blocked:", failure.Decision.Code, failure.Decision.SafeMessage)
 				return
 			}
 			if errors.Is(err, guardy.ErrBlocked) {
@@ -42,9 +41,9 @@ func main() {
 		}
 	}
 	if err := gw.Close(); err != nil {
-		var streamErr *guardy.StreamError
-		if errors.As(err, &streamErr) {
-			fmt.Println("Stream blocked on close:", streamErr.Report.Code)
+		var failure *guardy.PolicyFailure
+		if errors.As(err, &failure) {
+			fmt.Println("Stream blocked on close:", failure.Decision.Code)
 			return
 		}
 		if errors.Is(err, guardy.ErrBlocked) {

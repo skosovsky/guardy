@@ -35,10 +35,9 @@ func main() {
 	}
 	for _, part := range fragments {
 		if _, err := gw.Write([]byte(part)); err != nil {
-			var streamErr *guardy.StreamError
-			if errors.As(err, &streamErr) {
-				// Route by disposition: IsRetryableCorrection() vs IsTerminalDeny() (not StreamError.Action alone).
-				fmt.Println("blocked while streaming JSON:", streamErr.Report.Code)
+			var failure *guardy.PolicyFailure
+			if errors.As(err, &failure) {
+				fmt.Println("blocked while streaming JSON:", failure.Decision.Code)
 				return
 			}
 			if errors.Is(err, guardy.ErrBlocked) {
@@ -49,9 +48,9 @@ func main() {
 		}
 	}
 	if err := gw.Close(); err != nil {
-		var streamErr *guardy.StreamError
-		if errors.As(err, &streamErr) {
-			fmt.Println("blocked on JSON flush:", streamErr.Report.Code)
+		var failure *guardy.PolicyFailure
+		if errors.As(err, &failure) {
+			fmt.Println("blocked on JSON flush:", failure.Decision.Code)
 			return
 		}
 		if errors.Is(err, guardy.ErrBlocked) {

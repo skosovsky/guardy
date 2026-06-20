@@ -4,17 +4,17 @@ import "context"
 
 // PolicyValidator runs context-aware rules using [ExecutionScope].
 type PolicyValidator[T any] interface {
-	RequiredScopeKeys() []string
+	RequiredScope() []ScopeRequirement
 	Validate(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error)
 }
 
 type policyFuncValidator[T any] struct {
-	keys []string
-	fn   func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error)
+	requirements []ScopeRequirement
+	fn           func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error)
 }
 
-func (v policyFuncValidator[T]) RequiredScopeKeys() []string {
-	return v.keys
+func (v policyFuncValidator[T]) RequiredScope() []ScopeRequirement {
+	return v.requirements
 }
 
 func (v policyFuncValidator[T]) Validate(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error) {
@@ -23,11 +23,27 @@ func (v policyFuncValidator[T]) Validate(ctx context.Context, input T, scope Exe
 
 // NewPolicyFunc builds a [PolicyValidator] from a function and explicit required scope keys.
 // Pass nil or an empty slice when the validator does not require scope keys.
+//
+// Deprecated: use [NewPolicyFuncWithScope] with typed [ScopeRequirement] values.
 func NewPolicyFunc[T any](
 	keys []string,
 	fn func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error),
 ) PolicyValidator[T] {
-	return policyFuncValidator[T]{keys: keys, fn: fn}
+	return policyFuncValidator[T]{
+		requirements: scopeRequirementsFromKeys(keys),
+		fn:           fn,
+	}
+}
+
+// NewPolicyFuncWithScope builds a [PolicyValidator] from typed scope requirements.
+func NewPolicyFuncWithScope[T any](
+	requirements []ScopeRequirement,
+	fn func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error),
+) PolicyValidator[T] {
+	return policyFuncValidator[T]{
+		requirements: requirements,
+		fn:           fn,
+	}
 }
 
 // PolicyConfig configures built-in policy validators.
@@ -115,8 +131,8 @@ type attributeEqualsValidator[T any] struct {
 	cfg  PolicyConfig
 }
 
-func (v attributeEqualsValidator[T]) RequiredScopeKeys() []string {
-	return []string{v.key}
+func (v attributeEqualsValidator[T]) RequiredScope() []ScopeRequirement {
+	return scopeRequirementsFromKeys([]string{v.key})
 }
 
 func (v attributeEqualsValidator[T]) Validate(_ context.Context, input T, scope ExecutionScope) (T, *Report, error) {
@@ -133,6 +149,8 @@ func (v attributeEqualsValidator[T]) Validate(_ context.Context, input T, scope 
 }
 
 // NewAttributeEquals blocks when scope[key] != want (deep equality via == for comparable values).
+//
+// Deprecated: use [NewTypedAttributeEquals] with [ScopeKey].
 func NewAttributeEquals[T any](key string, want any, opts ...PolicyOption) PolicyValidator[T] {
 	cfg := applyPolicyConfig(PolicyConfig{
 		Name:     "attribute_equals",
@@ -142,13 +160,57 @@ func NewAttributeEquals[T any](key string, want any, opts ...PolicyOption) Polic
 	return attributeEqualsValidator[T]{key: key, want: want, cfg: cfg}
 }
 
+type typedAttributeEqualsValidator[T any, V comparable] struct {
+	key  ScopeKey[V]
+	want V
+	cfg  PolicyConfig
+}
+
+func (v typedAttributeEqualsValidator[T, V]) RequiredScope() []ScopeRequirement {
+	return []ScopeRequirement{v.key.Requirement()}
+}
+
+func (v typedAttributeEqualsValidator[T, V]) Validate(
+	_ context.Context,
+	input T,
+	scope ExecutionScope,
+) (T, *Report, error) {
+	got, ok := v.key.Lookup(scope)
+	if !ok {
+		if scope != nil {
+			if _, exists := scope.Lookup(v.key.Name()); exists {
+				typeCfg := v.cfg
+				typeCfg.Code = CodeAttributeTypeMismatch
+				return input, policyViolationReport(typeCfg, "attribute "+v.key.Name()+" type mismatch"), nil
+			}
+		}
+		missingCfg := v.cfg
+		missingCfg.Code = CodeAttributeMissing
+		return input, policyViolationReport(missingCfg, "attribute "+v.key.Name()+" missing"), nil
+	}
+	if got != v.want {
+		return input, policyViolationReport(v.cfg, "attribute "+v.key.Name()+" mismatch"), nil
+	}
+	return input, nil, nil
+}
+
+// NewTypedAttributeEquals blocks when typed scope[key] != want.
+func NewTypedAttributeEquals[T any, V comparable](key ScopeKey[V], want V, opts ...PolicyOption) PolicyValidator[T] {
+	cfg := applyPolicyConfig(PolicyConfig{
+		Name:     "typed_attribute_equals",
+		Code:     CodeAttributeMismatch,
+		Severity: SeverityHigh,
+	}, opts...)
+	return typedAttributeEqualsValidator[T, V]{key: key, want: want, cfg: cfg}
+}
+
 type attributePresentValidator[T any] struct {
 	key string
 	cfg PolicyConfig
 }
 
-func (v attributePresentValidator[T]) RequiredScopeKeys() []string {
-	return []string{v.key}
+func (v attributePresentValidator[T]) RequiredScope() []ScopeRequirement {
+	return scopeRequirementsFromKeys([]string{v.key})
 }
 
 func (v attributePresentValidator[T]) Validate(_ context.Context, input T, scope ExecutionScope) (T, *Report, error) {
@@ -159,6 +221,8 @@ func (v attributePresentValidator[T]) Validate(_ context.Context, input T, scope
 }
 
 // NewAttributePresent blocks when scope does not contain key.
+//
+// Deprecated: use [NewTypedAttributePresent] with [ScopeKey].
 func NewAttributePresent[T any](key string, opts ...PolicyOption) PolicyValidator[T] {
 	cfg := applyPolicyConfig(PolicyConfig{
 		Name:     "attribute_present",
@@ -166,6 +230,43 @@ func NewAttributePresent[T any](key string, opts ...PolicyOption) PolicyValidato
 		Severity: SeverityHigh,
 	}, opts...)
 	return attributePresentValidator[T]{key: key, cfg: cfg}
+}
+
+type typedAttributePresentValidator[T any, V any] struct {
+	key ScopeKey[V]
+	cfg PolicyConfig
+}
+
+func (v typedAttributePresentValidator[T, V]) RequiredScope() []ScopeRequirement {
+	return []ScopeRequirement{v.key.Requirement()}
+}
+
+func (v typedAttributePresentValidator[T, V]) Validate(
+	_ context.Context,
+	input T,
+	scope ExecutionScope,
+) (T, *Report, error) {
+	if _, ok := v.key.Lookup(scope); !ok {
+		if scope != nil {
+			if _, exists := scope.Lookup(v.key.Name()); exists {
+				typeCfg := v.cfg
+				typeCfg.Code = CodeAttributeTypeMismatch
+				return input, policyViolationReport(typeCfg, "attribute "+v.key.Name()+" type mismatch"), nil
+			}
+		}
+		return input, policyViolationReport(v.cfg, "attribute "+v.key.Name()+" not present"), nil
+	}
+	return input, nil, nil
+}
+
+// NewTypedAttributePresent blocks when a typed scope key is absent or has the wrong type.
+func NewTypedAttributePresent[T any, V any](key ScopeKey[V], opts ...PolicyOption) PolicyValidator[T] {
+	cfg := applyPolicyConfig(PolicyConfig{
+		Name:     "typed_attribute_present",
+		Code:     CodeAttributeMissing,
+		Severity: SeverityHigh,
+	}, opts...)
+	return typedAttributePresentValidator[T, V]{key: key, cfg: cfg}
 }
 
 // policyValidatorAdapter wraps PolicyValidator as Validator[T] using scope from Run.

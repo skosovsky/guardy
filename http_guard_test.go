@@ -2,6 +2,7 @@ package guardy
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -297,7 +298,8 @@ func TestGuard_ExtractorError(t *testing.T) {
 
 func TestGuard_ScopeIncompleteBeforeBody(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(WithPolicyValidators(NewAttributePresent[string]("resource.id")))
+	resourceKey := NewScopeKey[string]("resource.id")
+	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
 	var nextCalled bool
 	handler := Guard(
 		p,
@@ -315,6 +317,30 @@ func TestGuard_ScopeIncompleteBeforeBody(t *testing.T) {
 	}
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	var response struct {
+		Code         string   `json:"code"`
+		Message      string   `json:"message"`
+		Missing      []string `json:"missing"`
+		Requirements []struct {
+			Key  string `json:"key"`
+			Type string `json:"type"`
+		} `json:"requirements"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if response.Code != CodeAttributeMissing {
+		t.Fatalf("code = %q, want %q", response.Code, CodeAttributeMissing)
+	}
+	if len(response.Missing) != 1 || response.Missing[0] != resourceKey.Name() {
+		t.Fatalf("missing = %#v", response.Missing)
+	}
+	if len(response.Requirements) != 1 {
+		t.Fatalf("requirements = %#v", response.Requirements)
+	}
+	if response.Requirements[0].Key != resourceKey.Name() || response.Requirements[0].Type != "string" {
+		t.Fatalf("requirements = %#v", response.Requirements)
 	}
 }
 

@@ -2,11 +2,11 @@
 // intervention actions (pass, block, redact, retry), and two-phase execution
 // (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
 //
-// Task14 contracts: typed [ExecutionScope], [FailureDisposition] on [Report],
-// [PayloadKind] / [WithUserChannel], [ValidateAndDecode], and disposition-based
-// control flow (IsTerminalDeny / IsRetryableCorrection).
+// Task15 boundary contracts: typed [ScopeKey] / [ScopeRequirement],
+// canonical [Decision] / [PolicyFailure], [ArgsPipeline] / [GuardedPayload],
+// and [GuardedOutput] for delivery boundaries.
 //
-// See .cursor/docs/task14.md and .cursor/docs/task9.md.
+// See .cursor/docs/task15.md.
 package guardy
 
 // Canonical action names for [Action.String], logging, and telemetry.

@@ -3,7 +3,9 @@
 package build
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
@@ -149,16 +151,9 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 	for _, rule := range spec.PolicyRules {
 		switch rule.Kind {
 		case PolicyAttributePresent:
-			policy = append(policy, guardy.NewAttributePresent[string](
-				rule.Key,
-				guardy.WithPolicyCode(guardy.CodeAttributeMissing),
-			))
+			policy = append(policy, newPresentPolicy(rule.Key))
 		case PolicyAttributeEquals:
-			policy = append(policy, guardy.NewAttributeEquals[string](
-				rule.Key,
-				rule.Value,
-				guardy.WithPolicyCode(guardy.CodeAttributeMismatch),
-			))
+			policy = append(policy, newEqualsPolicy(rule.Key, rule.Value))
 		default:
 			return nil, fmt.Errorf("unknown policy rule kind %v", rule.Kind)
 		}
@@ -175,4 +170,56 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		}
 	}
 	return guardy.NewPipeline(options...), nil
+}
+
+func newPresentPolicy(key string) guardy.PolicyValidator[string] {
+	scopeKey := guardy.NewScopeKey[any](key)
+	return guardy.NewPolicyFuncWithScope[string](
+		[]guardy.ScopeRequirement{scopeKey.Requirement()},
+		func(_ context.Context, input string, scope guardy.ExecutionScope) (string, *guardy.Report, error) {
+			if _, ok := scopeKey.Lookup(scope); !ok {
+				return input, policyReport(
+					"typed_attribute_present",
+					guardy.CodeAttributeMissing,
+					"attribute "+scopeKey.Name()+" not present",
+				), nil
+			}
+			return input, nil, nil
+		},
+	)
+}
+
+func newEqualsPolicy(key string, want any) guardy.PolicyValidator[string] {
+	scopeKey := guardy.NewScopeKey[any](key)
+	return guardy.NewPolicyFuncWithScope[string](
+		[]guardy.ScopeRequirement{scopeKey.Requirement()},
+		func(_ context.Context, input string, scope guardy.ExecutionScope) (string, *guardy.Report, error) {
+			got, ok := scopeKey.Lookup(scope)
+			if !ok {
+				return input, policyReport(
+					"typed_attribute_equals",
+					guardy.CodeAttributeMissing,
+					"attribute "+scopeKey.Name()+" missing",
+				), nil
+			}
+			if !reflect.DeepEqual(got, want) {
+				return input, policyReport(
+					"typed_attribute_equals",
+					guardy.CodeAttributeMismatch,
+					"attribute "+scopeKey.Name()+" mismatch",
+				), nil
+			}
+			return input, nil, nil
+		},
+	)
+}
+
+func policyReport(validator string, code string, reason string) *guardy.Report {
+	return guardy.FinishReport(&guardy.Report{
+		Action:    guardy.ActionBlock,
+		Validator: validator,
+		Code:      code,
+		Severity:  guardy.SeverityHigh,
+		Reason:    reason,
+	}, guardy.ControlSpec{Action: guardy.ActionBlock})
 }

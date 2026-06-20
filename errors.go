@@ -7,24 +7,23 @@ import (
 
 var (
 	// ErrBlocked is returned when the pipeline result is Block (e.g. by GuardWriter, WrapInput, WrapOutput).
-	// Match with [errors.Is] against err and ErrBlocked. [GuardWriter] returns [*StreamError], which unwraps to ErrBlocked —
-	// use [errors.As] into *StreamError for Code and Report. WrapInput/WrapOutput return [*BlockError] — use [errors.As] for Report.Disposition.
+	// Match with [errors.Is] against err and ErrBlocked for quick checks; use [errors.As] into [*PolicyFailure] for routing.
 	ErrBlocked = errors.New("guardy: input blocked")
 
 	// ErrRetryRequested is returned when the pipeline result is Retry; the orchestrator should retry with Feedback.
-	// WrapInput/WrapOutput return *RetryError; [GuardWriter] returns [*StreamError] on retry — use [errors.Is] for a quick check,
-	// or [errors.As] into *StreamError or *RetryError for Report metadata.
+	// Match with [errors.Is] against err and ErrRetryRequested for quick checks; use [errors.As] into [*PolicyFailure] for routing.
 	ErrRetryRequested = errors.New("guardy: retry requested")
 
 	// ErrValidatorFailed is returned when a validator returns a system error.
-	// Use [errors.As] into [*ValidatorFaultError] for Report.Disposition == DispositionSystemFault.
+	// Use [errors.As] into [*PolicyFailure] for the canonical system-fault decision.
 	ErrValidatorFailed = errors.New("guardy: validator failed")
 )
 
-// BlockError carries pipeline block metadata from WrapInput, WrapOutput, or ValidateAndDecode.
+// BlockError carries a terminal policy failure from WrapInput or WrapOutput.
 type BlockError struct {
 	Message string
-	Report  Report
+	Failure PolicyFailure
+	report  Report
 }
 
 // Error implements error.
@@ -43,10 +42,27 @@ func (e *BlockError) Unwrap() error {
 	return ErrBlocked
 }
 
-// RetryError carries pipeline retry metadata from WrapInput or WrapOutput when Decision() is ActionRetry.
+// As exposes the canonical policy failure contract.
+func (e *BlockError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	return asPolicyFailure(target, &e.Failure)
+}
+
+// ReportSnapshot returns a validator report snapshot for telemetry.
+func (e *BlockError) ReportSnapshot() Report {
+	if e == nil {
+		return Report{}
+	}
+	return e.report
+}
+
+// RetryError carries a retryable policy failure from WrapInput, WrapOutput, or typed argument validation.
 type RetryError struct {
 	Feedback string
-	Report   Report
+	Failure  PolicyFailure
+	report   Report
 }
 
 // Error implements error.
@@ -57,8 +73,8 @@ func (e *RetryError) Error() string {
 	if e.Feedback != "" {
 		return fmt.Sprintf("guardy retry: %s", e.Feedback)
 	}
-	if e.Report.Reason != "" {
-		return fmt.Sprintf("guardy retry: %s", e.Report.Reason)
+	if e.Failure.Decision.RetryFeedback != "" {
+		return fmt.Sprintf("guardy retry: %s", e.Failure.Decision.RetryFeedback)
 	}
 	return "guardy: retry requested"
 }
@@ -68,10 +84,27 @@ func (e *RetryError) Unwrap() error {
 	return ErrRetryRequested
 }
 
+// As exposes the canonical policy failure contract.
+func (e *RetryError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	return asPolicyFailure(target, &e.Failure)
+}
+
+// ReportSnapshot returns a validator report snapshot for telemetry.
+func (e *RetryError) ReportSnapshot() Report {
+	if e == nil {
+		return Report{}
+	}
+	return e.report
+}
+
 // ValidatorFaultError carries system-fault metadata when a validator or pipeline infrastructure fails.
 type ValidatorFaultError struct {
-	Cause  error
-	Report Report
+	Cause   error
+	Failure PolicyFailure
+	report  Report
 }
 
 // Error implements error.
@@ -90,13 +123,29 @@ func (e *ValidatorFaultError) Unwrap() error {
 	return ErrValidatorFailed
 }
 
+// As exposes the canonical policy failure contract.
+func (e *ValidatorFaultError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	return asPolicyFailure(target, &e.Failure)
+}
+
+// ReportSnapshot returns a validator report snapshot for telemetry.
+func (e *ValidatorFaultError) ReportSnapshot() Report {
+	if e == nil {
+		return Report{}
+	}
+	return e.report
+}
+
 // StreamError is returned by [GuardWriter] when a chunk decision is Block or Retry.
-// Report is a snapshot (cloned from the pipeline decision); safe to read after the writer returns.
-// Use [errors.As] into *StreamError to read Report metadata without string parsing.
+// Use [errors.As] into [*PolicyFailure] for control flow without string parsing.
 type StreamError struct {
-	Action Action
-	Report Report
-	Err    error // ErrBlocked or ErrRetryRequested
+	Action  Action
+	Failure PolicyFailure
+	Err     error // ErrBlocked or ErrRetryRequested
+	report  Report
 }
 
 // Error implements error.
@@ -106,13 +155,13 @@ func (e *StreamError) Error() string {
 	}
 	switch e.Action {
 	case ActionBlock:
-		if e.Report.PublicMessage() != "" {
-			return fmt.Sprintf("guardy stream blocked: %s", e.Report.PublicMessage())
+		if e.Failure.Decision.SafeMessage != "" {
+			return fmt.Sprintf("guardy stream blocked: %s", e.Failure.Decision.SafeMessage)
 		}
 		return ErrBlocked.Error()
 	case ActionRetry:
-		if e.Report.OrchestratorMessage() != "" {
-			return fmt.Sprintf("guardy stream retry: %s", e.Report.OrchestratorMessage())
+		if e.Failure.Decision.RetryFeedback != "" {
+			return fmt.Sprintf("guardy stream retry: %s", e.Failure.Decision.RetryFeedback)
 		}
 		return "guardy: retry requested"
 	default:
@@ -128,6 +177,31 @@ func (e *StreamError) Unwrap() error {
 	return ErrBlocked
 }
 
+// As exposes the canonical policy failure contract.
+func (e *StreamError) As(target any) bool {
+	if e == nil {
+		return false
+	}
+	return asPolicyFailure(target, &e.Failure)
+}
+
+// ReportSnapshot returns a validator report snapshot for telemetry.
+func (e *StreamError) ReportSnapshot() Report {
+	if e == nil {
+		return Report{}
+	}
+	return e.report
+}
+
+func asPolicyFailure(target any, failure *PolicyFailure) bool {
+	pf, ok := target.(**PolicyFailure)
+	if !ok {
+		return false
+	}
+	*pf = failure
+	return true
+}
+
 func blockErrorFromReport(rep *Report) error {
 	if rep == nil {
 		return ErrBlocked
@@ -138,7 +212,8 @@ func blockErrorFromReport(rep *Report) error {
 	}
 	return &BlockError{
 		Message: cloned.PublicMessage(),
-		Report:  *cloned,
+		Failure: *policyFailureFromReport(cloned, ErrBlocked),
+		report:  *cloned,
 	}
 }
 
@@ -149,7 +224,7 @@ func errorFromDecision(rep *Report) error {
 		return blockErrorFromReport(rep)
 	}
 	if rep.IsRetryableCorrection() {
-		return &RetryError{Feedback: rep.OrchestratorMessage(), Report: *rep}
+		return retryErrorFromReport(rep)
 	}
 	if rep.IsTerminalDeny() {
 		return blockErrorFromReport(rep)
@@ -180,10 +255,31 @@ func validatorFaultReport(cause error) Report {
 }
 
 func validatorFaultError(cause error) error {
+	report := validatorFaultReport(cause)
 	return &ValidatorFaultError{
-		Cause:  cause,
-		Report: validatorFaultReport(cause),
+		Cause:   cause,
+		Failure: *policyFailureFromReport(&report, causeOrDefault(cause, ErrValidatorFailed)),
+		report:  report,
 	}
+}
+
+func retryErrorFromReport(rep *Report) error {
+	cloned := rep.Clone()
+	if cloned.Disposition == DispositionNone {
+		cloned.Disposition = DeriveDisposition(cloned, nil)
+	}
+	return &RetryError{
+		Feedback: cloned.OrchestratorMessage(),
+		Failure:  *policyFailureFromReport(cloned, ErrRetryRequested),
+		report:   *cloned,
+	}
+}
+
+func causeOrDefault(cause error, fallback error) error {
+	if cause != nil {
+		return cause
+	}
+	return fallback
 }
 
 func streamErrorFromDecision(rep *Report) error {
@@ -194,9 +290,10 @@ func streamErrorFromDecision(rep *Report) error {
 			Reason: "stream blocked",
 		}, ControlSpec{Action: ActionBlock})
 		return &StreamError{
-			Action: ActionBlock,
-			Report: *blockRep,
-			Err:    ErrBlocked,
+			Action:  ActionBlock,
+			Failure: *policyFailureFromReport(blockRep, ErrBlocked),
+			Err:     ErrBlocked,
+			report:  *blockRep,
 		}
 	}
 	cloned := rep.Clone()
@@ -205,9 +302,10 @@ func streamErrorFromDecision(rep *Report) error {
 	}
 	if rep.IsRetryableCorrection() {
 		return &StreamError{
-			Action: ActionRetry,
-			Report: *cloned,
-			Err:    ErrRetryRequested,
+			Action:  ActionRetry,
+			Failure: *policyFailureFromReport(cloned, ErrRetryRequested),
+			Err:     ErrRetryRequested,
+			report:  *cloned,
 		}
 	}
 	if rep.IsTerminalDeny() {
@@ -215,9 +313,10 @@ func streamErrorFromDecision(rep *Report) error {
 			cloned.Retryable = false
 		}
 		return &StreamError{
-			Action: ActionBlock,
-			Report: *cloned,
-			Err:    ErrBlocked,
+			Action:  ActionBlock,
+			Failure: *policyFailureFromReport(cloned, ErrBlocked),
+			Err:     ErrBlocked,
+			report:  *cloned,
 		}
 	}
 	switch rep.Action {

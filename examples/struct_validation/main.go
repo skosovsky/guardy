@@ -1,4 +1,4 @@
-// Struct validation: JSON schema pipeline plus ValidateAndDecode into a typed struct.
+// Struct validation: raw-first pipeline plus ArgsPipeline into a typed struct.
 package main
 
 import (
@@ -34,19 +34,20 @@ func main() {
 	// Schema allows age 12; post-bind enforces business minimum 18.
 	const sampleJSON = `{"name":"Ivan","age":12}`
 
-	user, rep, err := guardy.ValidateAndDecode[User](context.Background(), nil, pipeline, sampleJSON)
-	var retry *guardy.RetryError
-	if errors.As(err, &retry) {
-		fmt.Println("Action:", rep.Action)
-		fmt.Println("Code:", rep.Code)
-		fmt.Println("Retryable:", rep.Retryable)
+	argsPipeline := guardy.MustCompileArgs[User](pipeline)
+	payload, err := argsPipeline.Validate(context.Background(), nil, sampleJSON)
+	var failure *guardy.PolicyFailure
+	if errors.As(err, &failure) && failure.Decision.IsRetryable() {
+		fmt.Println("Action:", failure.Decision.Action)
+		fmt.Println("Code:", failure.Decision.Code)
+		fmt.Println("Retryable:", failure.Decision.Retryable)
 		fmt.Println("Feedback:")
-		fmt.Println(retry.Feedback)
+		fmt.Println(failure.Decision.RetryFeedback)
 		return
 	}
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Bound user:", user.Name, user.Age)
-	fmt.Println("Report action:", rep.Action)
+	fmt.Println("Bound user:", payload.Value.Name, payload.Value.Age)
+	fmt.Println("Decision action:", payload.Decision.Action)
 }

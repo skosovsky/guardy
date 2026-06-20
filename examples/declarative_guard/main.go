@@ -18,10 +18,11 @@ const (
 
 func main() {
 	// Scenario 1: policy scope mismatch only (no wordlist/PII — fast-path cannot mask policy outcome).
+	roleKey := guardy.NewScopeKey[string]("principal.role")
 	policyPipeline, err := build.CompileStringGuard(build.GuardSpec{
 		PolicyRules: []build.PolicyRuleSpec{{
 			Kind:  build.PolicyAttributeEquals,
-			Key:   "principal.role",
+			Key:   roleKey.Name(),
 			Value: "admin",
 		}},
 	})
@@ -29,16 +30,16 @@ func main() {
 		panic(err)
 	}
 
-	scope := guardy.MapScope{"principal.role": "viewer"}
+	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))
 	result, err := policyPipeline.Run(context.Background(), scope, "hello")
 	if err != nil {
 		panic(err)
 	}
-	rep := result.Decision()
+	decision := result.PolicyDecision()
 	fmt.Println("--- policy scope mismatch ---")
-	fmt.Println("Disposition:", rep.Disposition)
+	fmt.Println("Disposition:", decision.Disposition)
 	fmt.Println("Output:", result.Output)
-	if rep.IsTerminalDeny() {
+	if decision.IsTerminal() {
 		os.Exit(exitBlocked)
 	}
 
@@ -52,16 +53,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	outResult, err := outputPipeline.Run(context.Background(), nil, `{"tool":"search"}`)
+	outResult, err := outputPipeline.GuardOutput(context.Background(), nil, `{"tool":"search"}`)
 	if err != nil {
 		panic(err)
 	}
-	outRep := outResult.Decision()
 	fmt.Println("--- user channel + classifier ---")
-	fmt.Println("Action:", outRep.Action)
-	fmt.Println("Disposition:", outRep.Disposition)
-	fmt.Println("Output:", outResult.Output)
-	fmt.Println("OutputKind:", outResult.OutputKind)
+	fmt.Println("Action:", outResult.Decision.Action)
+	fmt.Println("Disposition:", outResult.Decision.Disposition)
+	fmt.Println("Output:", outResult.Value)
+	fmt.Println("OutputKind:", outResult.Kind)
 
 	// Scenario 3: wordlist + PII + length from GuardSpec (README-style intent).
 	fastPipeline, err := build.CompileStringGuard(build.GuardSpec{
@@ -77,6 +77,6 @@ func main() {
 		panic(err)
 	}
 	fmt.Println("--- wordlist + PII + length ---")
-	fmt.Println("Action:", fastResult.Decision().Action)
+	fmt.Println("Action:", fastResult.PolicyDecision().Action)
 	fmt.Println("Output:", fastResult.Output)
 }

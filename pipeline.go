@@ -27,6 +27,7 @@ type Pipeline[T any] struct {
 	middlewares         []ValidatorMiddleware[T]
 	observer            Observer
 	requiredKeys        []string
+	requiredScope       []ScopeRequirement
 	userChannel         bool
 	userChannelFallback string
 
@@ -60,11 +61,13 @@ func WithSlowPath[T any](v ...Validator[T]) PipelineOption[T] {
 }
 
 // WithPolicyValidators adds scope-aware policy validators (sequential, after fast-path).
-// Required scope keys are compiled once at pipeline construction; [Pipeline.Run] fails closed when keys are missing.
+// Required scope is compiled once at pipeline construction; [Pipeline.Run] fails closed when keys are missing.
 func WithPolicyValidators[T any](pv ...PolicyValidator[T]) PipelineOption[T] {
 	return func(pipe *Pipeline[T]) {
 		for _, pv := range pv {
-			pipe.requiredKeys = mergeRequiredKeys(pipe.requiredKeys, pv.RequiredScopeKeys())
+			requirements := pv.RequiredScope()
+			pipe.requiredScope = mergeScopeRequirements(pipe.requiredScope, requirements)
+			pipe.requiredKeys = scopeRequirementKeys(pipe.requiredScope)
 			pipe.policyValidators = append(pipe.policyValidators, pv)
 		}
 	}
@@ -104,6 +107,16 @@ func (p *Pipeline[T]) RequiredScopeKeys() []string {
 	}
 	out := make([]string, len(p.requiredKeys))
 	copy(out, p.requiredKeys)
+	return out
+}
+
+// RequiredScope returns typed scope requirements compiled at pipeline construction.
+func (p *Pipeline[T]) RequiredScope() []ScopeRequirement {
+	if p == nil || len(p.requiredScope) == 0 {
+		return nil
+	}
+	out := make([]ScopeRequirement, len(p.requiredScope))
+	copy(out, p.requiredScope)
 	return out
 }
 
@@ -162,6 +175,7 @@ func (p *Pipeline[T]) clone() *Pipeline[T] {
 		slowPath:            append([]Validator[T](nil), p.slowPath...),
 		middlewares:         append([]ValidatorMiddleware[T](nil), p.middlewares...),
 		requiredKeys:        append([]string(nil), p.requiredKeys...),
+		requiredScope:       append([]ScopeRequirement(nil), p.requiredScope...),
 	}
 	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
 	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
@@ -263,7 +277,7 @@ func (p *Pipeline[T]) validatorFaultResult(output T, reports []Report, cause err
 //nolint:funlen,gocognit,gocyclo,cyclop // single orchestration function; splitting would obscure phase flow
 func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (RunResult[T], error) {
 	var zero RunResult[T]
-	if err := checkScopeComplete(scope, p.requiredKeys); err != nil {
+	if err := checkScopeRequirements(scope, p.requiredScope); err != nil {
 		return zero, err
 	}
 	if scope == nil {

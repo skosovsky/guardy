@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -35,21 +36,23 @@ func main() {
 
 func runPipeline(ctx context.Context, pipeline *guardy.Pipeline[string], input, label string) {
 	fmt.Println("---", label, "---")
-	result, err := pipeline.Run(ctx, nil, input)
+	output, err := pipeline.GuardOutput(ctx, nil, input)
 	if err != nil {
+		var failure *guardy.PolicyFailure
+		if errors.As(err, &failure) {
+			fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
+				failure.Decision.Code, failure.Decision.Disposition, failure.Decision.SafeMessage)
+			fmt.Fprintln(os.Stderr, "OutputKind:", output.Kind)
+			return
+		}
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
-	report := result.Decision()
-	switch {
-	case report.IsTerminalDeny():
-		fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
-			report.Code, report.Disposition, report.PublicMessage())
-		fmt.Fprintln(os.Stderr, "OutputKind:", result.OutputKind)
-	case report.IsRetryableCorrection():
-		fmt.Fprintf(os.Stderr, "retry: %s\n", report.OrchestratorMessage())
-	default:
-		fmt.Println(result.Output)
-		fmt.Println("OutputKind:", result.OutputKind)
+	value, ok := output.DeliverableValue()
+	if !ok {
+		fmt.Fprintln(os.Stderr, "output is not deliverable")
+		return
 	}
+	fmt.Println(value)
+	fmt.Println("OutputKind:", output.Kind)
 }

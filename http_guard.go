@@ -71,8 +71,8 @@ func Guard[T any](
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			if err := checkScopeComplete(cfg.scope, p.RequiredScopeKeys()); err != nil {
-				writeJSONError(w, http.StatusBadRequest, CodeAttributeMissing, "execution scope incomplete")
+			if err := checkScopeRequirements(cfg.scope, p.RequiredScope()); err != nil {
+				writeJSONScopeError(w, http.StatusBadRequest, err)
 				return
 			}
 			limitedBody := http.MaxBytesReader(w, r.Body, DefaultMaxBodyBytes)
@@ -90,24 +90,17 @@ func Guard[T any](
 			result, err := p.Run(ctx, cfg.scope, text)
 			if err != nil {
 				if errors.Is(err, ErrScopeIncomplete) {
-					writeJSONError(w, http.StatusBadRequest, CodeAttributeMissing, "execution scope incomplete")
+					writeJSONScopeError(w, http.StatusBadRequest, err)
 					return
 				}
 				writeJSONError(w, http.StatusInternalServerError, CodeValidatorFailed, "validation failed")
 				return
 			}
 			rep := result.Decision()
+			decision := result.PolicyDecision()
 			switch {
-			case rep.IsTerminalDeny(), rep.IsRetryableCorrection():
-				code := rep.Code
-				if code == "" {
-					code = rep.Validator
-				}
-				if code == "" {
-					code = "blocked"
-				}
-				msg := rep.PublicMessage()
-				writeJSONError(w, http.StatusUnprocessableEntity, code, msg)
+			case decision.IsTerminal(), decision.IsRetryable():
+				writeJSONDecisionError(w, http.StatusUnprocessableEntity, decision)
 				return
 			case rep.Action == ActionRedact:
 				r2 := r.WithContext(withReport(r.Context(), rep))
@@ -132,6 +125,26 @@ func Guard[T any](
 	}
 }
 
+func scopeIncompleteMessage(err error) string {
+	missing := MissingScopeKeys(err)
+	if len(missing) == 0 {
+		return "execution scope incomplete"
+	}
+	return "execution scope incomplete: " + strings.Join(missing, ", ")
+}
+
+type jsonErrorResponse struct {
+	Code         string                     `json:"code"`
+	Message      string                     `json:"message"`
+	Missing      []string                   `json:"missing,omitempty"`
+	Requirements []scopeRequirementResponse `json:"requirements,omitempty"`
+}
+
+type scopeRequirementResponse struct {
+	Key  string `json:"key"`
+	Type string `json:"type,omitempty"`
+}
+
 type reportKey struct{}
 
 func withReport(ctx context.Context, report *Report) context.Context {
@@ -148,7 +161,52 @@ func ReportFromContext(ctx context.Context) (Report, bool) {
 }
 
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
+	writeJSONErrorResponse(w, status, jsonErrorResponse{
+		Code:         code,
+		Message:      message,
+		Missing:      nil,
+		Requirements: nil,
+	})
+}
+
+func writeJSONScopeError(w http.ResponseWriter, status int, err error) {
+	writeJSONErrorResponse(w, status, jsonErrorResponse{
+		Code:         CodeAttributeMissing,
+		Message:      scopeIncompleteMessage(err),
+		Missing:      MissingScopeKeys(err),
+		Requirements: scopeRequirementResponses(err),
+	})
+}
+
+func writeJSONErrorResponse(w http.ResponseWriter, status int, response jsonErrorResponse) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"code": code, "message": message})
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+func writeJSONDecisionError(w http.ResponseWriter, status int, decision Decision) {
+	code := decision.Code
+	if code == "" {
+		code = decision.Validator
+	}
+	if code == "" {
+		code = "blocked"
+	}
+	msg := decision.SafeMessage
+	if msg == "" {
+		msg = decision.RetryFeedback
+	}
+	writeJSONError(w, status, code, msg)
+}
+
+func scopeRequirementResponses(err error) []scopeRequirementResponse {
+	requirements := MissingScopeRequirements(err)
+	if len(requirements) == 0 {
+		return nil
+	}
+	out := make([]scopeRequirementResponse, 0, len(requirements))
+	for _, req := range requirements {
+		out = append(out, scopeRequirementResponse(req))
+	}
+	return out
 }

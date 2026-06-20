@@ -62,8 +62,8 @@ func TestGuardWriter_Block(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if streamErr.Report.Action != ActionBlock {
-		t.Errorf("Report.Action = %v", streamErr.Report.Action)
+	if streamErr.ReportSnapshot().Action != ActionBlock {
+		t.Errorf("Report.Action = %v", streamErr.ReportSnapshot().Action)
 	}
 	_, _ = gw.Write([]byte("z"))
 	if out.String() != "ab" {
@@ -98,11 +98,11 @@ func TestGuardWriter_Retry(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if !streamErr.Report.Retryable {
+	if !streamErr.Failure.Decision.Retryable {
 		t.Error("retry decision should set Retryable")
 	}
-	if streamErr.Report.Feedback != "fix it" {
-		t.Errorf("Feedback = %q", streamErr.Report.Feedback)
+	if streamErr.ReportSnapshot().Feedback != "fix it" {
+		t.Errorf("Feedback = %q", streamErr.ReportSnapshot().Feedback)
 	}
 	if out.String() != "ab" {
 		t.Errorf("out = %q (retry must not write chunk)", out.String())
@@ -133,8 +133,8 @@ func TestGuardWriter_UserChannelBlocksTechnicalPayload(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if streamErr.Report.Validator != "user_channel" {
-		t.Fatalf("Validator = %q, want user_channel", streamErr.Report.Validator)
+	if streamErr.ReportSnapshot().Validator != "user_channel" {
+		t.Fatalf("Validator = %q, want user_channel", streamErr.ReportSnapshot().Validator)
 	}
 	if out.Len() != 0 {
 		t.Fatalf("out = %q, want empty", out.String())
@@ -143,8 +143,9 @@ func TestGuardWriter_UserChannelBlocksTechnicalPayload(t *testing.T) {
 
 func TestGuardWriter_ScopeIncompleteBeforeValidation(t *testing.T) {
 	t.Parallel()
+	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(
-		WithPolicyValidators(NewAttributePresent[string]("resource.id")),
+		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
 	)
 	var out bytes.Buffer
 	gw := NewGuardWriter(&out, p, WithChunkSize(8), WithExecutionScope(MapScope{}))
@@ -802,11 +803,11 @@ func TestGuardWriter_Block_ExposesReportViaErrorsAs(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if streamErr.Report.Code != "STREAM_FORBIDDEN" {
-		t.Errorf("Code = %q", streamErr.Report.Code)
+	if streamErr.ReportSnapshot().Code != "STREAM_FORBIDDEN" {
+		t.Errorf("Code = %q", streamErr.ReportSnapshot().Code)
 	}
-	if streamErr.Report.PublicMessage() != "not allowed" {
-		t.Errorf("PublicMessage = %q", streamErr.Report.PublicMessage())
+	if streamErr.Failure.Decision.SafeMessage != "not allowed" {
+		t.Errorf("SafeMessage = %q", streamErr.Failure.Decision.SafeMessage)
 	}
 	if !errors.Is(err, ErrBlocked) {
 		t.Error("expected ErrBlocked via Unwrap")
@@ -837,10 +838,10 @@ func TestGuardWriter_Retry_ExposesReportViaErrorsAs(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatalf("expected StreamError, got %v", err)
 	}
-	if streamErr.Report.Code != "STREAM_RETRY" {
-		t.Errorf("Code = %q", streamErr.Report.Code)
+	if streamErr.Failure.Decision.Code != "STREAM_RETRY" {
+		t.Errorf("Code = %q", streamErr.Failure.Decision.Code)
 	}
-	if !streamErr.Report.Retryable {
+	if !streamErr.Failure.Decision.Retryable {
 		t.Error("expected Retryable")
 	}
 	if !errors.Is(err, ErrRetryRequested) {
@@ -883,7 +884,7 @@ func TestGuardWriter_TerminalRetryReturnsBlockError(t *testing.T) {
 	if streamErr.Action != ActionBlock {
 		t.Fatalf("Action = %v, want ActionBlock", streamErr.Action)
 	}
-	if streamErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Report.Disposition)
+	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
 	}
 }

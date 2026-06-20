@@ -91,7 +91,7 @@ func WithExecutionScope(scope ExecutionScope) GuardWriterOption {
 
 // GuardWriter wraps an [io.Writer] and runs the pipeline on buffered chunks.
 // On Block or Retry it returns [*StreamError] (unwraps to [ErrBlocked] or [ErrRetryRequested]).
-// Use [errors.As] into *StreamError to read Report.Code and Retryable without string parsing.
+// Use [errors.As] into [*PolicyFailure] to read the canonical decision without string parsing.
 // On Redact it writes the mutated text.
 // Uses index-based buffering to avoid O(N^2) copy; overlap prevents boundary bypass.
 type GuardWriter struct {

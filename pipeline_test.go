@@ -703,8 +703,8 @@ func TestPipeline_ValidatorFaultCarriesSystemFault(t *testing.T) {
 	if !errors.As(err, &fault) {
 		t.Fatalf("expected ValidatorFaultError, got %v", err)
 	}
-	if !fault.Report.IsSystemFault() {
-		t.Fatalf("report = %+v", fault.Report)
+	if !fault.Failure.Decision.IsSystemFault() {
+		t.Fatalf("decision = %+v", fault.Failure.Decision)
 	}
 }
 
@@ -730,8 +730,8 @@ func TestNormalizeReport_RawActionRetryWithoutFinishReport_ConsistentDeny(t *tes
 	if !errors.As(err, &blockErr) {
 		t.Fatalf("WrapInput: expected BlockError, got %v", err)
 	}
-	if blockErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("WrapInput disposition = %v", blockErr.Report.Disposition)
+	if blockErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("WrapInput disposition = %v", blockErr.Failure.Decision.Disposition)
 	}
 
 	var out bytes.Buffer

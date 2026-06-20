@@ -83,9 +83,9 @@ func main() {
 			fmt.Println("Error:", err)
 			continue
 		}
-		report := result.Decision()
-		if report.IsTerminalDeny() {
-			fmt.Printf("Blocked: %q -> %s\n", text, report.Validator)
+		decision := result.PolicyDecision()
+		if decision.IsTerminal() {
+			fmt.Printf("Blocked: %q -> %s\n", text, decision.Validator)
 		} else {
 			fmt.Printf("Pass: %q\n", text)
 		}

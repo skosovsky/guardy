@@ -29,6 +29,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	decision := result.Decision()
+	decision := result.PolicyDecision()
 	fmt.Printf("action=%s code=%s severity=%s\n", decision.Action.String(), decision.Code, decision.Severity)
 }

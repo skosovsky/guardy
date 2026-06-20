@@ -45,8 +45,9 @@ func TestMergeRequiredKeys(t *testing.T) {
 
 func TestPipeline_RequiredKeysCompileTime(t *testing.T) {
 	t.Parallel()
+	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(
-		WithPolicyValidators(NewAttributePresent[string]("resource.id")),
+		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
 	)
 	if len(p.requiredKeys) != 1 || p.requiredKeys[0] != "resource.id" {
 		t.Fatalf("requiredKeys = %v", p.requiredKeys)
@@ -59,10 +60,12 @@ func TestPipeline_RequiredKeysCompileTime(t *testing.T) {
 
 func TestPipeline_RequiredScopeKeysPublicAPI(t *testing.T) {
 	t.Parallel()
+	resourceKey := NewScopeKey[string]("resource.id")
+	roleKey := NewScopeKey[string]("principal.role")
 	p := NewPipeline(
 		WithPolicyValidators(
-			NewAttributePresent[string]("resource.id"),
-			NewAttributeEquals[string]("principal.role", "admin"),
+			NewTypedAttributePresent[string, string](resourceKey),
+			NewTypedAttributeEquals[string, string](roleKey, "admin"),
 		),
 	)
 	keys := p.RequiredScopeKeys()
@@ -76,8 +79,9 @@ func TestPipeline_RequiredScopeKeysPublicAPI(t *testing.T) {
 
 func TestPipeline_Run_FailClosedMissingScope(t *testing.T) {
 	t.Parallel()
+	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(
-		WithPolicyValidators(NewAttributePresent[string]("resource.id")),
+		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
 	)
 	_, err := p.Run(context.Background(), MapScope{}, "x")
 	if !errors.Is(err, ErrScopeIncomplete) {
@@ -87,8 +91,9 @@ func TestPipeline_Run_FailClosedMissingScope(t *testing.T) {
 
 func TestPipeline_Run_ScopePresentPolicyRuns(t *testing.T) {
 	t.Parallel()
+	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(
-		WithPolicyValidators(NewAttributePresent[string]("resource.id")),
+		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
 	)
 	result, err := p.Run(context.Background(), MapScope{"resource.id": "r1"}, "x")
 	if err != nil {

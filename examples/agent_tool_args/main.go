@@ -38,9 +38,9 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	rep := result.Decision()
-	fmt.Println("Action:", rep.Action)
-	fmt.Println("Code:", rep.Code)
+	decision := result.PolicyDecision()
+	fmt.Println("Action:", decision.Action)
+	fmt.Println("Code:", decision.Code)
 	out := result.Output
 	fmt.Println("Tool args:", string(out.ToolArgs))
 	if !json.Valid(out.ToolArgs) {

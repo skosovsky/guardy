@@ -41,15 +41,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
 		os.Exit(2)
 	}
-	report := result.Decision()
+	decision := result.PolicyDecision()
 	switch {
-	case report.IsTerminalDeny():
+	case decision.IsTerminal():
 		// #nosec G705 -- stderr output, not HTML
 		fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
-			report.Code, report.Disposition, report.PublicMessage())
+			decision.Code, decision.Disposition, decision.SafeMessage)
 		os.Exit(exitBlocked)
-	case report.IsRetryableCorrection():
-		fmt.Fprintf(os.Stderr, "retry: %s\n", report.OrchestratorMessage())
+	case decision.IsRetryable():
+		fmt.Fprintf(os.Stderr, "retry: %s\n", decision.RetryFeedback)
 		os.Exit(2)
 	default:
 		fmt.Println("OK")

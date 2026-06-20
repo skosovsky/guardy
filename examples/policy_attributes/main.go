@@ -10,10 +10,11 @@ import (
 )
 
 func main() {
+	roleKey := guardy.NewScopeKey[string]("principal.role")
 	pipeline := guardy.NewPipeline(
 		guardy.WithPolicyValidators(
-			guardy.NewAttributeEquals[string](
-				"principal.role",
+			guardy.NewTypedAttributeEquals[string, string](
+				roleKey,
 				"admin",
 				guardy.WithPolicySafeUserMessage("You do not have permission to run this action."),
 			),
@@ -21,24 +22,25 @@ func main() {
 		guardy.WithFastPath(noopPassValidator()),
 	)
 
-	scope := guardy.MapScope{"principal.role": "viewer"}
+	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))
 	result, err := pipeline.Run(context.Background(), scope, "hello")
 	if err != nil {
 		panic(err)
 	}
-	rep := result.Decision()
+	decision := result.PolicyDecision()
 	fmt.Println("--- policy mismatch ---")
-	fmt.Println("Action:", rep.Action)
-	fmt.Println("Code:", rep.Code)
-	fmt.Println("Message:", rep.PublicMessage())
-	fmt.Println("Disposition:", rep.Disposition)
+	fmt.Println("Action:", decision.Action)
+	fmt.Println("Code:", decision.Code)
+	fmt.Println("Message:", decision.SafeMessage)
+	fmt.Println("Disposition:", decision.Disposition)
 
-	_, err = pipeline.Run(context.Background(), guardy.MapScope{}, "hello")
+	_, err = pipeline.Run(context.Background(), guardy.NewScope(), "hello")
 	if !errors.Is(err, guardy.ErrScopeIncomplete) {
 		panic(fmt.Sprintf("expected ErrScopeIncomplete, got %v", err))
 	}
 	fmt.Println("--- missing scope ---")
 	fmt.Println("ErrScopeIncomplete:", err)
+	fmt.Println("Missing:", guardy.MissingScopeKeys(err))
 }
 
 func noopPassValidator() guardy.ValidatorFunc[string] {

@@ -20,8 +20,8 @@ func TestBlockError_UnwrapAndDisposition(t *testing.T) {
 	if !errors.As(err, &blockErr) {
 		t.Fatal("expected BlockError")
 	}
-	if blockErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	if blockErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Failure.Decision.Disposition)
 	}
 }
 
@@ -36,11 +36,11 @@ func TestValidatorFaultError_SystemFault(t *testing.T) {
 	if !errors.As(err, &fault) {
 		t.Fatal("expected ValidatorFaultError")
 	}
-	if fault.Report.Disposition != DispositionSystemFault {
-		t.Fatalf("disposition = %v", fault.Report.Disposition)
+	if fault.Failure.Decision.Disposition != DispositionSystemFault {
+		t.Fatalf("disposition = %v", fault.Failure.Decision.Disposition)
 	}
-	if fault.Report.Code != CodeValidatorFailed {
-		t.Fatalf("code = %q", fault.Report.Code)
+	if fault.Failure.Decision.Code != CodeValidatorFailed {
+		t.Fatalf("code = %q", fault.Failure.Decision.Code)
 	}
 }
 
@@ -56,11 +56,11 @@ func TestStreamErrorFromDecision_RetryNotRetryable(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if streamErr.Report.Retryable {
+	if streamErr.Failure.Decision.Retryable {
 		t.Fatal("Retryable should stay false")
 	}
-	if streamErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Report.Disposition)
+	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
 	}
 	if streamErr.Action != ActionBlock {
 		t.Fatalf("Action = %v, want ActionBlock for terminal retry", streamErr.Action)
@@ -81,11 +81,11 @@ func TestStreamErrorFromDecision_Block(t *testing.T) {
 	if !errors.As(err, &streamErr) {
 		t.Fatal("expected StreamError")
 	}
-	if streamErr.Report.Retryable {
+	if streamErr.Failure.Decision.Retryable {
 		t.Fatal("block should not be Retryable")
 	}
-	if streamErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Report.Disposition)
+	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
 	}
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatal("expected ErrBlocked")
@@ -115,12 +115,16 @@ func TestRetryError_UnwrapAndDisposition(t *testing.T) {
 		Feedback:  "fix it",
 		Retryable: true,
 	}, ControlSpec{Action: ActionRetry})
-	err := &RetryError{Feedback: rep.Feedback, Report: *rep}
+	err := retryErrorFromReport(rep)
 	if !errors.Is(err, ErrRetryRequested) {
 		t.Fatal("expected ErrRetryRequested")
 	}
-	if err.Report.Disposition != DispositionRetryableCorrection {
-		t.Fatalf("disposition = %v", err.Report.Disposition)
+	var retryErr *RetryError
+	if !errors.As(err, &retryErr) {
+		t.Fatalf("expected RetryError, got %v", err)
+	}
+	if retryErr.Failure.Decision.Disposition != DispositionRetryableCorrection {
+		t.Fatalf("disposition = %v", retryErr.Failure.Decision.Disposition)
 	}
 }
 
@@ -136,8 +140,8 @@ func TestErrorFromDecision_TerminalRetryReturnsBlockError(t *testing.T) {
 	if !errors.As(err, &blockErr) {
 		t.Fatalf("expected BlockError, got %v", err)
 	}
-	if blockErr.Report.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", blockErr.Report.Disposition)
+	if blockErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("disposition = %v", blockErr.Failure.Decision.Disposition)
 	}
 }
 

@@ -48,12 +48,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	report := result.Decision()
+	decision := result.PolicyDecision()
 	switch {
-	case report.IsTerminalDeny():
-		fmt.Println("blocked:", report.PublicMessage())
-	case report.IsRetryableCorrection():
-		fmt.Println("retry:", report.OrchestratorMessage())
+	case decision.IsTerminal():
+		fmt.Println("blocked:", decision.SafeMessage)
+	case decision.IsRetryable():
+		fmt.Println("retry:", decision.RetryFeedback)
 	default:
 		fmt.Println("ok:", result.Output)
 	}
@@ -77,7 +77,7 @@ For string validation: `Validator[string]`. The pipeline returns the mutated tex
 ### Pipeline (two-phase)
 
 - **Construction**: `NewPipeline[string](WithFastPath(...), WithPolicyValidators(...), WithSlowPath(...))`.
-- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or `guardy.MapScope{...}` for scope. Use `result.Output`, `result.OutputKind`, and `result.Decision()` for the outcome Report. `result.Reports` holds all validator reports for telemetry. Policy validators declare required keys at compile time; missing keys → `ErrScopeIncomplete` (fail-closed).
+- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or any `ExecutionScope` implementation. Use `result.Output`, `result.OutputKind`, and `result.PolicyDecision()` at host boundaries; `result.Decision()` returns the underlying Report for validator-level telemetry. `result.Reports` holds all validator reports. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
 
 `pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
 
@@ -111,14 +111,14 @@ Heavy validators that only **block** or **pass** run in parallel via `errgroup` 
 
 ### Report
 
-**Report** holds control-flow fields (**Retryable**, **Fatal**, **SafeUserMessage**) plus **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, and telemetry fields. After `Run`, use `result.Output` and `result.Decision()`; route control flow with `report.IsTerminalDeny()` and `report.IsRetryableCorrection()` — not string parsing on `Code`/`Reason`. For HTTP/API responses prefer `report.PublicMessage()`.
+**Report** holds validator telemetry and low-level rule output: **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, **PayloadKind**, and related fields. At host boundaries prefer `result.PolicyDecision()` or `errors.As(err, &policyFailure)` into `*PolicyFailure`; use `result.Decision()` when you need the underlying report for telemetry or custom validators. Do not route control flow by parsing `Code` or `Reason`.
 
 ### Stream (GuardWriter)
 
 Use **GuardWriter** to validate streaming output in chunks:
 
 - Buffers until a semantic boundary (space, newline, punctuation) or a delimiterless hard cap is reached; runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
-- On **terminal deny** or **retryable correction** — returns `*StreamError` (`errors.As` for `Report`; `errors.Is` via `Unwrap` to `ErrBlocked` / `ErrRetryRequested`). Terminal retry maps to block-style `StreamError`.
+- On **terminal deny** or **retryable correction** — returns `*StreamError` that exposes `PolicyFailure` through `errors.As`; use `failure.Decision` for routing. `errors.Is` still works through `Unwrap` to `ErrBlocked` / `ErrRetryRequested`. Terminal retry maps to block-style `StreamError`.
 - On **Redact** — writes the mutated text for that chunk.
 - On **Pass** — writes the original chunk.
 - In JSON-aware mode, incomplete JSON is never validated/written; `Close()` on incomplete JSON returns `ErrValidatorFailed`.
@@ -135,9 +135,9 @@ gw := guardy.NewGuardWriter(
 _, _ = gw.Write(data)
 _ = gw.Close()
 
-var streamErr *guardy.StreamError
-if errors.As(err, &streamErr) {
-    log.Println(streamErr.Report.Code, streamErr.Report.Disposition, streamErr.Report.PublicMessage())
+var failure *guardy.PolicyFailure
+if errors.As(err, &failure) {
+    log.Println(failure.Decision.Code, failure.Decision.Disposition, failure.Decision.SafeMessage)
 }
 ```
 
@@ -157,17 +157,61 @@ handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHan
 
 ### Policy validators (scope-aware)
 
-Pass host-defined metadata with `guardy.MapScope{"principal.role": "viewer"}` as the second argument to `Run`. Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in builders: `NewAttributeEquals`, `NewAttributePresent` (declare `RequiredScopeKeys()`; merged at pipeline compile time). Custom rules: `NewPolicyFunc(keys, fn)`. Missing scope keys fail closed with `ErrScopeIncomplete`. See `examples/policy_attributes`.
-
-### ValidateAndDecode (raw-first)
-
-Single step from JSON string to typed struct after the raw interception pipeline:
+Declare typed scope requirements with `ScopeKey[T]`, then pass any `ExecutionScope` implementation at run time. Use `NewScope(ScopeValue(...))` for static bindings, or expose host-owned structs through `ScopeFunc`. `MapScope` remains a low-level convenience, not the primary integration contract.
 
 ```go
-user, rep, err := guardy.ValidateAndDecode[User](ctx, scope, pipeline, rawJSON)
+roleKey := guardy.NewScopeKey[string]("principal.role")
+pipeline := guardy.NewPipeline(
+    guardy.WithPolicyValidators(
+        guardy.NewTypedAttributeEquals[string, string](roleKey, "viewer"),
+    ),
+)
+
+scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))
+result, err := pipeline.Run(ctx, scope, "hello")
+decision := result.PolicyDecision()
 ```
 
-Phase Raw: fast + policy + slow on the string. Phase Structured: `json.Unmarshal` + optional `PostBindValidator`. Block → `ErrBlocked`; retry / decode failure / post-bind domain rule → `RetryError`. See `examples/struct_validation`.
+Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
+
+### Canonical boundary contracts
+
+Use `Decision` and `PolicyFailure` at host boundaries. Guardy errors from decode, interceptors, stream, and guarded output expose `*PolicyFailure` through `errors.As`, while sentinel checks still work through `errors.Is`.
+
+```go
+payload, err := argsPipeline.Validate(ctx, scope, raw)
+if err != nil {
+    var failure *guardy.PolicyFailure
+    if errors.As(err, &failure) && failure.Decision.IsRetryable() {
+        return failure.Decision.RetryFeedback
+    }
+    return err
+}
+```
+
+For typed arguments, compile a raw-first pipeline once and let guardy return one value object:
+
+```go
+type Command struct {
+    Name string `json:"name"`
+}
+
+argsPipeline := guardy.MustCompileArgs[Command](rawPipeline)
+payload, err := argsPipeline.Validate(ctx, scope, `{"name":"Ada"}`)
+// payload.Value is Command, payload.SanitizedRaw is the validated raw payload,
+// payload.Decision is the canonical routing decision.
+```
+
+For guarded output, return a single authoritative delivery contract:
+
+```go
+guarded, err := outputPipeline.GuardOutput(ctx, scope, text)
+if value, ok := guarded.DeliverableValue(); ok {
+    send(value)
+}
+```
+
+Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, and `WrapGuardedOutput` validates handler output before returning `GuardedOutput[T]`.
 
 ### User channel (`WithUserChannel`)
 
@@ -181,7 +225,7 @@ pipeline := guardy.NewPipeline(
 )
 ```
 
-Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`.
+Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardOutput(ctx, scope, value)`, which returns `GuardedOutput[T]` and removes the need for host-side re-gating.
 
 ### Declarative guards (`guardy/build`)
 
@@ -210,7 +254,7 @@ See `examples/declarative_guard`.
 
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError** (unwraps to **ErrBlocked**; use `errors.As` for **Report.Disposition**). Retryable correction returns **RetryError** (unwraps to **ErrRetryRequested**). See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments prefer **WrapArgs**. For output delivery contracts prefer **WrapGuardedOutput**. See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
@@ -346,7 +390,7 @@ Use **guardy/guardytest** for unit tests:
 - **FakeValidator(name, *guardy.Report)** — validator that always returns the given report (nil or zero = pass).
 - **FailingValidator(name, err)** — validator that always returns the given error.
 - **MustPass**, **MustBlock**, **MustRedact**, **MustRetry** — assert `report.Action`.
-- **MustTerminalDeny**, **MustRetryableCorrection**, **MustSystemFault** — assert `report.Disposition`.
+- **MustTerminalDeny**, **MustRetryableCorrection**, **MustSystemFault** — assert validator report disposition when a test needs report-level details.
 - **MustOutputKind** — assert `RunResult.OutputKind` (user channel / classifier tests).
 - **MustScopeIncomplete** — assert `errors.Is(err, ErrScopeIncomplete)`.
 
@@ -354,27 +398,30 @@ Use **guardy/guardytest** for unit tests:
 v := guardytest.FakeValidator("mock", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
 pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
 result, _ := pipeline.Run(ctx, nil, "x")
-guardytest.MustTerminalDeny(t, result.Decision()) // prefer over MustBlock for control-flow tests
+if !result.PolicyDecision().IsTerminal() {
+    t.Fatal("expected terminal decision")
+}
 ```
 
 ## Error handling
 
-- **BlockError** — block from WrapInput, WrapOutput, ValidateAndDecode; carries `Report.Disposition`; unwraps to **ErrBlocked**.
-- **ValidatorFaultError** — validator/pipeline infrastructure failure; `DispositionSystemFault`; unwraps to **ErrValidatorFailed**.
-- **StreamError** — returned by GuardWriter on block/retry; embeds a cloned `Report` snapshot; unwraps to **ErrBlocked** or **ErrRetryRequested**.
-- **ErrBlocked** — block decisions (Guard, WrapInput, ValidateAndDecode, StreamError).
+- **PolicyFailure** — canonical boundary error contract; use `errors.As(err, &failure)` and route by `failure.Decision`.
+- **BlockError** — block from WrapInput or WrapOutput; unwraps to **ErrBlocked** and carries **Failure PolicyFailure**.
+- **ValidatorFaultError** — validator/pipeline infrastructure failure; unwraps to **ErrValidatorFailed** and carries **Failure PolicyFailure**.
+- **StreamError** — returned by GuardWriter on block/retry; unwraps to **ErrBlocked** or **ErrRetryRequested** and carries **Failure PolicyFailure**.
+- **ErrBlocked** — block decisions (Guard, WrapInput, StreamError).
 - **ErrRetryRequested** — retry decisions (WrapOutput, StreamError, RetryError).
-- **RetryError** — structured retry from interceptors and ValidateAndDecode; use `errors.As` for `Report.Disposition`.
+- **RetryError** — structured retry from interceptors and typed argument validation; unwraps to **ErrRetryRequested** and carries **Failure PolicyFailure**.
 - **ErrScopeIncomplete** — `Run` called without required policy scope keys.
-- **ErrValidatorFailed** — wraps a validator’s system error from `Run`; prefer `errors.As` into **ValidatorFaultError** for disposition.
+- **ErrValidatorFailed** — wraps a validator’s system error from `Run`; prefer `errors.As` into **PolicyFailure** or **ValidatorFaultError**.
 
-Use `report.Disposition` (`DispositionTerminalDeny`, `DispositionRetryableCorrection`, `DispositionSystemFault`) for control flow — not string parsing on `Code` or `Reason`.
+Use `PolicyFailure.Decision` or `RunResult.PolicyDecision()` for control flow - not string parsing on `Code` or `Reason`, and not local re-derivation from `Report`. Error report details are telemetry snapshots via `ReportSnapshot()`, not the boundary contract.
 
 Production `ext` validators should always set **`ext.WithCode(...)`** so hosts never parse `Reason` strings.
 
 ## Packages
 
-- **guardy** — core types (Action, Report, Disposition, PayloadKind, Validator), Pipeline, ExecutionScope, SemanticValidator, LLMJudge, GuardWriter, Guard middleware, errors.
+- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, GuardedOutput, GuardWriter, Guard middleware, errors.
 - **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
 - **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
@@ -385,29 +432,29 @@ See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical spe
 
 ## Migration (task14 — typed scope, disposition, output kind)
 
-- **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; use `guardy.MapScope` or a host `ExecutionScope`.
-- **Fail-closed policy:** `RequiredScopeKeys()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` before fast-path.
-- **Disposition:** route with `report.IsTerminalDeny()` and `report.IsRetryableCorrection()` — not string parsing on `Code`/`Reason` or raw `report.Disposition` (use helpers for derive-on-read).
-- **Output kind:** `RunResult.OutputKind` + `WithUserChannel()` for user-facing output filters (any `Pipeline[T]`).
-- **ValidateAndDecode:** replaces `ValidateAndBind`; signature `(ctx, scope, pipeline, raw)`.
-- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused).
+- **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
+- **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before fast-path.
+- **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
+- **Output contract:** use `GuardOutput` / `GuardedOutput[T]` for delivery boundaries, not plain strings plus `OutputKind` flags.
+- **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]`; raw validation plus local decode was removed from the public path.
+- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused); new raw-args and output-boundary wrappers are `WrapArgs` and `WrapGuardedOutput`.
 - **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
 - **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
 
 ## Migration from v2 (task11 — Policy & Safety Engine)
 
-Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-redaction.md) (`ValidateAndDecode`, `Map`, `MapJSONRawMessage`).
+Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-redaction.md) (`ArgsPipeline`, `Map`, `MapJSONRawMessage`).
 
-- **Report control flow:** `Retryable`, `Fatal`, `SafeUserMessage`; prefer `IsTerminalDeny()` / `IsRetryableCorrection()` for routing; `ShouldStop()` / `ShouldRetry()` are aliases; use `report.Code`, `PublicMessage()` instead of parsing `Reason`.
-- **Policy phase:** `WithPolicyValidators` + explicit `ExecutionScope` in `Run` (task14 replaces `WithAttributes`).
-- **ValidateAndDecode:** pipeline + `json.Unmarshal` + optional `PostBindValidator` on `*T`.
-- **Streaming:** `errors.As(err, &streamErr)` where `streamErr` is `*StreamError`.
+- **Decision control flow:** use `Decision` / `PolicyFailure`; `Report` remains validator telemetry.
+- **Policy phase:** `WithPolicyValidators` + typed `ScopeKey[T]` requirements + explicit `ExecutionScope` in `Run`.
+- **Typed arguments:** `ArgsPipeline` + `GuardedPayload[T]` replaces raw pipeline plus local decode.
+- **Streaming:** `errors.As(err, &failure)` where `failure` is `*PolicyFailure`.
 - **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
 - **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.
 
 ## Migration (task12 — stream, policy shadow, post-bind)
 
-- **GuardWriter:** handle `*StreamError` instead of relying only on `errors.Is(ErrBlocked)`.
+- **GuardWriter:** use `errors.As(err, &failure)` into `*PolicyFailure` instead of relying only on `errors.Is(ErrBlocked)`.
 - **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
 - **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`.
 - **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).

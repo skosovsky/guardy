@@ -105,8 +105,9 @@ func TestMustScopeIncomplete(t *testing.T) {
 }
 
 func TestMustScopeIncomplete_viaRun(t *testing.T) {
+	tenantKey := guardy.NewScopeKey[string]("tenant.id")
 	p := guardy.NewPipeline(
-		guardy.WithPolicyValidators(guardy.NewAttributePresent[string]("tenant.id")),
+		guardy.WithPolicyValidators(guardy.NewTypedAttributePresent[string, string](tenantKey)),
 	)
 	_, err := p.Run(context.Background(), guardy.MapScope{}, "x")
 	MustScopeIncomplete(t, err)

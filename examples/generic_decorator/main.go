@@ -21,11 +21,12 @@ func askLLM(_ context.Context, prompt string) (string, error) {
 
 func main() {
 	ctx := context.Background()
-	scope := guardy.MapScope{"principal.role": "user"}
+	roleKey := guardy.NewScopeKey[string]("principal.role")
+	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "user"))
 
 	inPipe := guardy.NewPipeline(
 		guardy.WithPolicyValidators(
-			guardy.NewAttributeEquals[string]("principal.role", "admin"),
+			guardy.NewTypedAttributeEquals[string, string](roleKey, "admin"),
 		),
 		guardy.WithFastPath(ext.NewWordlistValidator(
 			[]string{"forbidden"},
@@ -41,7 +42,7 @@ func main() {
 		guardy.WithFastPath(classifier),
 	)
 
-	safe := guardy.WrapOutput(outPipe, scope, guardy.WrapInput(inPipe, scope, askLLM))
+	safe := guardy.WrapGuardedOutput(outPipe, scope, guardy.WrapInput(inPipe, scope, askLLM))
 
 	if _, err := safe(ctx, "forbidden word"); err != nil {
 		printBlock("input wordlist", err)
@@ -51,24 +52,25 @@ func main() {
 		printBlock("output user channel", err)
 	}
 
-	adminScope := guardy.MapScope{"principal.role": "admin"}
-	adminSafe := guardy.WrapOutput(outPipe, adminScope, guardy.WrapInput(inPipe, adminScope, askLLM))
+	adminScope := guardy.NewScope(guardy.ScopeValue(roleKey, "admin"))
+	adminSafe := guardy.WrapGuardedOutput(outPipe, adminScope, guardy.WrapInput(inPipe, adminScope, askLLM))
 	out, err := adminSafe(ctx, "nice user question")
 	if err != nil {
 		log.Fatal(err)
 	}
-	outResult, err := outPipe.Run(ctx, adminScope, out)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("ok:", out)
-	fmt.Println("OutputKind:", outResult.OutputKind)
+	value, ok := out.DeliverableValue()
+	fmt.Println("ok:", value, ok)
+	fmt.Println("OutputKind:", out.Kind)
 }
 
 func printBlock(label string, err error) {
-	var blockErr *guardy.BlockError
-	if errors.As(err, &blockErr) {
-		fmt.Printf("%s blocked: disposition=%s msg=%s\n", label, blockErr.Report.Disposition, blockErr.Message)
+	var failure *guardy.PolicyFailure
+	if errors.As(err, &failure) {
+		fmt.Printf("%s blocked: disposition=%s msg=%s\n",
+			label,
+			failure.Decision.Disposition,
+			failure.Decision.SafeMessage,
+		)
 		return
 	}
 	log.Fatal(err)
