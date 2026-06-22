@@ -3,8 +3,8 @@ module github.com/skosovsky/guardy/build
 go 1.26.1
 
 require (
-	github.com/skosovsky/guardy v0.0.0
-	github.com/skosovsky/guardy/ext/jsonschema v0.0.0
+	github.com/skosovsky/guardy v0.11.0
+	github.com/skosovsky/guardy/ext/jsonschema v0.11.0
 )
 
 require (
@@ -19,9 +19,4 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-)
-
-replace (
-	github.com/skosovsky/guardy => ..
-	github.com/skosovsky/guardy/ext/jsonschema => ../ext/jsonschema
 )
