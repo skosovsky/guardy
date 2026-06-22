@@ -2,11 +2,12 @@
 // intervention actions (pass, block, redact, retry), and two-phase execution
 // (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
 //
-// Task15 boundary contracts: typed [ScopeKey] / [ScopeRequirement],
-// canonical [Decision] / [PolicyFailure], [ArgsPipeline] / [GuardedPayload],
-// and [GuardedOutput] for delivery boundaries.
+// Boundary contracts: typed [ScopeKey] / [ScopeRequirement],
+// canonical [Decision] / [PolicyFailure], [ArgsPipeline] / [GuardedArgs],
+// [JSONArgsPipeline] / [GuardedJSONArgs], [GuardedOutput],
+// [DeliveryPolicy], [GuardEvent], and [GuardRoute].
 //
-// See .cursor/docs/task15.md.
+// See .cursor/docs/task16.md.
 package guardy
 
 // Canonical action names for [Action.String], logging, and telemetry.
@@ -58,7 +59,7 @@ const (
 )
 
 // Report is the single result returned by a validator or the pipeline.
-// It maps to metry/security attributes for telemetry and control-flow decisions.
+// It maps to security telemetry attributes and control-flow decisions.
 // Route control flow with IsTerminalDeny() and IsRetryableCorrection() — not Reason string parsing.
 // Action, Code, Retryable, and Fatal remain for telemetry and validator semantics.
 // When Action == ActionRetry, Feedback contains the message for the LLM/orchestrator.

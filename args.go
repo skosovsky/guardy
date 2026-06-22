@@ -25,14 +25,14 @@ func (f ShapeProviderFunc[T]) Shape() any {
 	return f()
 }
 
-// GuardedPayload is the canonical typed argument result returned by guardy.
-type GuardedPayload[T any] struct {
+// GuardedArgs is the canonical typed argument boundary returned by guardy.
+type GuardedArgs[T any] struct {
 	Value        T
 	Raw          string
 	SanitizedRaw string
 	Reports      []Report
 	Decision     Decision
-	OutputKind   PayloadKind
+	PayloadKind  PayloadKind
 }
 
 // ArgsPipeline validates raw arguments and decodes them into T as one guardy-owned contract.
@@ -97,20 +97,20 @@ func (p *ArgsPipeline[T]) RequiredScopeKeys() []string {
 }
 
 // Validate runs raw validation before decoding into T.
-func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, raw string) (GuardedPayload[T], error) {
+func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, raw string) (GuardedArgs[T], error) {
 	if p == nil || p.raw == nil {
 		var zero T
-		return GuardedPayload[T]{
+		return GuardedArgs[T]{
 			Value:        zero,
 			Raw:          raw,
 			SanitizedRaw: raw,
 			Reports:      nil,
 			Decision:     DecisionFromReport(nil),
-			OutputKind:   PayloadSafeUserText,
+			PayloadKind:  PayloadSafeUserText,
 		}, errArgsPipelineNil
 	}
 	result, err := p.raw.Run(ctx, scope, raw)
-	payload := guardedPayloadFromRun[T](raw, result)
+	payload := guardedArgsFromRun[T](raw, result)
 	if err != nil {
 		return payload, err
 	}
@@ -127,8 +127,8 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 			Feedback: unmarshalErr.Error(),
 		}, ControlSpec{Action: ActionRetry})
 		payload.Reports = append(payload.Reports, *rep)
-		payload.Decision = DecisionFromReport(rep)
-		return payload, retryErrorFromReport(rep)
+		decisionReport := refreshGuardedArgsDecision(&payload)
+		return payload, retryErrorFromReport(decisionReport)
 	}
 	if bindErr := invokePostBind(ctx, &value); bindErr != nil {
 		rep := FinishReport(&Report{
@@ -138,21 +138,31 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 			Feedback: bindErr.Error(),
 		}, ControlSpec{Action: ActionRetry})
 		payload.Reports = append(payload.Reports, *rep)
-		payload.Decision = DecisionFromReport(rep)
-		return payload, retryErrorFromReport(rep)
+		decisionReport := refreshGuardedArgsDecision(&payload)
+		return payload, retryErrorFromReport(decisionReport)
 	}
 	payload.Value = value
 	return payload, nil
 }
 
-func guardedPayloadFromRun[T any](raw string, result RunResult[string]) GuardedPayload[T] {
+func refreshGuardedArgsDecision[T any](args *GuardedArgs[T]) *Report {
+	if args == nil {
+		return nil
+	}
+	args.PayloadKind = AggregatePayloadKind(args.Reports)
+	decisionReport := policyDecisionReport(args.Reports, args.PayloadKind)
+	args.Decision = DecisionFromReport(decisionReport)
+	return decisionReport
+}
+
+func guardedArgsFromRun[T any](raw string, result RunResult[string]) GuardedArgs[T] {
 	var zero T
-	return GuardedPayload[T]{
+	return GuardedArgs[T]{
 		Value:        zero,
 		Raw:          raw,
 		SanitizedRaw: result.Output,
 		Reports:      append([]Report(nil), result.Reports...),
 		Decision:     result.PolicyDecision(),
-		OutputKind:   result.OutputKind,
+		PayloadKind:  result.OutputKind,
 	}
 }

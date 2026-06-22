@@ -60,7 +60,7 @@ func main() {
 	}
 	value, ok := out.DeliverableValue()
 	fmt.Println("ok:", value, ok)
-	fmt.Println("OutputKind:", out.Kind)
+	fmt.Println("PayloadKind:", out.Kind)
 }
 
 func printBlock(label string, err error) {

@@ -77,7 +77,7 @@ For string validation: `Validator[string]`. The pipeline returns the mutated tex
 ### Pipeline (two-phase)
 
 - **Construction**: `NewPipeline[string](WithFastPath(...), WithPolicyValidators(...), WithSlowPath(...))`.
-- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or any `ExecutionScope` implementation. Use `result.Output`, `result.OutputKind`, and `result.PolicyDecision()` at host boundaries; `result.Decision()` returns the underlying Report for validator-level telemetry. `result.Reports` holds all validator reports. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
+- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or any `ExecutionScope` implementation. Use `result.PolicyDecision()` for low-level pipeline routing; use `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput` at host boundaries. `result.OutputKind`, `result.Decision()`, and `result.Reports` remain validator-level telemetry. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
 
 `pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
 
@@ -111,7 +111,7 @@ Heavy validators that only **block** or **pass** run in parallel via `errgroup` 
 
 ### Report
 
-**Report** holds validator telemetry and low-level rule output: **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, **PayloadKind**, and related fields. At host boundaries prefer `result.PolicyDecision()` or `errors.As(err, &policyFailure)` into `*PolicyFailure`; use `result.Decision()` when you need the underlying report for telemetry or custom validators. Do not route control flow by parsing `Code` or `Reason`.
+**Report** holds validator telemetry and low-level rule output: **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, **PayloadKind**, and related fields. Low-level `Run` callers should use `result.PolicyDecision()` or `errors.As(err, &policyFailure)` into `*PolicyFailure`; host boundaries should prefer `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput`. Use `result.Decision()` when you need the underlying report for telemetry or custom validators. Do not route control flow by parsing `Code` or `Reason`.
 
 ### Stream (GuardWriter)
 
@@ -145,7 +145,7 @@ See `examples/streaming_filter` and `examples/json_streaming`.
 
 ### HTTP Guard (`http_guard.go`)
 
-**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **terminal deny** or **retryable correction** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. Use **ReportFromContext(ctx)** in the next handler to get the report.
+**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **terminal deny** or **retryable correction** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. For host-boundary routing, use `Decision`, `PolicyFailure`, typed guard events, or the generic wrapper APIs instead of request-context report state.
 
 ```go
 extractor := func(r *http.Request) (string, error) {
@@ -189,7 +189,7 @@ if err != nil {
 }
 ```
 
-For typed arguments, compile a raw-first pipeline once and let guardy return one value object:
+For typed arguments, compile a raw-first pipeline once and let guardy return one boundary object:
 
 ```go
 type Command struct {
@@ -197,21 +197,73 @@ type Command struct {
 }
 
 argsPipeline := guardy.MustCompileArgs[Command](rawPipeline)
-payload, err := argsPipeline.Validate(ctx, scope, `{"name":"Ada"}`)
-// payload.Value is Command, payload.SanitizedRaw is the validated raw payload,
-// payload.Decision is the canonical routing decision.
+args, err := argsPipeline.Validate(ctx, scope, `{"name":"Ada"}`)
+// args is GuardedArgs[Command]: Value, Raw, SanitizedRaw, Reports,
+// PayloadKind, and the canonical Decision stay together.
 ```
 
-For guarded output, return a single authoritative delivery contract:
+For dynamic JSON arguments, keep sanitized raw JSON, decoded object, schema identity, reports, and decision together:
 
 ```go
-guarded, err := outputPipeline.GuardOutput(ctx, scope, text)
+schema := guardy.JSONArgsSchemaFunc{ID: "command.schema"}
+jsonArgsPipeline := guardy.MustCompileJSONArgs(rawPipeline, schema)
+args, err := jsonArgsPipeline.Validate(ctx, scope, rawJSON)
+// args is GuardedJSONArgs: Raw, SanitizedRaw, Object, SchemaID, Reports,
+// PayloadKind, and Decision.
+```
+
+Wrap dynamic handlers with the same boundary object:
+
+```go
+handler := guardy.WrapGuardedJSONArgs(jsonArgsPipeline, scope,
+    func(ctx context.Context, args guardy.GuardedJSONArgs) (string, error) {
+        return args.SchemaID + ":" + args.Object["name"].(string), nil
+    },
+)
+result, args, err := handler(ctx, rawJSON)
+```
+
+For guarded output, return a single authoritative delivery contract. `GuardOutput` uses the default external-user policy; `GuardDelivery` accepts an explicit channel policy:
+
+```go
+guarded, err := outputPipeline.GuardDelivery(
+    ctx,
+    scope,
+    guardy.NewDeliveryPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
+    text,
+)
 if value, ok := guarded.DeliverableValue(); ok {
     send(value)
 }
 ```
 
-Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, and `WrapGuardedOutput` validates handler output before returning `GuardedOutput[T]`.
+Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, `WrapGuardedArgs` passes the full `GuardedArgs[T]` boundary to a handler, `WrapGuardedJSONArgs` does the same for dynamic JSON, and `WrapGuardedOutput` validates handler output before returning `GuardedOutput[T]`.
+
+Observers receive typed guard events:
+
+```go
+pipeline := guardy.NewPipeline(
+    guardy.WithPipelineName[string]("reply-output"),
+    guardy.WithObserver[string](func(ctx context.Context, event guardy.GuardEvent) {
+        log.Println(event.PipelineName, event.Phase, event.Decision.Code)
+    }),
+)
+```
+
+For routing, project canonical decisions through guardy instead of reinterpreting action/disposition combinations:
+
+```go
+route := failure.Decision.Route(guardy.RemediationPolicy{
+    RetryAttempt: 2,
+    MaxRetries:   3,
+})
+switch route.Outcome {
+case guardy.GuardRouteRetryCorrection:
+    retry(route.RetryFeedback)
+case guardy.GuardRouteTerminalDeny, guardy.GuardRouteSystemFault:
+    stop(route.SafeMessage)
+}
+```
 
 ### User channel (`WithUserChannel`)
 
@@ -225,7 +277,7 @@ pipeline := guardy.NewPipeline(
 )
 ```
 
-Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardOutput(ctx, scope, value)`, which returns `GuardedOutput[T]` and removes the need for host-side re-gating.
+Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardDelivery(ctx, scope, policy, value)` or `pipeline.GuardOutput(ctx, scope, value)`, which return guardy-owned delivery contracts and remove the need for host-side re-gating or JSON sniffing.
 
 ### Declarative guards (`guardy/build`)
 
@@ -254,7 +306,7 @@ See `examples/declarative_guard`.
 
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments prefer **WrapArgs**. For output delivery contracts prefer **WrapGuardedOutput**. See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
@@ -421,7 +473,7 @@ Production `ext` validators should always set **`ext.WithCode(...)`** so hosts n
 
 ## Packages
 
-- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, GuardedOutput, GuardWriter, Guard middleware, errors.
+- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedOutput, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, GuardWriter, Guard middleware, errors.
 - **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
 - **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
@@ -430,14 +482,18 @@ Production `ext` validators should always set **`ext.WithCode(...)`** so hosts n
 
 See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical specification.
 
-## Migration (task14 — typed scope, disposition, output kind)
+## Migration (task14/task16 — typed scope, boundary contracts, delivery routing)
 
 - **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
 - **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before fast-path.
 - **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
-- **Output contract:** use `GuardOutput` / `GuardedOutput[T]` for delivery boundaries, not plain strings plus `OutputKind` flags.
-- **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]`; raw validation plus local decode was removed from the public path.
-- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused); new raw-args and output-boundary wrappers are `WrapArgs` and `WrapGuardedOutput`.
+- **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedOutput[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
+- **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
+- **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
+- **Observer telemetry:** `WithObserver` receives `GuardEvent` with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata.
+- **Decision routing:** use `Decision.Route(RemediationPolicy)` or `RouteDecision` for retry, terminal deny, system fault, and fallback projection.
+- **HTTP report context:** `ReportFromContext` was removed; report context side channels are replaced by explicit decisions, policy failures, guard events, and boundary values.
+- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
 - **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
 - **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
 
@@ -447,7 +503,7 @@ Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-reda
 
 - **Decision control flow:** use `Decision` / `PolicyFailure`; `Report` remains validator telemetry.
 - **Policy phase:** `WithPolicyValidators` + typed `ScopeKey[T]` requirements + explicit `ExecutionScope` in `Run`.
-- **Typed arguments:** `ArgsPipeline` + `GuardedPayload[T]` replaces raw pipeline plus local decode.
+- **Typed arguments:** `ArgsPipeline` + `GuardedArgs[T]` replaces raw pipeline plus local decode.
 - **Streaming:** `errors.As(err, &failure)` where `failure` is `*PolicyFailure`.
 - **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
 - **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.

@@ -42,7 +42,7 @@ func runPipeline(ctx context.Context, pipeline *guardy.Pipeline[string], input, 
 		if errors.As(err, &failure) {
 			fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
 				failure.Decision.Code, failure.Decision.Disposition, failure.Decision.SafeMessage)
-			fmt.Fprintln(os.Stderr, "OutputKind:", output.Kind)
+			fmt.Fprintln(os.Stderr, "PayloadKind:", output.Kind)
 			return
 		}
 		fmt.Fprintln(os.Stderr, "pipeline error:", err)
@@ -54,5 +54,5 @@ func runPipeline(ctx context.Context, pipeline *guardy.Pipeline[string], input, 
 		return
 	}
 	fmt.Println(value)
-	fmt.Println("OutputKind:", output.Kind)
+	fmt.Println("PayloadKind:", output.Kind)
 }

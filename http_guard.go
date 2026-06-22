@@ -2,7 +2,6 @@ package guardy
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -103,23 +102,20 @@ func Guard[T any](
 				writeJSONDecisionError(w, http.StatusUnprocessableEntity, decision)
 				return
 			case rep.Action == ActionRedact:
-				r2 := r.WithContext(withReport(r.Context(), rep))
-				if err := injector(r2, result.Output); err != nil {
+				if err := injector(r, result.Output); err != nil {
 					writeJSONError(w, http.StatusInternalServerError, "inject_failed", "injection failed")
 					return
 				}
-				next.ServeHTTP(w, r2)
+				next.ServeHTTP(w, r)
 				return
 			default:
-				ctx = withReport(r.Context(), rep)
-				r2 := r.WithContext(ctx)
-				r2.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-				r2.ContentLength = int64(len(bodyBytes))
-				r2.Header.Set("Content-Length", strconv.FormatInt(int64(len(bodyBytes)), 10))
-				r2.GetBody = func() (io.ReadCloser, error) {
+				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+				r.ContentLength = int64(len(bodyBytes))
+				r.Header.Set("Content-Length", strconv.FormatInt(int64(len(bodyBytes)), 10))
+				r.GetBody = func() (io.ReadCloser, error) {
 					return io.NopCloser(bytes.NewReader(bodyBytes)), nil
 				}
-				next.ServeHTTP(w, r2)
+				next.ServeHTTP(w, r)
 			}
 		})
 	}
@@ -143,21 +139,6 @@ type jsonErrorResponse struct {
 type scopeRequirementResponse struct {
 	Key  string `json:"key"`
 	Type string `json:"type,omitempty"`
-}
-
-type reportKey struct{}
-
-func withReport(ctx context.Context, report *Report) context.Context {
-	return context.WithValue(ctx, reportKey{}, report)
-}
-
-// ReportFromContext returns the Report attached by HTTP Guard, if any.
-func ReportFromContext(ctx context.Context) (Report, bool) {
-	r, ok := ctx.Value(reportKey{}).(*Report)
-	if !ok || r == nil {
-		return Report{}, false
-	}
-	return *r, true
 }
 
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {

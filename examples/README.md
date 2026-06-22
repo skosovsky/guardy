@@ -18,7 +18,7 @@ go run .
 - **multi_turn** — Demonstrates BYOT multi-message validation using `ext.MapSlice`.
 - **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default.
 - **custom_validator** — Custom validator that calls a mock moderation HTTP API; integrates into a pipeline and runs two sample inputs.
-- **struct_validation** — Validates raw JSON through `ArgsPipeline`, returns `GuardedPayload[T]`, and prints canonical retry feedback.
+- **struct_validation** — Validates raw JSON through `ArgsPipeline`, returns `GuardedArgs[T]`, and prints canonical retry feedback.
 - **generic_decorator** — Scope-aware input policy + output user channel with technical JSON classifier; `PolicyFailure` + `GuardedOutput` demo.
 - **declarative_guard** — Compiles a `GuardSpec` via `guardy/build` (policy rules, user channel + output classifier); optional `build.WithJSONSchema` for schema validation.
 - **policy_attributes** — Policy phase with typed `ScopeKey[T]`; demonstrates `PolicyDecision` and `ScopeIncompleteError` metadata.

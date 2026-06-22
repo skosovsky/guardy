@@ -8,7 +8,9 @@ type ValidationPhase string
 // Known pipeline phases for telemetry/middleware.
 const (
 	ValidationPhaseFast ValidationPhase = "fast"
-	ValidationPhaseSlow ValidationPhase = "slow"
+	// ValidationPhasePolicy identifies scope-aware policy validators.
+	ValidationPhasePolicy ValidationPhase = "policy"
+	ValidationPhaseSlow   ValidationPhase = "slow"
 )
 
 type validationPhaseKey struct{}

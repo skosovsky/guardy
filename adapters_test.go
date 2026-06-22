@@ -29,6 +29,56 @@ func TestWrapArgs_ValidatesRawBeforeHandler(t *testing.T) {
 	}
 }
 
+func TestWrapGuardedArgs_PassesBoundaryToHandler(t *testing.T) {
+	t.Parallel()
+	// Arrange.
+	argsPipeline := MustCompileArgs[argsCommand](NewPipeline[string]())
+	wrapped := WrapGuardedArgs(
+		argsPipeline,
+		nil,
+		func(_ context.Context, args GuardedArgs[argsCommand]) (string, error) {
+			return args.SanitizedRaw + ":" + args.Value.Name, nil
+		},
+	)
+
+	// Act.
+	result, boundary, err := wrapped(context.Background(), `{"name":"Ada"}`)
+
+	// Assert.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != `{"name":"Ada"}:Ada` {
+		t.Fatalf("result = %q", result)
+	}
+	if boundary.Decision.Action != ActionPass || boundary.PayloadKind != PayloadSafeUserText {
+		t.Fatalf("boundary = %+v", boundary)
+	}
+}
+
+func TestWrapGuardedJSONArgs_PassesDynamicBoundaryToHandler(t *testing.T) {
+	t.Parallel()
+	// Arrange.
+	jsonPipeline := MustCompileJSONArgs(NewPipeline[string](), JSONArgsSchemaFunc{ID: "dynamic.schema"})
+	wrapped := WrapGuardedJSONArgs(jsonPipeline, nil, func(_ context.Context, args GuardedJSONArgs) (string, error) {
+		return args.SchemaID + ":" + args.Object["name"].(string), nil
+	})
+
+	// Act.
+	result, boundary, err := wrapped(context.Background(), `{"name":"Ada"}`)
+
+	// Assert.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "dynamic.schema:Ada" {
+		t.Fatalf("result = %q", result)
+	}
+	if boundary.SanitizedRaw != `{"name":"Ada"}` || boundary.SchemaID != "dynamic.schema" {
+		t.Fatalf("boundary = %+v", boundary)
+	}
+}
+
 func TestWrapGuardedOutput_ReturnsGuardedContract(t *testing.T) {
 	t.Parallel()
 	// Arrange.

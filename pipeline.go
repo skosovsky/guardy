@@ -8,10 +8,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Observer is a callback invoked for non-blocking shadow block reports.
-// It receives the request context and the report; intended for telemetry.
-type Observer func(ctx context.Context, rep *Report)
-
 // ValidatorMiddleware wraps a Validator with cross-cutting logic (metrics, logging).
 type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 
@@ -26,6 +22,7 @@ type Pipeline[T any] struct {
 	slowPath            []Validator[T]
 	middlewares         []ValidatorMiddleware[T]
 	observer            Observer
+	name                string
 	requiredKeys        []string
 	requiredScope       []ScopeRequirement
 	userChannel         bool
@@ -43,6 +40,13 @@ type PipelineOption[T any] func(*Pipeline[T])
 func WithObserver[T any](o Observer) PipelineOption[T] {
 	return func(p *Pipeline[T]) {
 		p.observer = o
+	}
+}
+
+// WithPipelineName sets a stable identity included in observer events.
+func WithPipelineName[T any](name string) PipelineOption[T] {
+	return func(p *Pipeline[T]) {
+		p.name = name
 	}
 }
 
@@ -168,6 +172,7 @@ func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
 func (p *Pipeline[T]) clone() *Pipeline[T] {
 	next := &Pipeline[T]{
 		observer:            p.observer,
+		name:                p.name,
 		userChannel:         p.userChannel,
 		userChannelFallback: p.userChannelFallback,
 		fastPath:            append([]Validator[T](nil), p.fastPath...),
@@ -180,6 +185,18 @@ func (p *Pipeline[T]) clone() *Pipeline[T] {
 	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
 	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
 	return next
+}
+
+func (p *Pipeline[T]) notifyObserver(
+	ctx context.Context,
+	scope ExecutionScope,
+	rep *Report,
+	phase ValidationPhase,
+) {
+	if p == nil || p.observer == nil || rep == nil {
+		return
+	}
+	p.observer(ctx, newGuardEvent(scope, rep, phase, p.name))
 }
 
 // NewPipeline builds a pipeline from options.
@@ -305,9 +322,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			return p.finalizeResult(out, reports), nil
 		}
 		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
-			if p.observer != nil {
-				p.observer(fastCtx, rep)
-			}
+			p.notifyObserver(fastCtx, scope, rep, ValidationPhaseFast)
 			current = out
 			continue
 		}
@@ -315,12 +330,13 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	}
 
 	// Policy phase: sequential, scope-aware
+	policyCtx := withValidationPhase(ctx, ValidationPhasePolicy)
 	policyToRun := p.policyChain(scope)
 	for _, v := range policyToRun {
-		if err := ctx.Err(); err != nil {
+		if err := policyCtx.Err(); err != nil {
 			return zero, err
 		}
-		out, rep, err := v.Validate(ctx, current)
+		out, rep, err := v.Validate(policyCtx, current)
 		if err != nil {
 			return p.validatorFaultResult(current, reports, err)
 		}
@@ -331,9 +347,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			return p.finalizeResult(out, reports), nil
 		}
 		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
-			if p.observer != nil {
-				p.observer(ctx, rep)
-			}
+			p.notifyObserver(policyCtx, scope, rep, ValidationPhasePolicy)
 			current = out
 			continue
 		}
@@ -396,9 +410,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 				return nil
 			}
 			if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
-				if p.observer != nil {
-					p.observer(gctx, rep)
-				}
+				p.notifyObserver(gctx, scope, rep, ValidationPhaseSlow)
 			}
 			return nil
 		})

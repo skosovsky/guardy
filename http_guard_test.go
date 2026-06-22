@@ -251,35 +251,6 @@ func TestGuard_RedactToEmptyBody(t *testing.T) {
 	}
 }
 
-func TestGuard_ReportFromContext(t *testing.T) {
-	v := &fakeValidator{
-		name: "v",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "v"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	handler := Guard(p, bodyExtractor, PlainTextInjector())(
-		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			rep, ok := ReportFromContext(r.Context())
-			if !ok {
-				t.Error("ReportFromContext: no report")
-				return
-			}
-			if rep.Validator != "v" {
-				t.Errorf("report.Validator = %q", rep.Validator)
-			}
-			w.WriteHeader(http.StatusOK)
-		}),
-	)
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d", rec.Code)
-	}
-}
-
 func TestGuard_ExtractorError(t *testing.T) {
 	badExtractor := func(*http.Request) (string, error) {
 		return "", io.EOF

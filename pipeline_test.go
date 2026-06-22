@@ -246,22 +246,32 @@ func TestPipeline_ShadowMode(t *testing.T) {
 
 func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 	var calls int32
+	var event GuardEvent
 	shadowBlock := &fakeValidator{
 		name: "shadow",
 		validate: func(context.Context, string) (string, *Report, error) {
-			return "x", &Report{Action: ActionBlock, ShadowMode: true, Validator: "shadow", Reason: "seen"}, nil
+			return "x", &Report{
+				Action:      ActionBlock,
+				ShadowMode:  true,
+				Validator:   "shadow",
+				Reason:      "seen",
+				PayloadKind: PayloadTechnicalPayload,
+			}, nil
 		},
 	}
+	scope := MapScope{"request.id": "r1"}
 	p := NewPipeline(
-		WithObserver[string](func(ctx context.Context, _ *Report) {
+		WithPipelineName[string]("shadow-check"),
+		WithObserver[string](func(ctx context.Context, observed GuardEvent) {
 			if ctx == nil {
 				t.Error("observer must receive non-nil context")
 			}
+			event = observed
 			atomic.AddInt32(&calls, 1)
 		}),
 		WithFastPath(shadowBlock),
 	)
-	result, err := p.Run(context.Background(), nil, "x")
+	result, err := p.Run(context.Background(), scope, "x")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -271,6 +281,21 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Errorf("observer calls = %d, want 1", calls)
+	}
+	if got, ok := event.Scope.Lookup("request.id"); !ok || got != "r1" {
+		t.Fatalf("event scope lookup = %v, %v", got, ok)
+	}
+	if event.Phase != ValidationPhaseFast {
+		t.Fatalf("event phase = %q", event.Phase)
+	}
+	if event.PipelineName != "shadow-check" {
+		t.Fatalf("event pipeline name = %q", event.PipelineName)
+	}
+	if event.Decision.Action != ActionBlock || event.Decision.PayloadKind != PayloadTechnicalPayload {
+		t.Fatalf("event decision = %+v", event.Decision)
+	}
+	if event.Telemetry.Validator != "shadow" || event.Report == nil || event.Report.Validator != "shadow" {
+		t.Fatalf("event telemetry/report = %+v / %+v", event.Telemetry, event.Report)
 	}
 }
 
@@ -298,7 +323,13 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 	p := NewPipeline(
 		WithFastPath(pass),
 		WithPolicyValidators(shadowPolicy),
-		WithObserver[string](func(_ context.Context, _ *Report) {
+		WithObserver[string](func(_ context.Context, event GuardEvent) {
+			if event.Phase != ValidationPhasePolicy {
+				t.Errorf("event phase = %q", event.Phase)
+			}
+			if got, ok := event.Scope.Lookup("principal.role"); !ok || got != "sales" {
+				t.Errorf("event scope lookup = %v, %v", got, ok)
+			}
 			atomic.AddInt32(&observed, 1)
 		}),
 	)
@@ -312,6 +343,60 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 	}
 	if atomic.LoadInt32(&observed) != 1 {
 		t.Errorf("observer calls = %d, want 1", atomic.LoadInt32(&observed))
+	}
+}
+
+func TestPipeline_SlowShadowBlock_CallsObserverWithEvent(t *testing.T) {
+	t.Parallel()
+	// Arrange.
+	shadowSlow := &fakeValidator{
+		name: "slow-shadow",
+		validate: func(context.Context, string) (string, *Report, error) {
+			return "ignored", &Report{
+				Action:      ActionBlock,
+				ShadowMode:  true,
+				Validator:   "slow-shadow",
+				PayloadKind: PayloadInternalControlSignal,
+			}, nil
+		},
+	}
+	scope := MapScope{"request.id": "slow-1"}
+	events := make(chan GuardEvent, 1)
+	pipeline := NewPipeline(
+		WithPipelineName[string]("slow-check"),
+		WithSlowPath(shadowSlow),
+		WithObserver[string](func(_ context.Context, event GuardEvent) {
+			events <- event
+		}),
+	)
+
+	// Act.
+	result, err := pipeline.Run(context.Background(), scope, "hello")
+
+	// Assert.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PolicyDecision().Action != ActionPass {
+		t.Fatalf("decision = %+v", result.PolicyDecision())
+	}
+	select {
+	case event := <-events:
+		if event.Phase != ValidationPhaseSlow {
+			t.Fatalf("event phase = %q", event.Phase)
+		}
+		if event.PipelineName != "slow-check" {
+			t.Fatalf("pipeline name = %q", event.PipelineName)
+		}
+		if got, ok := event.Scope.Lookup("request.id"); !ok || got != "slow-1" {
+			t.Fatalf("event scope lookup = %v, %v", got, ok)
+		}
+		if event.Decision.Action != ActionBlock ||
+			event.Decision.PayloadKind != PayloadInternalControlSignal {
+			t.Fatalf("event decision = %+v", event.Decision)
+		}
+	default:
+		t.Fatal("expected slow observer event")
 	}
 }
 

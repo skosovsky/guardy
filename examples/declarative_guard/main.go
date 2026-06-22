@@ -61,7 +61,7 @@ func main() {
 	fmt.Println("Action:", outResult.Decision.Action)
 	fmt.Println("Disposition:", outResult.Decision.Disposition)
 	fmt.Println("Output:", outResult.Value)
-	fmt.Println("OutputKind:", outResult.Kind)
+	fmt.Println("PayloadKind:", outResult.Kind)
 
 	// Scenario 3: wordlist + PII + length from GuardSpec (README-style intent).
 	fastPipeline, err := build.CompileStringGuard(build.GuardSpec{

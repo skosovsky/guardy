@@ -87,6 +87,23 @@ func (r *RunResult[T]) PolicyDecision() Decision {
 	return d
 }
 
+func policyDecisionReport(reports []Report, outputKind PayloadKind) *Report {
+	result := RunResult[struct{}]{
+		Output:     struct{}{},
+		Reports:    append([]Report(nil), reports...),
+		OutputKind: outputKind,
+	}
+	rep := result.Decision()
+	if rep == nil {
+		return nil
+	}
+	cloned := rep.Clone()
+	if outputKind != PayloadSafeUserText || cloned.PayloadKind == PayloadSafeUserText {
+		cloned.PayloadKind = outputKind
+	}
+	return cloned
+}
+
 // PolicyFailure exposes a guardy decision as an error contract.
 // It is available through [errors.As] from guardy boundary errors.
 //
