@@ -13,6 +13,8 @@ import (
 // DefaultMaxBodyBytes is the default request body size limit for Guard (1MB, DoS protection).
 const DefaultMaxBodyBytes = 1 << 20
 
+const defaultBlockedCode = "blocked"
+
 // PlainTextInjector returns an injector that replaces the request body with the mutated string.
 // Syncs Body, ContentLength, Header[Content-Length], and GetBody for proxy/retry compatibility.
 func PlainTextInjector() func(*http.Request, string) error {
@@ -171,7 +173,7 @@ func writeJSONDecisionError(w http.ResponseWriter, status int, decision Decision
 		code = decision.Validator
 	}
 	if code == "" {
-		code = "blocked"
+		code = defaultBlockedCode
 	}
 	msg := decision.SafeMessage
 	if msg == "" {

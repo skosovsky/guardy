@@ -8,6 +8,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
+const mapSliceValidatorName = "map_slice"
+
 type mapSliceValidator[T any] struct {
 	extract   func(T) string
 	inject    func(T, string) T
@@ -33,7 +35,7 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 	}
 	if len(input) == 0 {
 		return input, guardy.FinishReport(&guardy.Report{
-			Action: guardy.ActionPass, Validator: "map_slice",
+			Action: guardy.ActionPass, Validator: mapSliceValidatorName,
 		}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
 	}
 
@@ -69,13 +71,13 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 	if mutated {
 		if lastRedact == nil {
 			lastRedact = guardy.FinishReport(&guardy.Report{
-				Action: guardy.ActionRedact, Validator: "map_slice",
+				Action: guardy.ActionRedact, Validator: mapSliceValidatorName,
 			}, guardy.ControlSpec{Action: guardy.ActionRedact})
 		}
 		return out, lastRedact, nil
 	}
 	return input, guardy.FinishReport(&guardy.Report{
-		Action: guardy.ActionPass, Validator: "map_slice",
+		Action: guardy.ActionPass, Validator: mapSliceValidatorName,
 	}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
 }
 

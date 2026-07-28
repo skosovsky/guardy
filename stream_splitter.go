@@ -1,6 +1,9 @@
 package guardy
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 type semanticChunkSplitStrategy struct{}
 
@@ -24,8 +27,8 @@ func (semanticChunkSplitStrategy) nextChunk(
 
 	if dataLen >= chunkSize {
 		window := data[:chunkSize]
-		for i := len(window) - 1; i >= 0; i-- {
-			if isBoundaryByte(window[i]) {
+		for i, b := range slices.Backward(window) {
+			if isBoundaryByte(b) {
 				return i + 1, true, nil
 			}
 		}
@@ -38,8 +41,8 @@ func (semanticChunkSplitStrategy) nextChunk(
 	}
 
 	if maxChunkSize > 0 && dataLen >= maxChunkSize {
-		for i := len(data) - 1; i >= 0; i-- {
-			if isBoundaryByte(data[i]) {
+		for _, b := range slices.Backward(data) {
+			if isBoundaryByte(b) {
 				return 0, true, nil
 			}
 		}

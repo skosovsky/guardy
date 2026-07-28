@@ -27,7 +27,7 @@ func NewRegexValidator(pattern string, opts ...Option) (guardy.Validator[string]
 		Action:               guardy.ActionBlock,
 		Severity:             guardy.SeverityHigh,
 		Name:                 defaultRegexValidatorName,
-		RedactionReplacement: "[REDACTED]",
+		RedactionReplacement: defaultRedactionReplacement,
 	}, opts...)
 	if cfg.Action != guardy.ActionRedact {
 		cfg.Action = guardy.ActionBlock

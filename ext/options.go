@@ -2,6 +2,8 @@ package ext
 
 import "github.com/skosovsky/guardy"
 
+const defaultRedactionReplacement = "[REDACTED]"
+
 // RuleConfig contains shared policy metadata and behavior for built-in validators.
 type RuleConfig struct {
 	Action               guardy.Action

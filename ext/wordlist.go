@@ -39,7 +39,7 @@ func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) gua
 		Action:               guardy.ActionBlock,
 		Severity:             guardy.SeverityHigh,
 		Name:                 defaultWordlistValidatorName,
-		RedactionReplacement: "[REDACTED]",
+		RedactionReplacement: defaultRedactionReplacement,
 	}, opts...)
 	if cfg.Action != guardy.ActionRedact {
 		cfg.Action = guardy.ActionBlock

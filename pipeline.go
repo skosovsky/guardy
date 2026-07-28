@@ -3,6 +3,7 @@ package guardy
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -139,8 +140,8 @@ func (p *Pipeline[T]) policyChain(scope ExecutionScope) []Validator[T] {
 	for i, pv := range p.policyValidators {
 		base := policyValidatorAdapter[T]{p: pv, scope: scope}
 		wrapped := Validator[T](base)
-		for j := len(p.middlewares) - 1; j >= 0; j-- {
-			wrapped = p.middlewares[j](wrapped)
+		for _, mw := range slices.Backward(p.middlewares) {
+			wrapped = mw(wrapped)
 		}
 		out[i] = wrapped
 	}
@@ -161,8 +162,8 @@ func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
 	out := make([]Validator[T], len(vv))
 	for i, v := range vv {
 		wrapped := v
-		for j := len(p.middlewares) - 1; j >= 0; j-- {
-			wrapped = p.middlewares[j](wrapped)
+		for _, mw := range slices.Backward(p.middlewares) {
+			wrapped = mw(wrapped)
 		}
 		out[i] = wrapped
 	}
@@ -208,14 +209,17 @@ func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
 	return p
 }
 
-// normalizeReport copies a validator report and derives Disposition.
-// Validators should set Retryable/Fatal via [FinishReport] or ext.FinalizeRuleReport before reports reach the pipeline.
+// normalizeReport copies a validator report and fills Disposition when unset.
+// Explicit Disposition (e.g. SystemFault on ActionBlock) must be preserved —
+// DeriveDisposition alone always maps ActionBlock → TerminalDeny.
 func normalizeReport(rep *Report) Report {
 	if rep == nil {
 		return Report{Action: ActionPass, Disposition: DispositionNone}
 	}
 	cp := *rep
-	cp.Disposition = DeriveDisposition(&cp, nil)
+	if cp.Disposition == DispositionNone {
+		cp.Disposition = DeriveDisposition(&cp, nil)
+	}
 	return cp
 }
 
@@ -227,7 +231,7 @@ func shouldShortCircuitValidator(rep *Report) bool {
 		return false
 	}
 	nr := normalizeReport(rep)
-	return nr.IsRetryableCorrection() || nr.IsTerminalDeny()
+	return nr.IsRetryableCorrection() || nr.IsTerminalDeny() || nr.IsSystemFault()
 }
 
 func recordSlowPathDecision(rep *Report, block, retry **Report, cancel context.CancelFunc) {
@@ -238,7 +242,7 @@ func recordSlowPathDecision(rep *Report, block, retry **Report, cancel context.C
 		}
 		return
 	}
-	if nr.IsTerminalDeny() && *block == nil {
+	if (nr.IsTerminalDeny() || nr.IsSystemFault()) && *block == nil {
 		*block = rep
 		cancel()
 	}

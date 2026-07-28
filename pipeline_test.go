@@ -319,7 +319,7 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 		}, nil
 	})
 	scope := MapScope{"principal.role": "sales"}
-	var observed int32
+	var observed atomic.Int32
 	p := NewPipeline(
 		WithFastPath(pass),
 		WithPolicyValidators(shadowPolicy),
@@ -330,7 +330,7 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 			if got, ok := event.Scope.Lookup("principal.role"); !ok || got != "sales" {
 				t.Errorf("event scope lookup = %v, %v", got, ok)
 			}
-			atomic.AddInt32(&observed, 1)
+			observed.Add(1)
 		}),
 	)
 	result, err := p.Run(context.Background(), scope, "hello")
@@ -341,8 +341,8 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 	if rep.Action != ActionPass {
 		t.Errorf("Action = %v, want pass (shadow block ignored)", rep.Action)
 	}
-	if atomic.LoadInt32(&observed) != 1 {
-		t.Errorf("observer calls = %d, want 1", atomic.LoadInt32(&observed))
+	if observed.Load() != 1 {
+		t.Errorf("observer calls = %d, want 1", observed.Load())
 	}
 }
 
@@ -790,6 +790,67 @@ func TestPipeline_ValidatorFaultCarriesSystemFault(t *testing.T) {
 	}
 	if !fault.Failure.Decision.IsSystemFault() {
 		t.Fatalf("decision = %+v", fault.Failure.Decision)
+	}
+}
+
+func TestNormalizeReport_PreservesExplicitSystemFaultOnBlock(t *testing.T) {
+	t.Parallel()
+	in := &Report{
+		Action:      ActionBlock,
+		Validator:   "input_judge",
+		Code:        "INPUT_JUDGE_FAILED",
+		Disposition: DispositionSystemFault,
+	}
+	got := normalizeReport(in)
+	if got.Disposition != DispositionSystemFault {
+		t.Fatalf("Disposition = %v, want SystemFault", got.Disposition)
+	}
+	if !got.IsSystemFault() {
+		t.Fatal("IsSystemFault want true")
+	}
+	if got.IsTerminalDeny() {
+		t.Fatal("IsTerminalDeny want false for SystemFault Block")
+	}
+}
+
+func TestPipeline_ExplicitSystemFaultBlock_PreservedAndShortCircuits(t *testing.T) {
+	t.Parallel()
+	var secondCalled atomic.Bool
+	fault := &fakeValidator{
+		name: "infra",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			return text, &Report{
+				Action:      ActionBlock,
+				Validator:   "infra",
+				Code:        "INPUT_JUDGE_FAILED",
+				Disposition: DispositionSystemFault,
+			}, nil
+		},
+	}
+	second := &fakeValidator{
+		name: "second",
+		validate: func(_ context.Context, text string) (string, *Report, error) {
+			secondCalled.Store(true)
+			return text, &Report{Action: ActionPass, Validator: "second"}, nil
+		},
+	}
+	p := NewPipeline(WithFastPath(fault, second))
+	result, err := p.Run(context.Background(), nil, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondCalled.Load() {
+		t.Fatal("second validator must short-circuit after SystemFault")
+	}
+	decision := result.PolicyDecision()
+	if !decision.IsSystemFault() {
+		t.Fatalf("PolicyDecision = %+v, want SystemFault", decision)
+	}
+	if decision.IsTerminal() {
+		t.Fatal("SystemFault must not be TerminalDeny")
+	}
+	if decision.Code != "INPUT_JUDGE_FAILED" {
+		t.Fatalf("Code = %q", decision.Code)
 	}
 }
 

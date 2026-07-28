@@ -30,7 +30,7 @@ func NewPIIValidator(opts ...Option) guardy.Validator[string] {
 		Action:               guardy.ActionRedact,
 		Severity:             guardy.SeverityHigh,
 		Name:                 defaultPIIValidatorName,
-		RedactionReplacement: "[REDACTED]",
+		RedactionReplacement: defaultRedactionReplacement,
 	}, opts...)
 	if cfg.Action != guardy.ActionBlock && cfg.Action != guardy.ActionRedact {
 		cfg.Action = guardy.ActionRedact
