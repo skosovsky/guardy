@@ -366,6 +366,43 @@ validator, _ := jsonschemaext.NewJSONSchemaValidatorFromStruct(&User{})
 
 `NewJSONSchemaValidatorFromStruct` keeps the schema in sync with your Go type and still returns `ActionRetry` with detailed `Feedback` for invalid JSON or schema violations.
 
+JSON decoding in `ext/jsonschema`, `ext/jsonredact`, dynamic args and the default typed
+args codec accepts exactly one document and rejects duplicate keys at every depth
+(including equivalent escaped keys). Numbers use `json.Number`, preserving integers,
+decimals and exponents without a float64 round trip. Typed numeric fields follow
+`encoding/json`: choose `int64`, `uint64` or `json.Number` for exact values; explicit
+floating point fields and custom codecs are caller-owned choices. Schema/redaction
+accept null and scalar top-level documents; dynamic args require a non-null object.
+
+The schema engine supports Draft 4, 6, 7, 2019-09 and 2020-12; absent `$schema` means
+2020-12, matching the struct generator. Unsupported dialects and required custom
+vocabularies fail compilation. Unknown annotation keywords remain allowed. Format
+assertions follow the selected dialect (annotation by default in 2019-09/2020-12);
+content assertions are disabled. Patterns use Go's regular expression syntax.
+Exact numeric assertions use `math/big.Rat`; operands outside its representable
+range fail schema compilation, and instance numbers outside that range receive
+`ActionRetry` instead of a panic or an unchecked pass. This engine limit does not
+apply to syntax decoding/redaction or to numbers inside schema annotations.
+Length/item/property count assertions must fit a platform integer; compilation
+rejects overflow rather than truncating the count.
+Compilation never loads network or filesystem resources. Local `$ref` works directly;
+use `NewJSONSchemaValidatorWithResources` with caller-owned JSON strings keyed by
+absolute URI for external references or custom metaschemas. Custom metaschemas must
+ultimately identify a supported dialect and may require only supported vocabularies.
+
+The JSON redactor applies its leaf validator to string **values**, preserving keys
+and all other JSON values. A nil or typed-nil leaf panics at construction. A mandatory
+leaf decision or error returns the original document; partial redaction is never
+released as an allowed result. Output is re-encoded as valid JSON; formatting is not
+preserved. Cancellation is checked throughout traversal and after leaf callbacks.
+
+Syntax checks, schema validation and business policy are separate obligations.
+`build.WithJSONSchema` uses the same optional schema validator. Shape metadata is
+not validation. After transformation/binding, attach `WithRequiredArgsFinalGuard`
+or `WithJSONArgsFinalGuard` to check schema and policy against canonical bytes;
+final guards must not mutate them. No schema dependency is required in core.
+
+
 ### Token Vault (Reversible Redaction)
 
 Use `TokenVault` when you need reversible redaction (`[GUARDY_TOKEN_...]`) and later restoration in model output:

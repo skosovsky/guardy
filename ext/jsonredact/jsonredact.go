@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 
 	"github.com/skosovsky/guardy"
+	"github.com/skosovsky/guardy/internal/jsondoc"
 )
 
 // LeafValidator validates or redacts individual string leaves during JSON traversal.
@@ -21,7 +23,11 @@ type JSONRedactValidator struct {
 }
 
 // NewJSONRedactValidator creates a validator for JSON text inputs.
+// It panics on a nil (including typed nil) leaf validator at configuration time.
 func NewJSONRedactValidator(leaf LeafValidator, name string) *JSONRedactValidator {
+	if leaf == nil || isNilLeaf(leaf) {
+		panic("jsonredact: nil leaf validator")
+	}
 	if name == "" {
 		name = "jsonredact"
 	}
@@ -33,11 +39,8 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 	if err := ctx.Err(); err != nil {
 		return input, nil, err
 	}
-	if !json.Valid([]byte(input)) {
-		return input, invalidJSONReport("invalid JSON syntax"), nil
-	}
-	var root any
-	if err := json.Unmarshal([]byte(input), &root); err != nil {
+	root, err := jsondoc.Decode(input)
+	if err != nil {
 		return input, invalidJSONReport(err.Error()), nil
 	}
 	var (
@@ -54,6 +57,9 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 	out, err := json.Marshal(root)
 	if err != nil {
 		return input, nil, fmt.Errorf("jsonredact: marshal: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return input, nil, err
 	}
 	if !changed {
 		if lastRep != nil {
@@ -128,4 +134,14 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 		}
 	}
 	return nil
+}
+
+func isNilLeaf(leaf LeafValidator) bool {
+	value := reflect.ValueOf(leaf)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
+	"github.com/skosovsky/guardy/internal/jsondoc"
 )
 
 var errArgsPipelineNil = errors.New("guardy: args pipeline requires non-nil raw pipeline")
@@ -89,7 +91,7 @@ func CompileArgs[T any](raw *Pipeline[string], opts ...ArgsOption[T]) (*ArgsPipe
 		raw:          raw,
 		shape:        nil,
 		final:        nil,
-		decode:       func(s string, v *T) error { return json.Unmarshal([]byte(s), v) },
+		decode:       func(s string, v *T) error { return jsondoc.Bind(s, v) },
 		encode:       func(v T) (string, error) { b, err := json.Marshal(v); return string(b), err },
 		requireFinal: false,
 		identity:     raw.name,

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+
+	"github.com/skosovsky/guardy/internal/jsondoc"
 )
 
 const mapJSONRawMessageValidatorName = "map_json_raw_message"
@@ -74,7 +76,7 @@ func rawMessageIsEmpty(raw json.RawMessage) bool {
 // Use when T is a struct value (Validator[MyDTO]), not Validator[*MyDTO].
 // extract and inject must be non-nil (panics if nil). inject must not return nil after ActionRedact.
 // Empty, nil, and exact JSON null literals (not " null " with spaces) skip the inner validator.
-// After ActionRedact, mutated text must pass [json.Valid] before inject; otherwise ActionRetry
+// After ActionRedact, mutated text must be a single JSON document without duplicate keys before inject; otherwise ActionRetry
 // with [CodeJSONRedactCorrupted] is returned (distinct from [CodeJSONInvalid] for parse/bind errors).
 func MapJSONRawMessage[T any](
 	v Validator[string],
@@ -123,7 +125,7 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 	}
 	switch rep.Action {
 	case ActionRedact:
-		if !json.Valid([]byte(newStr)) {
+		if _, parseErr := jsondoc.Decode(newStr); parseErr != nil {
 			const msg = "redaction corrupted JSON structure"
 			corrupted := FinishReport(&Report{
 				Action:    ActionRetry,
@@ -132,7 +134,11 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 				Reason:    msg,
 				Feedback:  msg,
 			}, ControlSpec{Action: ActionRetry})
-			return input, ComposeReports(rep.CloneWithoutState(), corrupted), nil
+			//nolint:nilerr // Parse failure is represented by a correction report.
+			return input, ComposeReports(
+				rep.CloneWithoutState(),
+				corrupted,
+			), nil
 		}
 		out := m.inject(&input, json.RawMessage(newStr))
 		if out == nil {

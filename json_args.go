@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
+
+	"github.com/skosovsky/guardy/internal/jsondoc"
 )
 
 var errJSONArgsPipelineNil = errors.New("guardy: JSON args pipeline requires non-nil raw pipeline")
@@ -165,13 +166,8 @@ func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, r
 		return args, decErr
 	}
 
-	var object map[string]any
-	decoder := json.NewDecoder(strings.NewReader(result.Output))
-	decoder.UseNumber()
-	decodeErr := decoder.Decode(&object)
-	if !json.Valid([]byte(result.Output)) && decodeErr == nil {
-		decodeErr = errors.New("guardy: invalid JSON document")
-	}
+	document, decodeErr := jsondoc.Decode(result.Output)
+	object, _ := document.(map[string]any)
 	if unmarshalErr := decodeErr; unmarshalErr != nil || object == nil {
 		rep := FinishReport(&Report{
 			Action:   ActionRetry,

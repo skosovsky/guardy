@@ -81,6 +81,7 @@ type compileConfig struct {
 }
 
 // WithJSONSchema adds JSON Schema validation via ext/jsonschema (optional).
+// It uses the explicit dialect (default 2020-12) without fetching external refs.
 func WithJSONSchema(raw []byte) CompileOption {
 	return func(c *compileConfig) {
 		c.jsonSchema = raw
