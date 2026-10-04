@@ -17,14 +17,15 @@ type PolicyRuleKind int
 
 const (
 	PolicyAttributePresent PolicyRuleKind = iota
-	PolicyAttributeEquals
+	// PolicyAttributeDeepEqual uses [reflect.DeepEqual], including maps/slices, with no coercion.
+	PolicyAttributeDeepEqual
 )
 
 // PolicyRuleSpec describes one policy validator in a GuardSpec.
 type PolicyRuleSpec struct {
 	Kind  PolicyRuleKind
 	Key   string
-	Value any // used for PolicyAttributeEquals
+	Value any // reflect.DeepEqual operand; no type coercion.
 }
 
 // GuardSpec explicitly selects the rules of a string guard pipeline.
@@ -40,16 +41,20 @@ type CompileOption func(*compileConfig)
 
 type compileConfig struct {
 	jsonSchema          []byte
+	schemaSet           bool
+	fallbackSet         bool
 	userChannel         bool
 	userChannelFallback string
 	outputClassifier    bool
 }
 
 // WithJSONSchema adds JSON Schema validation via ext/jsonschema (optional).
+// Explicitly empty bytes are invalid; {} is a valid permissive schema.
 // It uses the explicit dialect (default 2020-12) without fetching external refs.
 func WithJSONSchema(raw []byte) CompileOption {
 	return func(c *compileConfig) {
 		c.jsonSchema = raw
+		c.schemaSet = true
 	}
 }
 
@@ -61,9 +66,11 @@ func WithUserChannel() CompileOption {
 }
 
 // WithUserChannelFallback sets the public message when user channel blocks technical output.
+// Compilation requires WithUserChannel when this option is provided.
 func WithUserChannelFallback(msg string) CompileOption {
 	return func(c *compileConfig) {
 		c.userChannelFallback = msg
+		c.fallbackSet = true
 	}
 }
 
@@ -79,12 +86,21 @@ func WithOutputClassifier() CompileOption {
 func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline[string], error) {
 	cfg := compileConfig{
 		jsonSchema:          nil,
+		schemaSet:           false,
+		fallbackSet:         false,
 		userChannel:         false,
 		userChannelFallback: "",
 		outputClassifier:    false,
 	}
-	for _, opt := range opts {
+	for i, opt := range opts {
+		if opt == nil {
+			return nil, configError(fmt.Sprintf("options[%d]", i), "required", nil)
+		}
 		opt(&cfg)
+	}
+
+	if err := validateConfig(spec, cfg); err != nil {
+		return nil, err
 	}
 
 	var fast []guardy.Validator[string]
@@ -93,18 +109,22 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		fast = append(fast, ext.NewPIIValidator(ext.WithCode("PII_DETECTED")))
 	}
 	if len(spec.WordlistBlock) > 0 {
-		fast = append(fast, ext.NewWordlistValidator(spec.WordlistBlock, ext.Blocklist, ext.WithCode("WORDLIST_BLOCK")))
+		v, err := ext.NewWordlistValidator(spec.WordlistBlock, ext.Blocklist, ext.WithCode("WORDLIST_BLOCK"))
+		if err != nil {
+			return nil, configError("WordlistBlock", "invalid_token", err)
+		}
+		fast = append(fast, v)
 	}
 	if spec.LengthMax > 0 {
 		fast = append(fast, ext.NewLengthValidator(0, spec.LengthMax, ext.WithCode("LENGTH_EXCEEDED")))
 	}
-	if len(cfg.jsonSchema) > 0 {
+	if cfg.schemaSet {
 		schemaV, err := jsonschemaext.NewJSONSchemaValidator(
 			string(cfg.jsonSchema),
 			ext.WithCode("JSON_SCHEMA_INVALID"),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("json schema validator: %w", err)
+			return nil, configError("JSONSchema", "invalid_schema", err)
 		}
 		fast = append(fast, schemaV)
 	}
@@ -117,10 +137,10 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		switch rule.Kind {
 		case PolicyAttributePresent:
 			policy = append(policy, newPresentPolicy(rule.Key))
-		case PolicyAttributeEquals:
-			policy = append(policy, newEqualsPolicy(rule.Key, rule.Value))
+		case PolicyAttributeDeepEqual:
+			policy = append(policy, newDeepEqualPolicy(rule.Key, rule.Value))
 		default:
-			return nil, fmt.Errorf("unknown policy rule kind %v", rule.Kind)
+			return nil, configError("PolicyRules", "invalid_kind", nil)
 		}
 	}
 
@@ -135,6 +155,31 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		}
 	}
 	return guardy.NewPipeline(options...), nil
+}
+
+func configError(field, code string, cause error) error {
+	return &guardy.ConfigurationError{Component: "build", Field: field, Code: code, Cause: cause}
+}
+
+func validateConfig(spec GuardSpec, cfg compileConfig) error {
+	if spec.LengthMax < 0 {
+		return configError("LengthMax", "negative", nil)
+	}
+	if cfg.fallbackSet && !cfg.userChannel {
+		return configError("UserChannelFallback", "requires_user_channel", nil)
+	}
+	if cfg.schemaSet && len(cfg.jsonSchema) == 0 {
+		return configError("JSONSchema", "empty", nil)
+	}
+	for i, rule := range spec.PolicyRules {
+		if rule.Key == "" {
+			return configError(fmt.Sprintf("PolicyRules[%d].Key", i), "required", nil)
+		}
+		if rule.Kind != PolicyAttributePresent && rule.Kind != PolicyAttributeDeepEqual {
+			return configError(fmt.Sprintf("PolicyRules[%d].Kind", i), "invalid_kind", nil)
+		}
+	}
+	return nil
 }
 
 func newPresentPolicy(key string) guardy.PolicyValidator[string] {
@@ -154,7 +199,7 @@ func newPresentPolicy(key string) guardy.PolicyValidator[string] {
 	)
 }
 
-func newEqualsPolicy(key string, want any) guardy.PolicyValidator[string] {
+func newDeepEqualPolicy(key string, want any) guardy.PolicyValidator[string] {
 	scopeKey := guardy.NewScopeKey[any](key)
 	return guardy.NewPolicyFuncWithScope[string](
 		[]guardy.ScopeRequirement{scopeKey.Requirement()},
@@ -162,14 +207,14 @@ func newEqualsPolicy(key string, want any) guardy.PolicyValidator[string] {
 			got, ok := scopeKey.Lookup(scope)
 			if !ok {
 				return input, policyReport(
-					"typed_attribute_equals",
+					"attribute_deep_equal",
 					guardy.CodeAttributeMissing,
 					"attribute "+scopeKey.Name()+" missing",
 				), nil
 			}
 			if !reflect.DeepEqual(got, want) {
 				return input, policyReport(
-					"typed_attribute_equals",
+					"attribute_deep_equal",
 					guardy.CodeAttributeMismatch,
 					"attribute "+scopeKey.Name()+" mismatch",
 				), nil

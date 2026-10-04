@@ -101,7 +101,7 @@ func testCallbackClassification(t *testing.T, kind PayloadKind, boundary, stage 
 	var err error
 	// Act.
 	if boundary == "typed" {
-		p := MustCompileArgs[callbackArgs](raw, WithRequiredArgsFinalGuard[callbackArgs](final))
+		p := MustCompileArgs[callbackArgs](raw, WithArgsFinalGuard[callbackArgs](final))
 		wrapped := WrapArgs(
 			p,
 			nil,
@@ -110,17 +110,19 @@ func testCallbackClassification(t *testing.T, kind PayloadKind, boundary, stage 
 		_, args, callErr := wrapped(ctx, `{"amount":1}`)
 		decision, payloadKind, err = args.Decision, args.PayloadKind, callErr
 	} else {
-		schema := JSONArgsSchemaFunc{
-			ID:       "schema",
-			Metadata: nil,
-			Validate: func(context.Context, map[string]any) *Report {
-				if stage == "callback" {
-					cancel()
-				}
-				return nil
-			},
-		}
-		p := MustCompileJSONArgs(raw, schema, WithJSONArgsFinalGuard(final))
+		schema := JSONArgsValidatorFunc(func(context.Context, map[string]any) *Report {
+			if stage == "callback" {
+				cancel()
+			}
+			return nil
+		})
+
+		p := MustCompileJSONArgs(
+			raw,
+			schema,
+			WithJSONArgsFinalGuard(final),
+			WithJSONArgsMetadata(JSONArgsMetadata{ID: "schema", Shape: nil}),
+		)
 		wrapped := WrapGuardedJSONArgs(
 			p,
 			nil,

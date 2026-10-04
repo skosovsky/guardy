@@ -26,8 +26,11 @@ func ExampleArgsPipeline_Validate() {
 }
 
 func ExampleJSONArgsPipeline_Validate() {
-	schema := guardy.JSONArgsSchemaFunc{ID: "command.schema"}
-	argsPipeline := guardy.MustCompileJSONArgs(guardy.NewPipeline[string](), schema)
+	argsPipeline := guardy.MustCompileJSONArgs(
+		guardy.NewPipeline[string](),
+		nil,
+		guardy.WithJSONArgsMetadata(guardy.JSONArgsMetadata{ID: "command.schema"}),
+	)
 
 	args, err := argsPipeline.Validate(context.Background(), nil, `{"name":"Ada"}`)
 	if err != nil {
@@ -44,8 +47,11 @@ func ExampleJSONArgsPipeline_Validate() {
 }
 
 func ExampleWrapGuardedJSONArgs() {
-	schema := guardy.JSONArgsSchemaFunc{ID: "command.schema"}
-	argsPipeline := guardy.MustCompileJSONArgs(guardy.NewPipeline[string](), schema)
+	argsPipeline := guardy.MustCompileJSONArgs(
+		guardy.NewPipeline[string](),
+		nil,
+		guardy.WithJSONArgsMetadata(guardy.JSONArgsMetadata{ID: "command.schema"}),
+	)
 	handler := guardy.WrapGuardedJSONArgs(
 		argsPipeline,
 		nil,

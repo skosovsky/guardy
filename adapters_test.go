@@ -59,7 +59,11 @@ func TestWrapGuardedArgs_PassesBoundaryToHandler(t *testing.T) {
 func TestWrapGuardedJSONArgs_PassesDynamicBoundaryToHandler(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	jsonPipeline := MustCompileJSONArgs(NewPipeline[string](), JSONArgsSchemaFunc{ID: "dynamic.schema"})
+	jsonPipeline := MustCompileJSONArgs(
+		NewPipeline[string](),
+		nil,
+		WithJSONArgsMetadata(JSONArgsMetadata{ID: "dynamic.schema"}),
+	)
 	wrapped := WrapGuardedJSONArgs(jsonPipeline, nil, func(_ context.Context, args GuardedJSONArgs) (string, error) {
 		return args.SchemaID + ":" + args.Object["name"].(string), nil
 	})

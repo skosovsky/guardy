@@ -94,11 +94,14 @@ func TestFallbackMustPassContentPolicy(t *testing.T) {
 
 func TestDynamicSchemaCannotMutateNestedArguments(t *testing.T) {
 	// Arrange: schema evaluation receives an isolated deep projection.
-	schema := JSONArgsSchemaFunc{ID: "nested", Validate: func(_ context.Context, obj map[string]any) *Report {
+	schema := JSONArgsValidatorFunc(func(_ context.Context, obj map[string]any) *Report {
 		obj["nested"].(map[string]any)["name"] = "injected"
 		return &Report{Action: ActionPass}
-	}}
-	p := MustCompileJSONArgs(NewPipeline[string](), schema)
+	})
+	p := MustCompileJSONArgs(NewPipeline[string](), schema, WithJSONArgsMetadata(
+		JSONArgsMetadata{ID: "nested"}),
+	)
+
 	// Act.
 	result, err := p.Validate(context.Background(), nil, `{"nested":{"name":"approved"}}`)
 	// Assert.

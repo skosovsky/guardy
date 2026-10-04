@@ -142,7 +142,6 @@ func TestCompositeAdaptersPreserveControl(t *testing.T) {
 		})
 		v := ext.MapSlice(func(v string) string { return v }, func(_ string, v string) string { return v }, leaf)
 		j := jsonredact.NewJSONRedactValidator(leaf, "nested")
-		// Act.
 		_, sliceReport, sliceErr := v.Validate(context.Background(), []string{"secret", "safe"})
 		_, jsonReport, jsonErr := j.Validate(context.Background(), `["secret","safe"]`)
 		// Assert.
@@ -186,7 +185,6 @@ func TestReportConstructionAndComposition(t *testing.T) {
 		built := g.FinishReport(raw.Clone(), g.ControlSpec{Action: raw.Action, Retryable: &canRetry, Fatal: raw.Fatal})
 		pass := &g.Report{Action: g.ActionPass}
 		redact := &g.Report{Action: g.ActionRedact, PayloadKind: g.PayloadTechnicalPayload}
-		// Act.
 		want := g.DecisionFromReport(&raw).Disposition
 		_, judged, err := g.NewLLMJudge(contractJudge{raw}, false).Validate(context.Background(), "value")
 		first := g.ComposeReports(pass, built, redact)
@@ -226,7 +224,6 @@ func TestMappedControlAndCancellation(t *testing.T) {
 				v.Raw = value
 				return v
 			})
-		// Act.
 		_, rep, err := mapped.Validate(ctx, contractDocument{Text: "secret", Raw: json.RawMessage(`{}`)})
 		_, rawRep, rawErr := raw.Validate(ctx, contractDocument{Text: "secret", Raw: json.RawMessage(`{}`)})
 		cancel()
@@ -247,10 +244,13 @@ func TestMappedControlAndCancellation(t *testing.T) {
 
 func TestJSONSchemaCallbackDoesNotReinitializeReport(t *testing.T) {
 	// Arrange.
-	schema := g.JSONArgsSchemaFunc{ID: "callback", Validate: func(context.Context, map[string]any) *g.Report {
+	schema := g.JSONArgsValidatorFunc(func(context.Context, map[string]any) *g.Report {
 		return &g.Report{Action: g.ActionRetry, Retryable: false}
-	}}
-	p := g.MustCompileJSONArgs(g.NewPipeline[string](), schema)
+	})
+	p := g.MustCompileJSONArgs(g.NewPipeline[string](), schema, g.WithJSONArgsMetadata(
+		g.JSONArgsMetadata{ID: "callback"}),
+	)
+
 	// Act.
 	_, err := p.Validate(context.Background(), nil, `{}`)
 	// Assert.

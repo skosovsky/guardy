@@ -22,7 +22,7 @@ func main() {
 		ext.WithCode("PII_DETECTED"),
 		ext.WithSeverity(guardy.SeverityHigh),
 	)
-	wordlistValidator := ext.NewWordlistValidator(
+	wordlistValidator := ext.MustWordlistValidator(
 		[]string{"acme"},
 		ext.Blocklist,
 		ext.WithAction(guardy.ActionRedact),

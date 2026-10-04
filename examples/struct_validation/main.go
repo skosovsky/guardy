@@ -34,7 +34,7 @@ func main() {
 	// Schema allows age 12; post-bind enforces business minimum 18.
 	const sampleJSON = `{"name":"Ivan","age":12}`
 
-	argsPipeline := guardy.MustCompileArgs[User](pipeline, guardy.WithRequiredArgsFinalGuard[User](pipeline))
+	argsPipeline := guardy.MustCompileArgs[User](pipeline, guardy.WithArgsFinalGuard[User](pipeline))
 	payload, err := argsPipeline.Validate(context.Background(), nil, sampleJSON)
 	var failure *guardy.PolicyFailure
 	if errors.As(err, &failure) && failure.Decision.IsRetryable() {

@@ -45,7 +45,7 @@ func TestFinalChecksRejectPostMutationRequiredAndEnum(t *testing.T) {
 			early, final, calls := 0, 0, 0
 			p := MustCompileArgs[mutatedContractArgs](
 				NewPipeline(WithFastPath(executableModeChecker(&early))),
-				WithRequiredArgsFinalGuard[mutatedContractArgs](
+				WithArgsFinalGuard[mutatedContractArgs](
 					NewPipeline(WithFastPath(executableModeChecker(&final))),
 				),
 			)
@@ -222,7 +222,7 @@ func TestResumeRechecksChangedScopePolicyAndArguments(t *testing.T) {
 				checks := 0
 				return MustCompileArgs[mutatedContractArgs](
 					NewPipeline(WithPolicyValidators(policy)),
-					WithRequiredArgsFinalGuard[mutatedContractArgs](
+					WithArgsFinalGuard[mutatedContractArgs](
 						NewPipeline(WithFastPath(executableModeChecker(&checks))),
 					),
 					WithArgsConfigurationID[mutatedContractArgs](id),

@@ -38,7 +38,7 @@ import (
 
 func main() {
 	lengthV := ext.NewLengthValidator(0, 2048, ext.WithCode("TOO_LONG"))
-	wordlistV := ext.NewWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
+	wordlistV := ext.MustWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	piiV := ext.NewPIIValidator()
 
 	pipeline := guardy.NewPipeline(
@@ -225,8 +225,12 @@ args, err := argsPipeline.Validate(ctx, scope, `{"name":"Ada"}`)
 For dynamic JSON arguments, keep sanitized raw JSON, decoded object, schema identity, reports, and decision together:
 
 ```go
-schema := guardy.JSONArgsSchemaFunc{ID: "command.schema"}
-jsonArgsPipeline := guardy.MustCompileJSONArgs(rawPipeline, schema)
+// Metadata describes the schema; it does not validate the object.
+metadata := guardy.JSONArgsMetadata{ID: "command.schema", Shape: callerShape}
+checker := guardy.JSONArgsValidatorFunc(validateObject) // caller executable rules
+jsonArgsPipeline := guardy.MustCompileJSONArgs(rawPipeline, checker,
+    guardy.WithJSONArgsMetadata(metadata),
+)
 args, err := jsonArgsPipeline.Validate(ctx, scope, rawJSON)
 // args is GuardedJSONArgs: Raw, SanitizedRaw, Object, SchemaID, Reports,
 // PayloadKind, and Decision.
@@ -322,6 +326,14 @@ outPipeline, err := build.CompileStringGuard(build.GuardSpec{},
 
 See `examples/declarative_guard`.
 
+`CompileStringGuard` returns `ConfigurationError` (matching `ErrConfiguration`)
+with a component, field path and code; its default text excludes schema and policy
+values. Empty schema bytes explicitly supplied through `WithJSONSchema` are invalid;
+`{}` is permitted. Omitting that option permits flows without schemas. Negative
+`LengthMax` is invalid; zero disables the rule. Fallback requires `WithUserChannel`.
+`PolicyAttributeDeepEqual` compares values using `reflect.DeepEqual`, preserving
+types and supporting maps/slices. Core typed equality uses Go `==`.
+
 `GuardSpec` selects rules explicitly: `PIIRedact`, `WordlistBlock`, `LengthMax`, and `PolicyRules`. There are no sensitivity/security presets or implicit rule changes. Fast rules run in the documented order; their composition does not establish detector accuracy.
 
 ### Generic decorators (`interceptor.go`)
@@ -334,7 +346,7 @@ See `examples/declarative_guard`.
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **TagSanitizerValidator**   | Matches XML-like system tags (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
 | **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
-| **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
+| **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` returns `(Validator, error)`; `ext.MustWordlistValidator` is for static config. Use `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
 | **RegexValidator**          | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
 | **LengthValidator**         | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
 | **TechnicalJSONClassifier** | Heuristically marks tool-like JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
@@ -345,7 +357,8 @@ See `examples/declarative_guard`.
 
 Wordlist tokens are maximal runs of Unicode letters, numbers, combining marks
 and underscore. Punctuation/whitespace delimit tokens. Every listed entry must be
-one non-empty token (invalid entry/mode panics). `WithLowercase` applies Go
+one non-empty token. `NewWordlistValidator` returns an error for invalid entries/modes;
+`MustWordlistValidator` panics and is intended for static configuration. `WithLowercase` applies Go
 `strings.ToLower` to both entries and matched tokens; it is not full Unicode case
 folding. There is no Unicode normalization, transliteration or confusable matching.
 Detection and replacement use the same original spans. Wordlist, regex and PII
@@ -452,9 +465,18 @@ preserved. Cancellation is checked throughout traversal and after leaf callbacks
 
 Syntax checks, schema validation and business policy are separate obligations.
 `build.WithJSONSchema` uses the same optional schema validator. Shape metadata is
-not validation. After transformation/binding, attach `WithRequiredArgsFinalGuard`
+not validation. After transformation/binding, attach `WithArgsFinalGuard`
 or `WithJSONArgsFinalGuard` to check schema and policy against canonical bytes;
 final guards must not mutate them. No schema dependency is required in core.
+To reject unknown properties and wrong-case names, enforce an explicit schema
+with `required`, `properties` and `additionalProperties: false` in the raw guard
+before binding. The final guard checks post-bind mutations; it cannot recover
+fields that standard `encoding/json` discarded. Both are ordinary `Pipeline[string]`
+checks. See executable `ExampleCompileArgs_documentAPI` and
+`ExampleScopeFactory_documentAPIReference` for document/API composition.
+Providing a final guard option with nil fails compilation; omit the option for
+flows intentionally without final checks. The library cannot prove the adequacy
+of rules inside an arbitrary caller pipeline.
 
 
 ### Token Vault (Reversible Redaction)
@@ -603,12 +625,16 @@ See [CONTRACTS.md](CONTRACTS.md) for boundary and release invariants.
   `func(ctx context.Context) (guardy.ExecutionScope, error)` to project current
   policy facts. Low-level `Run` still accepts an explicit scope.
 - Typed args are canonically encoded after post-bind hooks, including pointer
-  types. Add `WithRequiredArgsFinalGuard[T](schemaAndPolicyPipeline)` to require final
+  types. Add `WithArgsFinalGuard[T](schemaAndPolicyPipeline)` to require final
   schema/policy checking after mutations; `ShapeProvider` is metadata only.
   Final checks are read-only. `WithArgsCodec` accepts caller-owned bind/encode.
 - Dynamic schema callbacks get deeply isolated JSON. They check the sanitized
   decoded object, not the original payload. Use `WithJSONArgsFinalGuard` for
   mandatory policy checks on canonical JSON after all transformations.
+  `JSONArgsValidator` and `JSONArgsValidatorFunc` supply checks; `JSONArgsMetadata`
+  supplies only ID/shape. Nil built-in checker functions and explicitly nil final
+  guards fail compilation with `ErrConfiguration`. A custom checker’s rules remain
+  caller-owned. Ordinary flows can omit schema and final options.
 - Dispatch only guarded sanitized arguments. For every consumer use a separate
   destination policy and serialize `GuardedDelivery.Projection()`, never the
   wrapper with original raw values or reports. Replacement/fallback content is
@@ -728,7 +754,7 @@ Decision routing now uses Disposition alone: use IsTerminal, IsRetryable and
 IsSystemFault instead of the removed Terminal, Retryable, SystemFault and
 UserCorrectable fields. Report flags remain construction inputs and telemetry.
 FinishReport initializes new reports; adapters must preserve completed reports,
-including explicit non-retryability. JSONArgsSchema callbacks follow the same
+including explicit non-retryability. JSONArgsValidator callbacks follow the same
 contract as Validator; raw ActionRetry is terminal unless retryability is explicit.
 ComposeReports preserves the strongest enforcement and aggregated PayloadKind.
 Unknown enums and non-finite report scores are faults; fatal escalation wins over

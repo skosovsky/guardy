@@ -108,11 +108,11 @@ func makeDocumentAPIHost() (*documentAPIHost, error) {
 			return value, nil, nil
 		},
 	)
-	raw := g.NewPipeline(g.WithFastPath(jsonredact.NewJSONRedactValidator(ext.NewPIIValidator(), "json-pii")))
+	raw := g.NewPipeline(g.WithFastPath(schema, jsonredact.NewJSONRedactValidator(ext.NewPIIValidator(), "json-pii")))
 	final := g.NewPipeline(g.WithFastPath(schema), g.WithPolicyValidators(policy))
 	host.typed = g.MustCompileArgs[documentAPIArgs](
 		raw,
-		g.WithRequiredArgsFinalGuard[documentAPIArgs](final),
+		g.WithArgsFinalGuard[documentAPIArgs](final),
 		g.WithArgsConfigurationID[documentAPIArgs]("sample-args:1"),
 	)
 	host.dynamic = g.MustCompileJSONArgs(

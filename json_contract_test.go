@@ -89,7 +89,7 @@ func TestFinalSchemaPreventsHandlerAfterTransformation(t *testing.T) {
 			final := guardy.NewPipeline(guardy.WithFastPath(checker))
 			typed := guardy.MustCompileArgs[schemaContractArgs](
 				rawGuard,
-				guardy.WithRequiredArgsFinalGuard[schemaContractArgs](final),
+				guardy.WithArgsFinalGuard[schemaContractArgs](final),
 			)
 			calls := 0
 			wrapped := guardy.WrapArgs(

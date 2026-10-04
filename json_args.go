@@ -4,43 +4,36 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/skosovsky/guardy/internal/jsondoc"
 )
 
 var errJSONArgsPipelineNil = errors.New("guardy: JSON args pipeline requires non-nil raw pipeline")
 
-// JSONArgsSchema validates dynamic JSON argument objects without making guardy
-// depend on a concrete schema generator.
-type JSONArgsSchema interface {
-	SchemaID() string
-	Shape() any
+// JSONArgsValidator checks decoded objects using caller-owned rules.
+// Metadata is supplied separately through WithJSONArgsMetadata.
+type JSONArgsValidator interface {
 	ValidateJSONArgs(context.Context, map[string]any) *Report
 }
 
-// JSONArgsSchemaFunc adapts a function to [JSONArgsSchema].
-type JSONArgsSchemaFunc struct {
-	ID       string
-	Metadata any
-	Validate func(context.Context, map[string]any) *Report
-}
+// JSONArgsValidatorFunc adapts an executable callback to JSONArgsValidator.
+// CompileJSONArgs rejects a nil function. Callback rules remain caller-owned.
+type JSONArgsValidatorFunc func(context.Context, map[string]any) *Report
 
-// SchemaID implements [JSONArgsSchema].
-func (s JSONArgsSchemaFunc) SchemaID() string {
-	return s.ID
-}
-
-// Shape implements [JSONArgsSchema].
-func (s JSONArgsSchemaFunc) Shape() any {
-	return s.Metadata
-}
-
-// ValidateJSONArgs implements [JSONArgsSchema].
-func (s JSONArgsSchemaFunc) ValidateJSONArgs(ctx context.Context, object map[string]any) *Report {
-	if s.Validate == nil {
-		return nil
+// ValidateJSONArgs implements JSONArgsValidator.
+func (f JSONArgsValidatorFunc) ValidateJSONArgs(ctx context.Context, object map[string]any) *Report {
+	if f == nil {
+		r := validatorFaultReport(ErrConfiguration)
+		return &r
 	}
-	return s.Validate(ctx, object)
+	return f(ctx, object)
+}
+
+// JSONArgsMetadata describes a caller schema without implying enforcement.
+type JSONArgsMetadata struct {
+	ID    string
+	Shape any
 }
 
 // GuardedJSONArgs is the dynamic JSON argument boundary returned by guardy.
@@ -59,7 +52,8 @@ type GuardedJSONArgs struct {
 // decoded object, schema identity, and decision in one boundary value.
 type JSONArgsPipeline struct {
 	raw          *Pipeline[string]
-	schema       JSONArgsSchema
+	checker      JSONArgsValidator
+	metadata     *JSONArgsMetadata
 	final        *Pipeline[string]
 	requireFinal bool
 	identity     string
@@ -73,29 +67,51 @@ func WithJSONArgsFinalGuard(final *Pipeline[string]) JSONArgsOption {
 	return func(p *JSONArgsPipeline) { p.final = final; p.requireFinal = true }
 }
 
+// WithJSONArgsMetadata attaches identity and shape only; it does not install a checker.
+func WithJSONArgsMetadata(metadata JSONArgsMetadata) JSONArgsOption {
+	return func(p *JSONArgsPipeline) { p.metadata = &metadata }
+}
+
 // WithJSONArgsConfigurationID attaches caller policy/configuration identity.
 func WithJSONArgsConfigurationID(identity string) JSONArgsOption {
 	return func(p *JSONArgsPipeline) { p.identity = identity }
 }
 
 // CompileJSONArgs builds a dynamic JSON arguments pipeline from a raw string guard.
-func CompileJSONArgs(raw *Pipeline[string], schema JSONArgsSchema, opts ...JSONArgsOption) (*JSONArgsPipeline, error) {
+func CompileJSONArgs(
+	raw *Pipeline[string],
+	checker JSONArgsValidator,
+	opts ...JSONArgsOption,
+) (*JSONArgsPipeline, error) {
 	if raw == nil {
-		return nil, errJSONArgsPipelineNil
+		return nil, configurationError("json_args", "raw", "required")
 	}
-	p := &JSONArgsPipeline{raw: raw, schema: schema, final: nil, requireFinal: false, identity: raw.name}
-	for _, opt := range opts {
+	if checker != nil && nilImplementation(checker) {
+		return nil, configurationError("json_args", "checker", "required")
+	}
+	p := &JSONArgsPipeline{
+		raw:          raw,
+		checker:      checker,
+		metadata:     nil,
+		final:        nil,
+		requireFinal: false,
+		identity:     raw.name,
+	}
+	for i, opt := range opts {
+		if opt == nil {
+			return nil, configurationError("json_args", fmt.Sprintf("options[%d]", i), "required")
+		}
 		opt(p)
 	}
 	if p.requireFinal && p.final == nil {
-		return nil, streamConfigurationError(errors.New("guardy: mandatory dynamic final guard unavailable"))
+		return nil, configurationError("json_args", "final", "required")
 	}
 	return p, nil
 }
 
 // MustCompileJSONArgs is like [CompileJSONArgs] but panics on invalid configuration.
-func MustCompileJSONArgs(raw *Pipeline[string], schema JSONArgsSchema, opts ...JSONArgsOption) *JSONArgsPipeline {
-	p, err := CompileJSONArgs(raw, schema, opts...)
+func MustCompileJSONArgs(raw *Pipeline[string], checker JSONArgsValidator, opts ...JSONArgsOption) *JSONArgsPipeline {
+	p, err := CompileJSONArgs(raw, checker, opts...)
 	if err != nil {
 		panic(err)
 	}
@@ -104,18 +120,18 @@ func MustCompileJSONArgs(raw *Pipeline[string], schema JSONArgsSchema, opts ...J
 
 // Shape returns optional schema or shape metadata attached at compile time.
 func (p *JSONArgsPipeline) Shape() (any, bool) {
-	if p == nil || p.schema == nil {
+	if p == nil || p.metadata == nil {
 		return nil, false
 	}
-	return p.schema.Shape(), true
+	return p.metadata.Shape, true
 }
 
 // SchemaID returns the provider-supplied schema identity, if present.
 func (p *JSONArgsPipeline) SchemaID() string {
-	if p == nil || p.schema == nil {
+	if p == nil || p.metadata == nil {
 		return ""
 	}
-	return p.schema.SchemaID()
+	return p.metadata.ID
 }
 
 // RequiredScope returns typed scope requirements from the raw guard.
@@ -223,8 +239,8 @@ func (p *JSONArgsPipeline) validateSchema(ctx context.Context, object map[string
 		return nil, err
 	}
 	var rep *Report
-	if p.schema != nil {
-		rep = p.schema.ValidateJSONArgs(ctx, copyStringAnyMap(object))
+	if p.checker != nil {
+		rep = p.checker.ValidateJSONArgs(ctx, copyStringAnyMap(object))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

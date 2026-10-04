@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
 	"github.com/skosovsky/guardy/internal/jsondoc"
 )
@@ -49,21 +50,16 @@ type ArgsPipeline[T any] struct {
 	identity     string
 }
 
-// WithRequiredArgsFinalGuard declares mandatory final schema/policy coverage.
-// Compilation rejects nil; metadata-only ShapeProvider does not satisfy it.
-func WithRequiredArgsFinalGuard[T any](final *Pipeline[string]) ArgsOption[T] {
-	return func(p *ArgsPipeline[T]) { p.final = final; p.requireFinal = true }
-}
-
 // WithArgsConfigurationID attaches caller-owned policy/configuration identity.
 func WithArgsConfigurationID[T any](identity string) ArgsOption[T] {
 	return func(p *ArgsPipeline[T]) { p.identity = identity }
 }
 
 // WithArgsFinalGuard checks canonical bytes after decode and all post-bind hooks.
+// Providing this option requires a non-nil pipeline; omitting it permits no final checks.
 // This pipeline must be read-only: changing final bytes is a configuration fault.
 func WithArgsFinalGuard[T any](final *Pipeline[string]) ArgsOption[T] {
-	return func(p *ArgsPipeline[T]) { p.final = final }
+	return func(p *ArgsPipeline[T]) { p.final = final; p.requireFinal = true }
 }
 
 // WithArgsCodec installs caller-owned bind/encode functions. Both are required.
@@ -85,7 +81,7 @@ func WithArgsShapeProvider[T any](provider ShapeProvider[T]) ArgsOption[T] {
 // CompileArgs builds a typed arguments pipeline from a raw string guard.
 func CompileArgs[T any](raw *Pipeline[string], opts ...ArgsOption[T]) (*ArgsPipeline[T], error) {
 	if raw == nil {
-		return nil, errArgsPipelineNil
+		return nil, configurationError("args", "raw", "required")
 	}
 	p := &ArgsPipeline[T]{
 		raw:          raw,
@@ -96,14 +92,17 @@ func CompileArgs[T any](raw *Pipeline[string], opts ...ArgsOption[T]) (*ArgsPipe
 		requireFinal: false,
 		identity:     raw.name,
 	}
-	for _, opt := range opts {
+	for i, opt := range opts {
+		if opt == nil {
+			return nil, configurationError("args", fmt.Sprintf("options[%d]", i), "required")
+		}
 		opt(p)
 	}
 	if p.decode == nil || p.encode == nil {
-		return nil, errors.New("guardy: incomplete args codec")
+		return nil, configurationError("args", "codec", "incomplete")
 	}
 	if p.requireFinal && p.final == nil {
-		return nil, streamConfigurationError(errors.New("guardy: mandatory final args guard unavailable"))
+		return nil, configurationError("args", "final", "required")
 	}
 	return p, nil
 }

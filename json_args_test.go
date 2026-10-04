@@ -18,17 +18,16 @@ func TestJSONArgsPipeline_ValidateKeepsBoundaryTogether(t *testing.T) {
 			}, ControlSpec{Action: ActionRedact}), nil
 		},
 	)))
-	schema := JSONArgsSchemaFunc{
-		ID:       "command.schema",
-		Metadata: map[string]any{"required": []string{"name"}},
-		Validate: func(_ context.Context, object map[string]any) *Report {
-			if _, ok := object["name"]; !ok {
-				return &Report{Action: ActionRetry, Retryable: true, Code: CodeJSONSchemaInvalid}
-			}
-			return &Report{Action: ActionPass, Validator: "shape"}
-		},
-	}
-	pipeline := MustCompileJSONArgs(rawPipeline, schema)
+	schema := JSONArgsValidatorFunc(func(_ context.Context, object map[string]any) *Report {
+		if _, ok := object["name"]; !ok {
+			return &Report{Action: ActionRetry, Retryable: true, Code: CodeJSONSchemaInvalid}
+		}
+		return &Report{Action: ActionPass, Validator: "shape"}
+	})
+
+	pipeline := MustCompileJSONArgs(rawPipeline, schema, WithJSONArgsMetadata(
+		JSONArgsMetadata{ID: "command.schema", Shape: map[string]any{"required": []string{"name"}}}),
+	)
 
 	// Act.
 	args, err := pipeline.Validate(context.Background(), nil, `{"name":"secret"}`)
@@ -78,22 +77,22 @@ func TestJSONArgsPipeline_InvalidObjectReturnsRetryableDecision(t *testing.T) {
 func TestJSONArgsPipeline_SchemaReportControlsDecision(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	schema := JSONArgsSchemaFunc{
-		ID: "strict.schema",
-		Validate: func(_ context.Context, object map[string]any) *Report {
-			if _, ok := object["name"]; !ok {
-				return &Report{
-					Action:    ActionRetry,
-					Retryable: true,
-					Validator: "shape",
-					Code:      CodeJSONSchemaInvalid,
-					Feedback:  "name is required",
-				}
+	schema := JSONArgsValidatorFunc(func(_ context.Context, object map[string]any) *Report {
+		if _, ok := object["name"]; !ok {
+			return &Report{
+				Action:    ActionRetry,
+				Retryable: true,
+				Validator: "shape",
+				Code:      CodeJSONSchemaInvalid,
+				Feedback:  "name is required",
 			}
-			return nil
-		},
-	}
-	pipeline := MustCompileJSONArgs(NewPipeline[string](), schema)
+		}
+		return nil
+	})
+
+	pipeline := MustCompileJSONArgs(NewPipeline[string](), schema, WithJSONArgsMetadata(
+		JSONArgsMetadata{ID: "strict.schema"}),
+	)
 
 	// Act.
 	args, err := pipeline.Validate(context.Background(), nil, `{"role":"admin"}`)

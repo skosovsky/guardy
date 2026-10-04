@@ -191,3 +191,30 @@ model/configuration and dataset IDs; separate benign/adversarial sets and report
 false positives/negatives, task success, latency and detector faults. Preserve
 split/version and threshold, compare the same workload, and record unknown or
 unlabelled cases separately. Live providers and paid benchmarks are outside CI.
+
+## Compilation and declared checks
+
+`CompileArgs`, `CompileJSONArgs` and `build.CompileStringGuard` return no pipeline
+when built-in configuration is invalid. `ConfigurationError` exposes stable
+Component/Field/Code and matches `ErrConfiguration`; its default text never includes
+caller values or schema diagnostics. Caller option panics are not recovered.
+Wordlist construction returns configuration errors; only its explicit Must helper
+panics. Zero declarative LengthMax disables that rule; negatives are invalid.
+An absent schema option permits schema-free flows; explicitly empty schema bytes
+are invalid, while `{}` is a valid permissive schema. Fallback requires user channel.
+Declarative PolicyAttributeDeepEqual uses reflect.DeepEqual without type coercion;
+typed core equality uses Go == and rejects incomparable operands at execution.
+
+Providing WithArgsFinalGuard or WithJSONArgsFinalGuard requires a non-nil read-only
+final pipeline. Omitting the option permits ordinary flows without final checks.
+JSONArgsValidator provides executable object checking; JSONArgsMetadata and
+ShapeProvider provide metadata only. A nil built-in validator function is rejected
+at compile time; custom checker internals and rule adequacy remain caller-owned.
+SchemaID and ConfigurationID do not establish enforcement.
+
+Raw schema validation constrains the original JSON property names and unknown
+fields before standard encoding/json binding can discard or case-fold them. Final
+validation checks canonical bytes after post-bind mutation. For exact names, the
+caller schema explicitly uses required/properties/additionalProperties. Core does
+not impose JSON Schema or strict decoding on typed DTOs or custom codecs. Both
+validation stages use the same generic string pipeline for documents and arguments.

@@ -19,7 +19,7 @@ func TestUnicodeWordlistDetectionAndLiteralRedaction(t *testing.T) {
 				words = []string{"ok"}
 			}
 			raw := "ok, " + word + "!"
-			validator := NewWordlistValidator(
+			validator := MustWordlistValidator(
 				words,
 				mode,
 				WithAction(guardy.ActionRedact),
@@ -31,7 +31,7 @@ func TestUnicodeWordlistDetectionAndLiteralRedaction(t *testing.T) {
 			if err != nil || report.Action != guardy.ActionRedact || out != `ok, $1\literal!` {
 				t.Fatalf("word=%q mode=%v output=%q report=%+v err=%v", word, mode, out, report, err)
 			}
-			blocker := NewWordlistValidator(words, mode)
+			blocker := MustWordlistValidator(words, mode)
 			_, blocked, err := blocker.Validate(context.Background(), raw)
 			if err != nil || blocked.Action != guardy.ActionBlock {
 				t.Fatalf("word=%q report=%+v err=%v", word, blocked, err)
@@ -42,7 +42,7 @@ func TestUnicodeWordlistDetectionAndLiteralRedaction(t *testing.T) {
 
 func TestUnicodeWordlistCaseAndNoNormalization(t *testing.T) {
 	// Arrange.
-	folded := NewWordlistValidator(
+	folded := MustWordlistValidator(
 		[]string{"СЕКРЕТ", "İ"},
 		Blocklist,
 		WithLowercase(true),
@@ -55,14 +55,14 @@ func TestUnicodeWordlistCaseAndNoNormalization(t *testing.T) {
 	if foldErr != nil || report.Action != guardy.ActionRedact || out != "[REDACTED] [REDACTED] сосед" {
 		t.Fatalf("%q %+v %v", out, report, foldErr)
 	}
-	validator := NewWordlistValidator([]string{"café"}, Blocklist)
+	validator := MustWordlistValidator([]string{"café"}, Blocklist)
 	for _, benign := range []string{"cafe\u0301", "безопасно, 42!", "notcafé", "café_42", "CAFE"} {
 		_, rep, err := validator.Validate(context.Background(), benign)
 		if err != nil || rep.Action != guardy.ActionPass {
 			t.Fatalf("benign=%q report=%+v err=%v", benign, rep, err)
 		}
 	}
-	allowed := NewWordlistValidator([]string{"привет", "用户", "42"}, Allowlist)
+	allowed := MustWordlistValidator([]string{"привет", "用户", "42"}, Allowlist)
 	_, rep, err := allowed.Validate(context.Background(), "привет, 用户! 42")
 	if err != nil || rep.Action != guardy.ActionPass {
 		t.Fatalf("%+v %v", rep, err)
@@ -79,7 +79,7 @@ func TestWordlistInvalidConfigurationFailsFast(t *testing.T) {
 				}
 			}()
 			// Act.
-			NewWordlistValidator(words, Blocklist)
+			MustWordlistValidator(words, Blocklist)
 		})
 	}
 }

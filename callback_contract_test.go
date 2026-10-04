@@ -102,7 +102,7 @@ func testTypedCallbackCase[T any](t *testing.T, stage, kind, outcome string) {
 			}
 			bytes, err := json.Marshal(value)
 			return string(bytes), err
-		}), WithRequiredArgsFinalGuard[T](NewPipeline(WithFastPath(
+		}), WithArgsFinalGuard[T](NewPipeline(WithFastPath(
 		ValidatorFunc[string](func(_ context.Context, raw string) (string, *Report, error) {
 			probe.final++
 			return raw, nil, nil
@@ -181,15 +181,17 @@ func TestDynamicSchemaCancellation(t *testing.T) {
 					// Arrange.
 					ctx, stop, cause := cancellationContext(t, kind)
 					final, handler := 0, 0
-					p := MustCompileJSONArgs(NewPipeline[string](), JSONArgsSchemaFunc{
-						ID: "schema", Metadata: nil,
-						Validate: func(context.Context, map[string]any) *Report {
+					p := MustCompileJSONArgs(
+						NewPipeline[string](),
+						JSONArgsValidatorFunc(func(context.Context, map[string]any) *Report {
 							stop()
 							return FinishReport(&Report{Action: outcome}, ControlSpec{Action: outcome})
-						},
-					}, WithJSONArgsFinalGuard(NewPipeline(WithFastPath(ValidatorFunc[string](
-						func(_ context.Context, s string) (string, *Report, error) { final++; return s, nil, nil },
-					)))))
+						}),
+						WithJSONArgsFinalGuard(NewPipeline(WithFastPath(ValidatorFunc[string](
+							func(_ context.Context, s string) (string, *Report, error) { final++; return s, nil, nil },
+						)))),
+						WithJSONArgsMetadata(JSONArgsMetadata{ID: "schema", Shape: nil}),
+					)
 					wrapped := WrapGuardedJSONArgs(p, nil, func(context.Context, GuardedJSONArgs) (string, error) {
 						handler++
 						return "delivered", nil
@@ -214,10 +216,11 @@ func TestDynamicSchemaPreCanceled(t *testing.T) {
 				// Arrange.
 				ctx, stop, cause := cancellationContext(t, kind)
 				calls := 0
-				p := MustCompileJSONArgs(NewPipeline[string](), JSONArgsSchemaFunc{
-					ID: "schema", Metadata: nil,
-					Validate: func(context.Context, map[string]any) *Report { calls++; return nil },
-				})
+				p := MustCompileJSONArgs(
+					NewPipeline[string](),
+					JSONArgsValidatorFunc(func(context.Context, map[string]any) *Report { calls++; return nil }),
+					WithJSONArgsMetadata(JSONArgsMetadata{ID: "schema", Shape: nil}),
+				)
 				stop()
 				// Act.
 				boundary, err := p.Validate(ctx, nil, `{}`)
@@ -247,7 +250,7 @@ func testTypedCallbackBenign[T any](t *testing.T) {
 	p := MustCompileArgs[T](NewPipeline[string](), WithArgsCodec(
 		func(raw string, v *T) error { probe.decode++; return json.Unmarshal([]byte(raw), v) },
 		func(v T) (string, error) { probe.encode++; bytes, err := json.Marshal(v); return string(bytes), err },
-	), WithRequiredArgsFinalGuard[T](final))
+	), WithArgsFinalGuard[T](final))
 	wrapped := WrapArgs(p, nil, func(context.Context, T) (string, error) { probe.handler++; return "delivered", nil })
 	// Act.
 	output, boundary, err := wrapped(ctx, `{"amount":1}`)

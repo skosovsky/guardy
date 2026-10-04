@@ -123,11 +123,11 @@ func TestCompileStringGuard_LengthMax(t *testing.T) {
 	}
 }
 
-func TestCompileStringGuard_PolicyAttributeEquals(t *testing.T) {
+func TestCompileStringGuard_PolicyAttributeDeepEqual(t *testing.T) {
 	t.Parallel()
 	p, err := build.CompileStringGuard(build.GuardSpec{
 		PolicyRules: []build.PolicyRuleSpec{{
-			Kind:  build.PolicyAttributeEquals,
+			Kind:  build.PolicyAttributeDeepEqual,
 			Key:   "principal.role",
 			Value: "admin",
 		}},
@@ -269,12 +269,12 @@ func TestCompileStringGuardExplicitRuleComposition(t *testing.T) {
 			name: "policy only",
 			spec: build.GuardSpec{
 				PolicyRules: []build.PolicyRuleSpec{
-					{Kind: build.PolicyAttributeEquals, Key: "tenant", Value: "allowed"},
+					{Kind: build.PolicyAttributeDeepEqual, Key: "tenant", Value: "allowed"},
 				},
 			},
 			input: "hello",
 			scope: guardy.MapScope{"tenant": "other"},
-			names: []string{"typed_attribute_equals"},
+			names: []string{"attribute_deep_equal"},
 			codes: []string{guardy.CodeAttributeMismatch},
 		},
 		{

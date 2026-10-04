@@ -2,6 +2,7 @@ package ext
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -27,6 +28,7 @@ type wordlistValidator struct {
 var _ guardy.Validator[string] = (*wordlistValidator)(nil)
 
 const defaultWordlistValidatorName = "wordlist_validator"
+const wordlistComponent = "wordlist"
 
 // wordBoundaryRE matches maximal Unicode token runs.
 var wordBoundaryRE = regexp.MustCompile(`[\p{L}\p{N}\p{M}_]+`)
@@ -35,11 +37,22 @@ var wordBoundaryRE = regexp.MustCompile(`[\p{L}\p{N}\p{M}_]+`)
 // Tokens are maximal runs of Unicode letters, numbers, combining marks and underscore.
 // Other characters delimit tokens. WithLowercase applies [strings.ToLower] to both
 // listed tokens and matches, without normalization or rewriting unmatched text.
-// Each entry must be exactly one non-empty token; an invalid entry or mode panics.
+// Each entry must be exactly one non-empty token; invalid entries or modes return
+// safe ConfigurationError identifiers without wordlist contents.
 // Replacements are literal strings; generated replacements are not re-examined.
-func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) guardy.Validator[string] {
+func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) (guardy.Validator[string], error) {
 	if mode != Blocklist && mode != Allowlist {
-		panic("ext: invalid wordlist mode")
+		return nil, &guardy.ConfigurationError{Component: wordlistComponent, Field: "mode", Code: "invalid", Cause: nil}
+	}
+	for i, opt := range opts {
+		if opt == nil {
+			return nil, &guardy.ConfigurationError{
+				Component: wordlistComponent,
+				Field:     fmt.Sprintf("options[%d]", i),
+				Code:      "required",
+				Cause:     nil,
+			}
+		}
 	}
 	cfg := applyOptions(RuleConfig{
 		Action:               guardy.ActionBlock,
@@ -52,9 +65,14 @@ func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) gua
 	}
 
 	set := make(map[string]struct{}, len(words))
-	for _, w := range words {
+	for i, w := range words {
 		if match := wordBoundaryRE.FindStringIndex(w); match == nil || match[0] != 0 || match[1] != len(w) {
-			panic("ext: wordlist entries must be non-empty single tokens")
+			return nil, &guardy.ConfigurationError{
+				Component: wordlistComponent,
+				Field:     fmt.Sprintf("words[%d]", i),
+				Code:      "single_token",
+				Cause:     nil,
+			}
 		}
 		key := w
 		if cfg.Lowercase {
@@ -63,7 +81,16 @@ func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) gua
 		set[key] = struct{}{}
 	}
 
-	return &wordlistValidator{words: set, mode: mode, cfg: cfg}
+	return &wordlistValidator{words: set, mode: mode, cfg: cfg}, nil
+}
+
+// MustWordlistValidator is for static configuration and panics when construction fails.
+func MustWordlistValidator(words []string, mode WordlistMode, opts ...Option) guardy.Validator[string] {
+	v, err := NewWordlistValidator(words, mode, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 func (w *wordlistValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {

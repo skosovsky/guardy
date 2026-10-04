@@ -2,14 +2,16 @@ package ext
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/skosovsky/guardy"
 )
 
-func ExampleNewWordlistValidator() {
-	w := NewWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
+func ExampleMustWordlistValidator() {
+	w := MustWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
 	ctx := context.Background()
 	_, rep, _ := w.Validate(ctx, "this is spam")
 	if rep.Action == guardy.ActionBlock {
@@ -20,7 +22,7 @@ func ExampleNewWordlistValidator() {
 }
 
 func TestWordlist_Blocklist_NoMatch_Pass(t *testing.T) {
-	w := NewWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
+	w := MustWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "hello world")
 	if err != nil {
@@ -32,7 +34,7 @@ func TestWordlist_Blocklist_NoMatch_Pass(t *testing.T) {
 }
 
 func TestWordlist_Blocklist_NoMatch_PassPreservesMetadata(t *testing.T) {
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"spam", "bad"},
 		Blocklist,
 		WithCode("SPAM"),
@@ -54,7 +56,7 @@ func TestWordlist_Blocklist_NoMatch_PassPreservesMetadata(t *testing.T) {
 }
 
 func TestWordlist_Blocklist_Match_Block(t *testing.T) {
-	w := NewWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
+	w := MustWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "this is spam")
 	if err != nil {
@@ -72,7 +74,7 @@ func TestWordlist_Blocklist_Match_Block(t *testing.T) {
 }
 
 func TestWordlist_Blocklist_Lowercase(t *testing.T) {
-	w := NewWordlistValidator([]string{"Spam"}, Blocklist, WithCode("X"), WithLowercase(true))
+	w := MustWordlistValidator([]string{"Spam"}, Blocklist, WithCode("X"), WithLowercase(true))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "SPAM here")
 	if err != nil {
@@ -84,7 +86,7 @@ func TestWordlist_Blocklist_Lowercase(t *testing.T) {
 }
 
 func TestWordlist_Allowlist_AllAllowed_Pass(t *testing.T) {
-	w := NewWordlistValidator([]string{"hello", "world"}, Allowlist, WithCode("OFF_TOPIC"))
+	w := MustWordlistValidator([]string{"hello", "world"}, Allowlist, WithCode("OFF_TOPIC"))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "hello world")
 	if err != nil {
@@ -96,7 +98,7 @@ func TestWordlist_Allowlist_AllAllowed_Pass(t *testing.T) {
 }
 
 func TestWordlist_Allowlist_NotAllowed_Block(t *testing.T) {
-	w := NewWordlistValidator([]string{"hello", "world"}, Allowlist, WithCode("OFF_TOPIC"))
+	w := MustWordlistValidator([]string{"hello", "world"}, Allowlist, WithCode("OFF_TOPIC"))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "hello foo world")
 	if err != nil {
@@ -108,7 +110,7 @@ func TestWordlist_Allowlist_NotAllowed_Block(t *testing.T) {
 }
 
 func TestWordlist_Allowlist_EmptyText_Block(t *testing.T) {
-	w := NewWordlistValidator([]string{"a"}, Allowlist, WithCode("X"))
+	w := MustWordlistValidator([]string{"a"}, Allowlist, WithCode("X"))
 	ctx := context.Background()
 	_, rep, err := w.Validate(ctx, "")
 	if err != nil {
@@ -120,7 +122,7 @@ func TestWordlist_Allowlist_EmptyText_Block(t *testing.T) {
 }
 
 func TestWordlist_WithName(t *testing.T) {
-	w := NewWordlistValidator([]string{"a"}, Blocklist, WithCode("X"), WithName("my-wordlist"))
+	w := MustWordlistValidator([]string{"a"}, Blocklist, WithCode("X"), WithName("my-wordlist"))
 	_, rep, err := w.Validate(context.Background(), "a")
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +133,7 @@ func TestWordlist_WithName(t *testing.T) {
 }
 
 func TestWordlist_WithRedactionReplacement_ReturnsRedactAndCleanText(t *testing.T) {
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"spam", "bad"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
@@ -156,7 +158,7 @@ func TestWordlist_WithRedactionReplacement_ReturnsRedactAndCleanText(t *testing.
 
 // TestWordlist_PunctuationBypass_Block prevents bypass via "bad.word" or "bad!" when "bad" is blocklisted.
 func TestWordlist_PunctuationBypass_Block(t *testing.T) {
-	w := NewWordlistValidator([]string{"bad"}, Blocklist, WithCode("X"))
+	w := MustWordlistValidator([]string{"bad"}, Blocklist, WithCode("X"))
 	ctx := context.Background()
 	for _, input := range []string{"bad.word", "bad!", "x.bad.y", "bad, comma", "x bad y"} {
 		_, rep, err := w.Validate(ctx, input)
@@ -171,7 +173,7 @@ func TestWordlist_PunctuationBypass_Block(t *testing.T) {
 
 // TestWordlist_RedactPreservesFormatting ensures whitespace/newlines are preserved on redact.
 func TestWordlist_RedactPreservesFormatting(t *testing.T) {
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"bad"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
@@ -194,7 +196,7 @@ func TestWordlist_RedactPreservesFormatting(t *testing.T) {
 
 func TestWordlist_WithTokenVault(t *testing.T) {
 	vault := NewInMemoryTokenVault()
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"secret"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
@@ -218,7 +220,7 @@ func TestWordlist_WithTokenVault(t *testing.T) {
 
 func TestWordlist_WithTypedNilTokenVault_FallbackReplacement(t *testing.T) {
 	var vault *InMemoryTokenVault
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"secret"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
@@ -235,4 +237,46 @@ func TestWordlist_WithTypedNilTokenVault_FallbackReplacement(t *testing.T) {
 	if rep.MutatedText != "my [X] text" {
 		t.Fatalf("mutated = %q, want %q", rep.MutatedText, "my [X] text")
 	}
+}
+
+func TestNewWordlistValidatorConfigurationErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		words   []string
+		mode    WordlistMode
+		options []Option
+		field   string
+	}{
+		{name: "empty", words: []string{""}, field: "words[0]"},
+		{name: "phrase", words: []string{"secret value"}, field: "words[0]"},
+		{name: "mode", words: []string{"secret"}, mode: WordlistMode(-1), field: "mode"},
+		{name: "option", words: []string{"secret"}, options: []Option{nil}, field: "options[0]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange.
+			words, mode := tc.words, tc.mode
+			// Act.
+			v, err := NewWordlistValidator(words, mode, tc.options...)
+			// Assert.
+			var cfg *guardy.ConfigurationError
+			if v != nil || !errors.Is(err, guardy.ErrConfiguration) || !errors.As(err, &cfg) || cfg.Field != tc.field ||
+				strings.Contains(err.Error(), "secret") {
+				t.Fatalf("%v %v", v, err)
+			}
+		})
+	}
+}
+
+func ExampleNewWordlistValidator() {
+	v, err := NewWordlistValidator([]string{"spam"}, Blocklist)
+	if err != nil {
+		panic(err)
+	}
+	_, report, err := v.Validate(context.Background(), "spam")
+	if err != nil {
+		panic(err)
+	}
+	fmt.Println(report.Action)
+	// Output:
+	// block
 }

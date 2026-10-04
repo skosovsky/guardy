@@ -14,7 +14,7 @@ import (
 )
 
 func ExamplePipeline_Run() {
-	wordlistV := ext.NewWordlistValidator([]string{"bad"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
+	wordlistV := ext.MustWordlistValidator([]string{"bad"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 	ctx := context.Background()
 	result, err := pipeline.Run(ctx, nil, "this is bad")

@@ -36,7 +36,7 @@ func TestImmutableConfigurationAndConcurrentRequestLocalBoundaries(t *testing.T)
 	validators[0] = nil
 	compiledRequirements := p.RequiredScope()
 	compiledRequirements[0].Key = "mutated.pipeline-accessor"
-	args := MustCompileArgs[argsCommand](p, WithRequiredArgsFinalGuard[argsCommand](p))
+	args := MustCompileArgs[argsCommand](p, WithArgsFinalGuard[argsCommand](p))
 	var scopes atomic.Int64
 	factory := ScopeFactory(func(ctx context.Context) (ExecutionScope, error) {
 		scopes.Add(1)

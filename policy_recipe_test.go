@@ -157,7 +157,7 @@ func executeRecipe(ctx context.Context, claims documentClaims, facts recipeFacts
 		return result, err
 	}
 	args := g.MustCompileArgs[recipeArguments](pipeline,
-		g.WithRequiredArgsFinalGuard[recipeArguments](pipeline),
+		g.WithArgsFinalGuard[recipeArguments](pipeline),
 		g.WithArgsConfigurationID[recipeArguments](facts.Identity))
 	handler := g.WrapArgs(
 		args,

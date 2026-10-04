@@ -24,7 +24,7 @@ func runExample(writer io.Writer) {
 	roleKey := guardy.NewScopeKey[string]("principal.role")
 	policyPipeline, err := build.CompileStringGuard(build.GuardSpec{
 		PolicyRules: []build.PolicyRuleSpec{{
-			Kind:  build.PolicyAttributeEquals,
+			Kind:  build.PolicyAttributeDeepEqual,
 			Key:   roleKey.Name(),
 			Value: "admin",
 		}},

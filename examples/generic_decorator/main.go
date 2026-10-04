@@ -32,7 +32,7 @@ func runExample(writer io.Writer) {
 		guardy.WithPolicyValidators(
 			guardy.NewTypedAttributeEquals[string, string](roleKey, "admin"),
 		),
-		guardy.WithFastPath(ext.NewWordlistValidator(
+		guardy.WithFastPath(ext.MustWordlistValidator(
 			[]string{"forbidden"},
 			ext.Blocklist,
 			ext.WithCode("TOXIC_INPUT"),

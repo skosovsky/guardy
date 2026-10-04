@@ -16,7 +16,7 @@ import (
 const streamLimitBytes = 4096
 
 func main() {
-	wordlistV := ext.NewWordlistValidator([]string{"forbidden", "blocked"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
+	wordlistV := ext.MustWordlistValidator([]string{"forbidden", "blocked"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
 
 	mockStream := "Hello world this is forbidden content here."

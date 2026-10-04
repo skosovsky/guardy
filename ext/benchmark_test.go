@@ -46,7 +46,7 @@ func BenchmarkRegex_MatchRedact(b *testing.B) {
 }
 
 func BenchmarkWordlist_Blocklist_NoMatch(b *testing.B) {
-	w := NewWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
+	w := MustWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
 	ctx := context.Background()
 	text := "hello world"
 	b.ResetTimer()
@@ -56,7 +56,7 @@ func BenchmarkWordlist_Blocklist_NoMatch(b *testing.B) {
 }
 
 func BenchmarkWordlist_Blocklist_Match(b *testing.B) {
-	w := NewWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
+	w := MustWordlistValidator([]string{"spam", "bad"}, Blocklist, WithCode("SPAM"))
 	ctx := context.Background()
 	text := "this is spam"
 	b.ResetTimer()
@@ -66,7 +66,7 @@ func BenchmarkWordlist_Blocklist_Match(b *testing.B) {
 }
 
 func BenchmarkWordlist_Blocklist_RedactMatch(b *testing.B) {
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"spam", "bad"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
@@ -82,7 +82,7 @@ func BenchmarkWordlist_Blocklist_RedactMatch(b *testing.B) {
 }
 
 func BenchmarkWordlist_Allowlist_RedactMatch(b *testing.B) {
-	w := NewWordlistValidator(
+	w := MustWordlistValidator(
 		[]string{"hello", "world"},
 		Allowlist,
 		WithAction(guardy.ActionRedact),
@@ -105,7 +105,7 @@ func BenchmarkWordlist_Blocklist_Redact_BaselineComparison(b *testing.B) {
 	words = append(words, "spam", "bad", "secret", "leak")
 	text := "this is forbidden_123 content with secret markers"
 	ctx := context.Background()
-	v2 := NewWordlistValidator(
+	v2 := MustWordlistValidator(
 		words,
 		Blocklist,
 		WithAction(guardy.ActionRedact),
