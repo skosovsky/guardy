@@ -116,7 +116,7 @@ func (r *RunResult[T]) Decision() *Report {
 	priority := 0
 	for i := range r.Reports {
 		rep := &r.Reports[i]
-		if rep.ShadowMode && rep.Action == ActionBlock {
+		if rep.IsObservation() {
 			continue
 		}
 		rank := reportPriority(rep)
@@ -125,9 +125,26 @@ func (r *RunResult[T]) Decision() *Report {
 		}
 	}
 	if selected != nil {
-		return selected
+		normalized := normalizeReport(selected)
+		return &normalized
 	}
 	return FinishReport(&Report{Action: ActionPass}, ControlSpec{Action: ActionPass})
+}
+
+// ComposeReports selects the strongest enforcement and preserves the most restrictive
+// payload classification. It returns a new report without mutating its inputs.
+// Shadow policy blocks remain observations; faults always enforce.
+func ComposeReports(reports ...*Report) *Report {
+	values := make([]Report, 0, len(reports))
+	for _, rep := range reports {
+		if rep != nil {
+			values = append(values, normalizeReport(rep))
+		}
+	}
+	result := RunResult[struct{}]{Output: struct{}{}, Reports: values, OutputKind: AggregatePayloadKind(values)}
+	selected := result.Decision()
+	selected.PayloadKind = result.OutputKind
+	return selected
 }
 
 const (

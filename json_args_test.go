@@ -23,7 +23,7 @@ func TestJSONArgsPipeline_ValidateKeepsBoundaryTogether(t *testing.T) {
 		Metadata: map[string]any{"required": []string{"name"}},
 		Validate: func(_ context.Context, object map[string]any) *Report {
 			if _, ok := object["name"]; !ok {
-				return &Report{Action: ActionRetry, Code: CodeJSONSchemaInvalid}
+				return &Report{Action: ActionRetry, Retryable: true, Code: CodeJSONSchemaInvalid}
 			}
 			return &Report{Action: ActionPass, Validator: "shape"}
 		},
@@ -84,6 +84,7 @@ func TestJSONArgsPipeline_SchemaReportControlsDecision(t *testing.T) {
 			if _, ok := object["name"]; !ok {
 				return &Report{
 					Action:    ActionRetry,
+					Retryable: true,
 					Validator: "shape",
 					Code:      CodeJSONSchemaInvalid,
 					Feedback:  "name is required",

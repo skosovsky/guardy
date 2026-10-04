@@ -192,8 +192,8 @@ func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, r
 
 	if p.schema != nil {
 		if rep := p.schema.ValidateJSONArgs(ctx, copyStringAnyMap(object)); rep != nil {
-			finished := FinishReport(rep.Clone(), reportControlSpec(rep))
-			args.Reports = append(args.Reports, *finished)
+			finished := normalizeReport(rep)
+			args.Reports = append(args.Reports, finished)
 			decisionReport := refreshGuardedJSONArgsDecision(&args)
 			if decErr := errorFromDecision(decisionReport); decErr != nil {
 				return args, decErr
@@ -238,22 +238,6 @@ func refreshGuardedJSONArgsDecision(args *GuardedJSONArgs) *Report {
 	decisionReport := policyDecisionReport(args.Reports, args.PayloadKind)
 	args.Decision = DecisionFromReport(decisionReport)
 	return decisionReport
-}
-
-func reportControlSpec(rep *Report) ControlSpec {
-	if rep == nil {
-		return ControlSpec{}
-	}
-	spec := ControlSpec{
-		Action:          rep.Action,
-		Fatal:           rep.Fatal,
-		SafeUserMessage: rep.SafeUserMessage,
-	}
-	if rep.Retryable {
-		retryable := true
-		spec.Retryable = &retryable
-	}
-	return spec
 }
 
 func guardedJSONArgsFromRun(raw string, schemaID string, result RunResult[string]) GuardedJSONArgs {

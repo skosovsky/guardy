@@ -72,7 +72,7 @@ type Validator[T any] interface {
 }
 ```
 
-For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**, **Disposition** (typed control flow), **PayloadKind** (output classification). Route control flow with **IsTerminalDeny()** and **IsRetryableCorrection()** — not `strings.Contains` on **Reason** or raw **Action**. **Action** remains for telemetry and redact semantics. Helpers: `ShouldStop()` / `ShouldRetry()` (aliases), `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
+For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**, **Disposition** (typed control flow), **PayloadKind** (output classification). Route control flow with **IsTerminalDeny()** and **IsRetryableCorrection()** — not `strings.Contains` on **Reason** or raw **Action**. **Action** remains for telemetry and redact semantics. Helpers: `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
 
 ### Pipeline (two-phase)
 
@@ -105,7 +105,7 @@ For string fields on structs use **Map**; for nested keys inside JSON text use *
 Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
 
 **Phase 2 — Slow path (parallel)**
-Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `Block > Retry > last Redact > last Pass`. Context is cancelled only on **Block** (not Retry) so all reports are collected. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
+Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
 
 **Recommended order in fast path:** WAF (TagSanitizerValidator) → PII (PIIValidator) → WordlistValidator → RegexValidator/LengthValidator.
 
@@ -622,3 +622,18 @@ make lint
 ## License
 
 See [LICENSE](LICENSE).
+
+## Migration: report composition
+
+Decision routing now uses Disposition alone: use IsTerminal, IsRetryable and
+IsSystemFault instead of the removed Terminal, Retryable, SystemFault and
+UserCorrectable fields. Report flags remain construction inputs and telemetry.
+FinishReport initializes new reports; adapters must preserve completed reports,
+including explicit non-retryability. JSONArgsSchema callbacks follow the same
+contract as Validator; raw ActionRetry is terminal unless retryability is explicit.
+ComposeReports preserves the strongest enforcement and aggregated PayloadKind.
+Unknown enums and non-finite report scores are faults; fatal escalation wins over
+correction. Shadow observes only non-fatal policy blocks. The shadow observer's
+Decision describes the violation without suppression; its Report retains ShadowMode.
+ShouldStop/ShouldRetry, ApplyControlDefaults and ext.ValidatorOption were removed;
+use disposition methods, FinishReport and ext.Option.

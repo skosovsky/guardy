@@ -22,9 +22,6 @@ type RuleConfig struct {
 // Option configures RuleConfig for built-in validators.
 type Option func(*RuleConfig)
 
-// ValidatorOption is a semantic alias used by v2 docs/contracts.
-type ValidatorOption = Option
-
 // WithAction sets validator action behavior.
 func WithAction(action guardy.Action) Option {
 	return func(c *RuleConfig) {
@@ -145,7 +142,7 @@ func finalizeReport(rep *guardy.Report, cfg RuleConfig, action guardy.Action) {
 
 // FinalizeRuleReport applies RuleConfig control-flow fields to a manually built report.
 func FinalizeRuleReport(rep *guardy.Report, cfg RuleConfig, action guardy.Action) {
-	guardy.ApplyControlDefaults(rep, guardy.ControlSpec{
+	guardy.FinishReport(rep, guardy.ControlSpec{
 		Action:          action,
 		Retryable:       cfg.Retryable,
 		Fatal:           cfg.Fatal,

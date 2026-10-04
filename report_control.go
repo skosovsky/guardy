@@ -8,9 +8,10 @@ type ControlSpec struct {
 	SafeUserMessage string
 }
 
-// ApplyControlDefaults sets Retryable, Fatal, and SafeUserMessage on rep.
+// applyControlDefaults initializes a new report's Retryable, Fatal, and SafeUserMessage.
+// Adapters must not call it on completed validator reports.
 // When Retryable is nil, ActionRetry yields Retryable true; other actions false.
-func ApplyControlDefaults(rep *Report, spec ControlSpec) {
+func applyControlDefaults(rep *Report, spec ControlSpec) {
 	if rep == nil {
 		return
 	}
@@ -19,22 +20,13 @@ func ApplyControlDefaults(rep *Report, spec ControlSpec) {
 	} else {
 		rep.Retryable = spec.Action == ActionRetry
 	}
-	rep.Fatal = spec.Fatal
+	rep.Fatal = rep.Fatal || spec.Fatal
+	if rep.Action != spec.Action {
+		rep.Disposition = DispositionSystemFault
+	}
 	if spec.SafeUserMessage != "" {
 		rep.SafeUserMessage = spec.SafeUserMessage
 	}
-}
-
-// ShouldRetry reports whether the caller should attempt a retry (e.g. LLM correction).
-// Prefer [Report.IsRetryableCorrection] for control flow.
-func (r *Report) ShouldRetry() bool {
-	return r.IsRetryableCorrection()
-}
-
-// ShouldStop reports whether the upstream pipeline or request must halt.
-// Prefer [Report.IsTerminalDeny] for control flow.
-func (r *Report) ShouldStop() bool {
-	return r.IsTerminalDeny()
 }
 
 // PublicMessage returns text safe for external APIs and end users.

@@ -75,7 +75,6 @@ func TestDecisionRoute_SystemFault(t *testing.T) {
 	decision := Decision{
 		Disposition: DispositionSystemFault,
 		Code:        CodeValidatorFailed,
-		SystemFault: true,
 	}
 
 	// Act.

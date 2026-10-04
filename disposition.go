@@ -1,5 +1,7 @@
 package guardy
 
+import "math"
+
 // FailureDisposition classifies pipeline outcomes for control flow without parsing Code or Reason.
 type FailureDisposition int
 
@@ -63,10 +65,32 @@ func (r *Report) effectiveDisposition() FailureDisposition {
 	if r == nil {
 		return DispositionNone
 	}
-	if r.Disposition != DispositionNone {
-		return r.Disposition
+	if r.Action < ActionPass || r.Action > ActionRetry ||
+		r.Disposition < DispositionNone || r.Disposition > DispositionSystemFault ||
+		r.PayloadKind < PayloadSafeUserText || r.PayloadKind > PayloadTechnicalPayload ||
+		math.IsNaN(r.Score) || math.IsInf(r.Score, 0) {
+		return DispositionSystemFault
+	}
+	if r.Disposition == DispositionSystemFault {
+		return DispositionSystemFault
+	}
+	if r.Disposition == DispositionRetryableCorrection && r.Action != ActionRetry {
+		return DispositionSystemFault
+	}
+	if r.Fatal || r.Disposition == DispositionTerminalDeny {
+		return DispositionTerminalDeny
+	}
+	if r.Disposition == DispositionRetryableCorrection {
+		return DispositionRetryableCorrection
 	}
 	return DeriveDisposition(r, nil)
+}
+
+// IsObservation reports whether this is a shadow policy block without a fault or escalation.
+// Retry, fatal and invalid results are never observations.
+func (r *Report) IsObservation() bool {
+	return r != nil && r.ShadowMode && r.Action == ActionBlock && !r.Fatal &&
+		r.effectiveDisposition() == DispositionTerminalDeny
 }
 
 // IsTerminalDeny reports whether the outcome is a hard deny.

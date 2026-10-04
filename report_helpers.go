@@ -5,9 +5,7 @@ func FinishReport(rep *Report, spec ControlSpec) *Report {
 	if rep == nil {
 		return nil
 	}
-	ApplyControlDefaults(rep, spec)
-	if rep.Disposition == DispositionNone {
-		rep.Disposition = DeriveDisposition(rep, nil)
-	}
+	applyControlDefaults(rep, spec)
+	rep.Disposition = rep.effectiveDisposition()
 	return rep
 }

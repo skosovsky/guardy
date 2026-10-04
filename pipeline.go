@@ -241,17 +241,14 @@ func NewPipeline[T any](opts ...PipelineOption[T]) *Pipeline[T] {
 	return p
 }
 
-// normalizeReport copies a validator report and fills Disposition when unset.
-// Explicit Disposition (e.g. SystemFault on ActionBlock) must be preserved —
-// DeriveDisposition alone always maps ActionBlock → TerminalDeny.
+// normalizeReport copies a completed validator report and resolves its effective disposition.
+// It never reapplies construction defaults or suppresses a fault.
 func normalizeReport(rep *Report) Report {
 	if rep == nil {
 		return Report{Action: ActionPass, Disposition: DispositionNone}
 	}
 	cp := *rep
-	if cp.Disposition == DispositionNone {
-		cp.Disposition = DeriveDisposition(&cp, nil)
-	}
+	cp.Disposition = cp.effectiveDisposition()
 	return cp
 }
 
@@ -259,7 +256,7 @@ func shouldShortCircuitValidator(rep *Report) bool {
 	if rep == nil {
 		return false
 	}
-	if rep.ShadowMode && rep.Action == ActionBlock {
+	if rep.IsObservation() {
 		return false
 	}
 	nr := normalizeReport(rep)
@@ -302,7 +299,7 @@ func (p *Pipeline[T]) finalizeResult(output T, reports []Report) RunResult[T] {
 			Reports:    reports,
 			OutputKind: AggregatePayloadKind(reports),
 		}
-		if rep := partial.Decision(); rep != nil && rep.IsTerminalDeny() && !rep.ShadowMode {
+		if rep := partial.Decision(); rep != nil && (rep.IsTerminalDeny() || rep.IsSystemFault()) {
 			var zero T
 			out = zero
 		}
@@ -359,7 +356,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 		if shouldShortCircuitValidator(rep) {
 			return p.finalizeResult(out, reports), nil
 		}
-		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
+		if rep.IsObservation() {
 			p.notifyObserver(fastCtx, scope, rep, ValidationPhaseFast)
 			current = out
 			continue
@@ -387,7 +384,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 		if shouldShortCircuitValidator(rep) {
 			return p.finalizeResult(out, reports), nil
 		}
-		if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
+		if rep.IsObservation() {
 			p.notifyObserver(policyCtx, scope, rep, ValidationPhasePolicy)
 			current = out
 			continue
@@ -463,7 +460,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 				mu.Unlock()
 				return nil
 			}
-			if rep != nil && rep.Action == ActionBlock && rep.ShadowMode {
+			if rep.IsObservation() {
 				p.notifyObserver(gctx, scope, rep, ValidationPhaseSlow)
 			}
 			return nil

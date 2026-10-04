@@ -137,10 +137,8 @@ func blockErrorFromReport(rep *Report) error {
 	if rep == nil {
 		return ErrBlocked
 	}
-	cloned := rep.Clone()
-	if cloned.Disposition == DispositionNone {
-		cloned.Disposition = DeriveDisposition(cloned, nil)
-	}
+	normalized := normalizeReport(rep)
+	cloned := &normalized
 	return &BlockError{
 		Message: cloned.PublicMessage(),
 		Failure: *policyFailureFromReport(cloned, ErrBlocked),
@@ -203,10 +201,8 @@ func validatorFaultError(cause error) error {
 }
 
 func retryErrorFromReport(rep *Report) error {
-	cloned := rep.Clone()
-	if cloned.Disposition == DispositionNone {
-		cloned.Disposition = DeriveDisposition(cloned, nil)
-	}
+	normalized := normalizeReport(rep)
+	cloned := &normalized
 	return &RetryError{
 		Feedback: cloned.OrchestratorMessage(),
 		Failure:  *policyFailureFromReport(cloned, ErrRetryRequested),

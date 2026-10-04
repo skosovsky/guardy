@@ -5,6 +5,20 @@ canonical Decision/PolicyFailure. Guardy does not authorize execution or own sto
 
 ## Decisions
 
+Report control defaults are construction-only. Adapters never reapply defaults to
+an existing report. Effective disposition is resolved once by the shared report
+contract: unknown action/disposition/payload kind or non-finite score is a system
+fault; an explicit fault wins; fatal and terminal deny cannot be downgraded by an
+explicit correction. Explicit correction requires ActionRetry. Decision stores
+one enforcement classification (Disposition), without redundant routing booleans.
+Shadow observes only a non-fatal ActionBlock policy violation. Faults and invalid
+reports always enforce, including shadow; retry and fatal escalation never shadow.
+ComposeReports selects the strongest observed enforcement and joins payload kinds;
+it never infers results of checks that were short-circuited. Mapping and recursive
+adapters use that same contract and apply only successful redactions. Caller-owned
+callbacks must not mutate aliased input while validating; generic adapters cannot
+deep-copy arbitrary caller types or roll back caller side effects.
+
 Effective disposition determines enforcement: system fault > terminal deny >
 retryable correction > successful redaction > pass. Shadow block is observation.
 No downstream handler or consumer runs after a mandatory fault/deny. Equal outcome

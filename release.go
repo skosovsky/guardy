@@ -242,7 +242,6 @@ func supportsStreamRule(rule any, profile ReleaseProfile) bool {
 func streamConfigurationError(cause error) error {
 	d := DecisionFromReport(nil)
 	d.Disposition = DispositionSystemFault
-	d.SystemFault = true
 	var o StreamOutcome
 	o.Category, o.Decision, o.Terminal = StreamUnsupported, d, true
 	return &ReleaseError{Outcome: o, Cause: cause, Failure: PolicyFailure{Decision: d, Cause: cause}}
@@ -541,7 +540,7 @@ func (s *StreamProcessor) fallbackFailure(
 		outcome.Decision = failure.Decision
 	}
 	if outcome.Decision.Disposition == DispositionNone && category != StreamTransport {
-		outcome.Decision.Disposition, outcome.Decision.SystemFault = DispositionSystemFault, true
+		outcome.Decision.Disposition = DispositionSystemFault
 	}
 	outcome.Category = category
 	s.observeOutcome(outcome, StreamFinal)
@@ -615,7 +614,6 @@ func (s *StreamProcessor) fail(category StreamCategory, cause error, decision De
 	}
 	if decision.Disposition == DispositionNone {
 		decision.Disposition = DispositionSystemFault
-		decision.SystemFault = true
 	}
 	s.pending = nil
 	s.outcome.Category = category

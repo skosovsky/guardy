@@ -18,12 +18,22 @@ type mappedValidator[T any, U any] struct {
 // Validate delegates to the inner validator; on ActionRedact applies inject to mutate T.
 // MutatedText is cleared at T level (it refers to U, not T) to avoid misleading telemetry.
 func (m *mappedValidator[T, U]) Validate(ctx context.Context, input T) (T, *Report, error) {
+	if err := ctx.Err(); err != nil {
+		return input, nil, err
+	}
 	subInput := m.extract(input)
 	newSub, rep, err := m.inner.Validate(ctx, subInput)
 	if err != nil {
 		return input, rep, err
 	}
-	if rep != nil && rep.Action == ActionRedact {
+	if err := ctx.Err(); err != nil {
+		return input, rep, err
+	}
+	if rep != nil {
+		normalized := normalizeReport(rep)
+		rep = &normalized
+	}
+	if rep != nil && !shouldShortCircuitValidator(rep) && rep.Action == ActionRedact {
 		input = m.inject(input, newSub)
 		rep = rep.CloneWithoutState()
 	}
@@ -100,22 +110,29 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 	if err != nil {
 		return input, rep, err
 	}
+	if err := ctx.Err(); err != nil {
+		return input, rep, err
+	}
 	if rep == nil {
 		return input, rep, nil
 	}
-	switch rep.Action {
-	case ActionBlock, ActionRetry:
+	normalized := normalizeReport(rep)
+	rep = &normalized
+	if shouldShortCircuitValidator(rep) {
 		return input, rep, nil
+	}
+	switch rep.Action {
 	case ActionRedact:
 		if !json.Valid([]byte(newStr)) {
 			const msg = "redaction corrupted JSON structure"
-			return input, FinishReport(&Report{
+			corrupted := FinishReport(&Report{
 				Action:    ActionRetry,
 				Validator: mapJSONRawMessageValidatorName,
 				Code:      CodeJSONRedactCorrupted,
 				Reason:    msg,
 				Feedback:  msg,
-			}, ControlSpec{Action: ActionRetry}), nil
+			}, ControlSpec{Action: ActionRetry})
+			return input, ComposeReports(rep.CloneWithoutState(), corrupted), nil
 		}
 		out := m.inject(&input, json.RawMessage(newStr))
 		if out == nil {

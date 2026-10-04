@@ -48,7 +48,7 @@ func MustRedact(t testing.TB, report *guardy.Report) {
 // MustRetry asserts that report indicates a retryable orchestrator correction.
 func MustRetry(t testing.TB, report *guardy.Report) {
 	t.Helper()
-	if report == nil || !report.ShouldRetry() {
+	if report == nil || !report.IsRetryableCorrection() {
 		t.Fatalf("expected retryable report, got %+v", report)
 	}
 }

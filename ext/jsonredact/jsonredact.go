@@ -48,7 +48,7 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 	if walkErr != nil {
 		return input, nil, walkErr
 	}
-	if lastRep != nil && (lastRep.Action == guardy.ActionBlock || lastRep.Action == guardy.ActionRetry) {
+	if guardy.DecisionFromReport(lastRep).Disposition != guardy.DispositionNone {
 		return input, lastRep, nil
 	}
 	out, err := json.Marshal(root)
@@ -63,15 +63,8 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 			Action: guardy.ActionPass, Validator: v.name,
 		}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
 	}
-	rep := guardy.FinishReport(&guardy.Report{
-		Action:      guardy.ActionRedact,
-		Validator:   v.name,
-		MutatedText: string(out),
-	}, guardy.ControlSpec{Action: guardy.ActionRedact})
-	if lastRep != nil {
-		rep.Code = lastRep.Code
-		rep.Severity = lastRep.Severity
-	}
+	rep := lastRep.CloneWithoutState()
+	rep.MutatedText = string(out)
 	return string(out), rep, nil
 }
 
@@ -85,6 +78,12 @@ func invalidJSONReport(feedback string) *guardy.Report {
 }
 
 func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool, lastRep **guardy.Report) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if guardy.DecisionFromReport(*lastRep).Disposition != guardy.DispositionNone {
+		return nil
+	}
 	switch val := (*node).(type) {
 	case map[string]any:
 		for k, child := range val {
@@ -107,8 +106,14 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 		if err != nil {
 			return err
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if rep != nil {
-			*lastRep = rep
+			*lastRep = guardy.ComposeReports(*lastRep, rep)
+			if guardy.DecisionFromReport(*lastRep).Disposition != guardy.DispositionNone {
+				return nil
+			}
 			switch rep.Action {
 			case guardy.ActionBlock, guardy.ActionRetry:
 				return nil

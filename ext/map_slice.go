@@ -40,45 +40,35 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 	}
 
 	out := append([]T(nil), input...)
-	mutated := false
-	var lastRedact *guardy.Report
+	combined := guardy.ComposeReports()
 
 	for i := range input {
+		if err := ctx.Err(); err != nil {
+			return input, combined, err
+		}
 		current := input[i]
-		subInput := m.extract(current)
-		newSub, rep, err := m.validator.Validate(ctx, subInput)
+		newSub, rep, err := m.validator.Validate(ctx, m.extract(current))
 		if err != nil {
 			return input, rep, err
 		}
-		if rep == nil {
-			continue
+		if err := ctx.Err(); err != nil {
+			return input, combined, err
 		}
-		switch rep.Action {
-		case guardy.ActionPass:
-			// No per-item mutation; continue to next element.
-		case guardy.ActionRedact:
+		indexed := rep.CloneWithoutState()
+		prefixIndex(indexed, i)
+		combined = guardy.ComposeReports(combined, indexed)
+		decision := guardy.DecisionFromReport(combined)
+		if decision.Disposition != guardy.DispositionNone {
+			return input, combined, nil
+		}
+		if rep != nil && rep.Action == guardy.ActionRedact {
 			out[i] = m.inject(current, newSub)
-			mutated = true
-			lastRedact = rep.CloneWithoutState()
-			prefixIndex(lastRedact, i)
-		case guardy.ActionBlock, guardy.ActionRetry:
-			blocking := rep.Clone()
-			prefixIndex(blocking, i)
-			return input, blocking, nil
 		}
 	}
-
-	if mutated {
-		if lastRedact == nil {
-			lastRedact = guardy.FinishReport(&guardy.Report{
-				Action: guardy.ActionRedact, Validator: mapSliceValidatorName,
-			}, guardy.ControlSpec{Action: guardy.ActionRedact})
-		}
-		return out, lastRedact, nil
+	if err := ctx.Err(); err != nil {
+		return input, combined, err
 	}
-	return input, guardy.FinishReport(&guardy.Report{
-		Action: guardy.ActionPass, Validator: mapSliceValidatorName,
-	}, guardy.ControlSpec{Action: guardy.ActionPass}), nil
+	return out, combined, nil
 }
 
 func prefixIndex(rep *guardy.Report, idx int) {

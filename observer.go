@@ -18,6 +18,7 @@ type GuardTelemetry struct {
 }
 
 // GuardEvent carries explicit observer metadata for a guard report.
+// Decision describes the observed violation without shadow suppression; Report retains ShadowMode.
 type GuardEvent struct {
 	Scope        ExecutionScope
 	Decision     Decision
@@ -35,7 +36,9 @@ func newGuardEvent(
 	pipelineName string,
 ) GuardEvent {
 	cloned := rep.Clone()
-	decision := DecisionFromReport(cloned)
+	observed := cloned.Clone()
+	observed.ShadowMode = false
+	decision := DecisionFromReport(observed)
 	return GuardEvent{
 		Scope:        scope,
 		Decision:     decision,

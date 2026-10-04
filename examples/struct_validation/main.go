@@ -40,7 +40,7 @@ func main() {
 	if errors.As(err, &failure) && failure.Decision.IsRetryable() {
 		fmt.Println("Action:", failure.Decision.Action)
 		fmt.Println("Code:", failure.Decision.Code)
-		fmt.Println("Retryable:", failure.Decision.Retryable)
+		fmt.Println("Retryable:", failure.Decision.IsRetryable())
 		fmt.Println("Feedback:")
 		fmt.Println(failure.Decision.RetryFeedback)
 		return

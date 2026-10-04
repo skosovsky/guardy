@@ -2,39 +2,39 @@ package guardy
 
 import "testing"
 
-func TestApplyControlDefaults_RetryableByAction(t *testing.T) {
+func TestFinishReport_RetryableByAction(t *testing.T) {
 	t.Parallel()
 	rep := &Report{Action: ActionRetry}
-	ApplyControlDefaults(rep, ControlSpec{Action: ActionRetry})
+	FinishReport(rep, ControlSpec{Action: ActionRetry})
 	if !rep.Retryable {
 		t.Fatal("ActionRetry should default Retryable true")
 	}
 	rep2 := &Report{Action: ActionBlock}
-	ApplyControlDefaults(rep2, ControlSpec{Action: ActionBlock})
+	FinishReport(rep2, ControlSpec{Action: ActionBlock})
 	if rep2.Retryable {
 		t.Fatal("ActionBlock should default Retryable false")
 	}
 }
 
-func TestReport_ShouldRetry(t *testing.T) {
+func TestReport_RetryDisposition(t *testing.T) {
 	t.Parallel()
-	if !(&Report{Action: ActionRetry, Retryable: true}).ShouldRetry() {
+	if !(&Report{Action: ActionRetry, Retryable: true}).IsRetryableCorrection() {
 		t.Fatal("expected ShouldRetry true for retryable correction")
 	}
-	if (&Report{Action: ActionRetry, Retryable: false}).ShouldRetry() {
+	if (&Report{Action: ActionRetry, Retryable: false}).IsRetryableCorrection() {
 		t.Fatal("expected ShouldRetry false for terminal retry")
 	}
 }
 
-func TestReport_ShouldStop(t *testing.T) {
+func TestReport_TerminalDisposition(t *testing.T) {
 	t.Parallel()
-	if !(&Report{Action: ActionBlock}).ShouldStop() {
+	if !(&Report{Action: ActionBlock}).IsTerminalDeny() {
 		t.Fatal("block should stop")
 	}
-	if !(&Report{Fatal: true, Action: ActionPass}).ShouldStop() {
+	if !(&Report{Fatal: true, Action: ActionPass}).IsTerminalDeny() {
 		t.Fatal("fatal should stop")
 	}
-	if !(&Report{Action: ActionRetry, Retryable: false}).ShouldStop() {
+	if !(&Report{Action: ActionRetry, Retryable: false}).IsTerminalDeny() {
 		t.Fatal("terminal retry should stop")
 	}
 }

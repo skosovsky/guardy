@@ -100,6 +100,9 @@ func Guard[T any](
 			rep := result.Decision()
 			decision := result.PolicyDecision()
 			switch {
+			case decision.IsSystemFault():
+				writeJSONError(w, http.StatusInternalServerError, CodeValidatorFailed, "validation failed")
+				return
 			case decision.IsTerminal(), decision.IsRetryable():
 				writeJSONDecisionError(w, http.StatusUnprocessableEntity, decision)
 				return
