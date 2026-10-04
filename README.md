@@ -113,35 +113,47 @@ Heavy validators that only **block** or **pass** run in parallel via `errgroup` 
 
 **Report** holds validator telemetry and low-level rule output: **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, **PayloadKind**, and related fields. Low-level `Run` callers should use `result.PolicyDecision()` or `errors.As(err, &policyFailure)` into `*PolicyFailure`; host boundaries should prefer `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput`. Use `result.Decision()` when you need the underlying report for telemetry or custom validators. Do not route control flow by parsing `Code` or `Reason`.
 
-### Stream (GuardWriter)
+### Stream release
 
-Use **GuardWriter** to validate streaming output in chunks:
-
-- Buffers until a semantic boundary (space, newline, punctuation) or a delimiterless hard cap is reached; runs the pipeline on each chunk. UTF-8 safe; index-based buffering; overlap prevents boundary bypass.
-- On **terminal deny** or **retryable correction** — returns `*StreamError` that exposes `PolicyFailure` through `errors.As`; use `failure.Decision` for routing. `errors.Is` still works through `Unwrap` to `ErrBlocked` / `ErrRetryRequested`. Terminal retry maps to block-style `StreamError`.
-- On **Redact** — writes the mutated text for that chunk.
-- On **Pass** — writes the original chunk.
-- In JSON-aware mode, incomplete JSON is never validated/written; `Close()` on incomplete JSON returns `ErrValidatorFailed`.
-
-Options: **WithChunkSize** (preferred natural boundary target, default 4096), **WithMaxChunkSize** (delimiterless hard cap, default 2048), **WithJSONAwareSplitter** (for streamed JSON/tool-call payloads), **WithContext**, **WithTimeout**.
+Use `CompileStream` with an explicit profile and byte limits. `ReleaseWholeResponse`
+checks the final value before the first release. `ReleaseValidatedUnits` emits
+complete newline-delimited units (or JSON objects/arrays with `JSONValues`) and
+requires declared unit-local rule capabilities. `ReleaseBestEffort` allows early
+release of bounded UTF-8 chunks; it has no whole-value safety guarantee.
 
 ```go
-gw := guardy.NewGuardWriter(
-	w,
-	pipeline,
-	guardy.WithChunkSize(4096),
-	guardy.WithMaxChunkSize(2048),
-)
-_, _ = gw.Write(data)
-_ = gw.Close()
-
-var failure *guardy.PolicyFailure
-if errors.As(err, &failure) {
-    log.Println(failure.Decision.Code, failure.Decision.Disposition, failure.Decision.SafeMessage)
-}
+stream, err := guardy.CompileStream(w, guardy.StreamConfig{
+    Identity: "response",
+    Profile: guardy.ReleaseWholeResponse,
+    Pipeline: pipeline,
+    Delivery: guardy.NewDeliveryPolicy("external"),
+    MaxInputBytes: 1 << 20,
+    MaxPendingBytes: 1 << 20,
+    MaxUnitBytes: 1 << 20,
+    MaxOutputBytes: 1 << 20,
+    ValidationTimeout: time.Second,
+})
+if err != nil { return err }
+if _, err := stream.WriteContext(ctx, data); err != nil { return err }
+outcome, err := stream.Complete(ctx) // trusted producer success
+// On disconnect/error: stream.Abort(cause). Close without Complete aborts.
 ```
 
-See `examples/streaming_filter` and `examples/json_streaming`.
+Limits count bytes and include redaction expansion. Pending memory stays bounded;
+validator-owned allocations are caller-owned. Unsupported mandatory capabilities
+fail at construction. Completion is a trusted method call, never a payload flag.
+The initial unit profile supports unit-local rules with zero cross-unit lookaround;
+final-only or unknown rules require whole-response. JSON framing does not replace
+schema/policy validation. No profile silently downgrades.
+
+`ReleaseError` carries a terminal category and exposes `PolicyFailure` via
+`errors.As`. Outcomes include actual received/released bytes, sequence and peak
+pending bytes. Partial transport writes are irreversible and terminate; no automatic
+replay occurs. `DeliverFallback` is a separate at-most-once checked delivery after
+policy deny, never after validator fault. Observers see counters/stages, not payload.
+Validators must honor context; non-cooperative validators cannot be forcibly stopped.
+
+See `examples/streaming_filter`, `examples/json_streaming`, and [CONTRACTS.md](CONTRACTS.md).
 
 ### HTTP Guard (`http_guard.go`)
 
@@ -460,9 +472,9 @@ if !result.PolicyDecision().IsTerminal() {
 - **PolicyFailure** — canonical boundary error contract; use `errors.As(err, &failure)` and route by `failure.Decision`.
 - **BlockError** — block from WrapInput or WrapOutput; unwraps to **ErrBlocked** and carries **Failure PolicyFailure**.
 - **ValidatorFaultError** — validator/pipeline infrastructure failure; unwraps to **ErrValidatorFailed** and carries **Failure PolicyFailure**.
-- **StreamError** — returned by GuardWriter on block/retry; unwraps to **ErrBlocked** or **ErrRetryRequested** and carries **Failure PolicyFailure**.
-- **ErrBlocked** — block decisions (Guard, WrapInput, StreamError).
-- **ErrRetryRequested** — retry decisions (WrapOutput, StreamError, RetryError).
+- **ReleaseError** — terminal stream outcome with distinct guard/limit/incomplete/transport category, actual released bytes, and canonical **PolicyFailure**.
+- **ErrBlocked** — block decisions (Guard, WrapInput, ReleaseError).
+- **ErrRetryRequested** — retry decisions (WrapOutput, ReleaseError, RetryError).
 - **RetryError** — structured retry from interceptors and typed argument validation; unwraps to **ErrRetryRequested** and carries **Failure PolicyFailure**.
 - **ErrScopeIncomplete** — `Run` called without required policy scope keys.
 - **ErrValidatorFailed** — wraps a validator’s system error from `Run`; prefer `errors.As` into **PolicyFailure** or **ValidatorFaultError**.
@@ -473,16 +485,66 @@ Production `ext` validators should always set **`ext.WithCode(...)`** so hosts n
 
 ## Packages
 
-- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedOutput, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, GuardWriter, Guard middleware, errors.
+- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedOutput, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, StreamProcessor, BoundaryProfile, Guard middleware, errors.
 - **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
 - **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
 - **guardy/ext/guardyotel** — optional OTel middleware module (metrics + tracing).
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact/MustRetry, MustTerminalDeny/MustRetryableCorrection/MustSystemFault, MustOutputKind, MustScopeIncomplete.
 
-See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical specification.
+See [CONTRACTS.md](CONTRACTS.md) for boundary and release invariants.
 
-## Migration (task14/task16 — typed scope, boundary contracts, delivery routing)
+## Migration: streaming release and canonical boundaries
+
+- Removed `NewGuardWriter`, `GuardWriterOption`, chunk/timeout/scope options and
+  `StreamError`. Use `CompileStream`, an explicit profile, bounds and
+  `ReleaseError`. Replace successful `Close` flushes with `Complete(ctx)`;
+  disconnects use `Abort`. Whole-response PII guarding no longer exposes a prefix.
+- `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, `WrapGuardedOutput`
+  take `ScopeFactory`, called on every invocation/resume. Use
+  `func(ctx context.Context) (guardy.ExecutionScope, error)` to project current
+  policy facts. Low-level `Run` still accepts an explicit scope.
+- Typed args are canonically encoded after post-bind hooks, including pointer
+  types. Add `WithRequiredArgsFinalGuard[T](schemaAndPolicyPipeline)` to require final
+  schema/policy checking after mutations; `ShapeProvider` is metadata only.
+  Final checks are read-only. `WithArgsCodec` accepts caller-owned bind/encode.
+- Dynamic schema callbacks get deeply isolated JSON. They check the sanitized
+  decoded object, not the original payload. Use `WithJSONArgsFinalGuard` for
+  mandatory policy checks on canonical JSON after all transformations.
+- Dispatch only guarded sanitized arguments. For every consumer use a separate
+  destination policy and serialize `GuardedDelivery.Projection()`, never the
+  wrapper with original raw values or reports. Replacement/fallback content is
+  checked by its destination pipeline; a forbidden fallback is suppressed.
+- Decision aggregation prioritizes effective disposition. Fatal pass/redact can
+  no longer disappear behind an earlier mutation. Report-only system faults block
+  stream release. Map errors using `errors.As`, not text.
+- `MaxRetries == 0` means no retries. Caller owns retry counters and external
+  approval binding; resume must rebuild current scope and revalidate arguments.
+- Fault/retry `Error()` text no longer includes diagnostic causes/correction
+  feedback. Read these explicitly through `PolicyFailure`; do not expose them
+  as external response text. Semantic scores and thresholds must be finite;
+  NaN/infinity is a system fault, not a benign detector result.
+- `CompileBoundaryProfile` declares actual supported/mandatory coverage; it does
+  not intercept remote backends automatically. Use reusable
+  `guardytest.CheckBoundaryCases` in optional integrations.
+
+Caller-owned facts examples in `policy_facts_example_test.go` show source linkage,
+separate confirmed/claimed trust, missing destination rejection and redaction.
+The executable recipe in `policy_recipe_test.go` connects untrusted source,
+transformation, typed arguments and destination. Its caller-owned facts preserve
+all references and confirmed trust; returned evidence is at most two opaque
+references, each at most 64 bytes. Unknown/missing sources fail closed. Host
+declassification and the restricted no-provenance profile require explicit choices.
+Guardy creates no permission grant, trust registry, provenance store or workflow.
+
+`guardytest.ReferenceBoundaryFixtures` and `StringBoundaryCases` provide fresh
+benign/adversarial cases for real handler/consumer wiring; configure their stated
+synthetic test policy. `ReferenceSemanticFixtures` exercises real threshold/shadow
+behavior with deterministic mock scores, detector identity, errors and cooperative
+timeouts. Keep deterministic and semantic suites separate: mock conformance does
+not measure detector false positives/negatives or live-provider safety.
+
+## Migration: typed scope, boundary contracts and delivery routing
 
 - **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
 - **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before fast-path.
@@ -497,9 +559,9 @@ See [.cursor/docs/task9.md](.cursor/docs/task9.md) for the full v2 technical spe
 - **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
 - **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
 
-## Migration from v2 (task11 — Policy & Safety Engine)
+## Migration: policy and safety decisions
 
-Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-redaction.md) (`ArgsPipeline`, `Map`, `MapJSONRawMessage`).
+Use `ArgsPipeline`, `Map` and `MapJSONRawMessage` for type-safe argument validation and redaction.
 
 - **Decision control flow:** use `Decision` / `PolicyFailure`; `Report` remains validator telemetry.
 - **Policy phase:** `WithPolicyValidators` + typed `ScopeKey[T]` requirements + explicit `ExecutionScope` in `Run`.
@@ -508,14 +570,14 @@ Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-reda
 - **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
 - **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.
 
-## Migration (task12 — stream, policy shadow, post-bind)
+## Migration: streaming, policy shadow and post-bind validation
 
-- **GuardWriter:** use `errors.As(err, &failure)` into `*PolicyFailure` instead of relying only on `errors.Is(ErrBlocked)`.
+- **Stream migration:** use explicit `CompileStream` profiles and trusted `Complete`; `Close` aborts.
 - **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
 - **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`.
 - **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).
 
-## Migration (task13 — `MapJSONRawMessage`)
+## Migration: `MapJSONRawMessage`
 
 - **Broken JSON after redact:** branch on `CodeJSONRedactCorrupted`, not `CodeJSONInvalid` (parse/bind errors).
 - **Struct tool args:** `NewPipeline[MyDTO]` + `MapJSONRawMessage`; see `examples/agent_tool_args`.
@@ -524,12 +586,12 @@ Type-safe redaction patterns: see [task11-redaction.md](.cursor/docs/task11-reda
 
 - `Pipeline.Use(...)` is immutable and returns a new pipeline.
 - `Report` includes `Code` and typed `Severity`.
-- `StreamOption` was renamed to `GuardWriterOption`.
+- Legacy streaming constructors/options are removed; use `StreamConfig`.
 - `PIIMasking` APIs were renamed to `PIIValidator` / `NewPIIValidator`.
 - `ext/jsonschema.NewValidatorFromStruct` was renamed to `NewJSONSchemaValidatorFromStruct`.
 - Built-in `ext` validators use options for common rule metadata (`WithAction`, `WithCode`, `WithSeverity`, `WithReason`, ...).
 
-## Wordlist Benchmark Evidence (Task9 DoD #3)
+## Wordlist benchmark
 
 Run the reproducible redact comparison benchmark:
 
@@ -547,6 +609,10 @@ Latest local run on this workspace (March 28, 2026):
 - Throughput ratio: `~61x` faster for v2 on redact path.
 
 ## Development
+
+Use Go 1.27.1 or newer and golangci-lint 2.14.0 or newer. CI pins the current
+tooling releases. An explicit linter binary can be selected with
+`make lint GOLANGCI_LINT=/path/to/golangci-lint`.
 
 ```bash
 make test

@@ -1,17 +1,18 @@
-// JSON streaming: GuardWriter in JSON-aware mode buffers until complete JSON value.
-// This prevents validating partial tool-call payloads.
+// JSON streaming: explicitly buffer and validate the final JSON value before release.
 package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
 )
 
-const demoChunkSizeBytes = 64
+const streamLimitBytes = 4096
 
 func main() {
 	validator, err := ext.NewRegexValidator(`(?i)secret`, ext.WithCode("SECRET_IN_JSON"))
@@ -21,12 +22,24 @@ func main() {
 
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
 	var out bytes.Buffer
-	gw := guardy.NewGuardWriter(
-		&out,
-		pipeline,
-		guardy.WithJSONAwareSplitter(),
-		guardy.WithChunkSize(demoChunkSizeBytes),
-	)
+	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{
+		Identity:   "json-response",
+		Profile:    guardy.ReleaseWholeResponse,
+		Pipeline:   pipeline,
+		JSONValues: true,
+		Delivery: guardy.NewDeliveryPolicy(
+			"internal",
+			guardy.WithDeliveryAllowedKinds(guardy.PayloadTechnicalPayload),
+		),
+		MaxInputBytes:     streamLimitBytes,
+		MaxPendingBytes:   streamLimitBytes,
+		MaxUnitBytes:      streamLimitBytes,
+		MaxOutputBytes:    streamLimitBytes,
+		ValidationTimeout: time.Second,
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	fragments := []string{
 		`{"tool_calls":[{"name":"lookup","arguments":"user: `,
@@ -35,8 +48,7 @@ func main() {
 	}
 	for _, part := range fragments {
 		if _, err := gw.Write([]byte(part)); err != nil {
-			var failure *guardy.PolicyFailure
-			if errors.As(err, &failure) {
+			if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 				fmt.Println("blocked while streaming JSON:", failure.Decision.Code)
 				return
 			}
@@ -47,9 +59,8 @@ func main() {
 			panic(err)
 		}
 	}
-	if err := gw.Close(); err != nil {
-		var failure *guardy.PolicyFailure
-		if errors.As(err, &failure) {
+	if _, err := gw.Complete(context.Background()); err != nil {
+		if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 			fmt.Println("blocked on JSON flush:", failure.Decision.Code)
 			return
 		}

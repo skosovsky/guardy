@@ -42,7 +42,8 @@ func main() {
 		guardy.WithFastPath(classifier),
 	)
 
-	safe := guardy.WrapGuardedOutput(outPipe, scope, guardy.WrapInput(inPipe, scope, askLLM))
+	scopeFactory := guardy.ScopeFactory(func(context.Context) (guardy.ExecutionScope, error) { return scope, nil })
+	safe := guardy.WrapGuardedOutput(outPipe, scopeFactory, guardy.WrapInput(inPipe, scope, askLLM))
 
 	if _, err := safe(ctx, "forbidden word"); err != nil {
 		printBlock("input wordlist", err)
@@ -53,7 +54,8 @@ func main() {
 	}
 
 	adminScope := guardy.NewScope(guardy.ScopeValue(roleKey, "admin"))
-	adminSafe := guardy.WrapGuardedOutput(outPipe, adminScope, guardy.WrapInput(inPipe, adminScope, askLLM))
+	adminFactory := guardy.ScopeFactory(func(context.Context) (guardy.ExecutionScope, error) { return adminScope, nil })
+	adminSafe := guardy.WrapGuardedOutput(outPipe, adminFactory, guardy.WrapInput(inPipe, adminScope, askLLM))
 	out, err := adminSafe(ctx, "nice user question")
 	if err != nil {
 		log.Fatal(err)
@@ -64,8 +66,7 @@ func main() {
 }
 
 func printBlock(label string, err error) {
-	var failure *guardy.PolicyFailure
-	if errors.As(err, &failure) {
+	if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 		fmt.Printf("%s blocked: disposition=%s msg=%s\n",
 			label,
 			failure.Decision.Disposition,

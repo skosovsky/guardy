@@ -1,123 +1,29 @@
 package guardy
 
-import (
-	"fmt"
-	"slices"
-)
+import "errors"
 
-type semanticChunkSplitStrategy struct{}
-
-func (semanticChunkSplitStrategy) overlapEnabled() bool {
-	return true
-}
-
-func (semanticChunkSplitStrategy) validateClose(_ []byte, _ guardWriterConfig) error {
-	return nil
-}
-
-func (semanticChunkSplitStrategy) nextChunk(
-	data []byte,
-	cfg guardWriterConfig,
-) (int, bool, error) {
-	chunkSize, maxChunkSize := normalizeChunkConfig(cfg)
-	dataLen := len(data)
-	if dataLen == 0 {
-		return 0, true, nil
-	}
-
-	if dataLen >= chunkSize {
-		window := data[:chunkSize]
-		for i, b := range slices.Backward(window) {
-			if isBoundaryByte(b) {
-				return i + 1, true, nil
-			}
-		}
-
-		fallback := maxChunkSize
-		if fallback <= 0 || fallback > chunkSize {
-			fallback = chunkSize
-		}
-		return utf8SafePrefixLen(data[:fallback]), true, nil
-	}
-
-	if maxChunkSize > 0 && dataLen >= maxChunkSize {
-		for _, b := range slices.Backward(data) {
-			if isBoundaryByte(b) {
-				return 0, true, nil
-			}
-		}
-		return utf8SafePrefixLen(data[:maxChunkSize]), true, nil
-	}
-
-	return 0, true, nil
-}
-
-type jsonAwareChunkSplitStrategy struct{}
-
-func (jsonAwareChunkSplitStrategy) overlapEnabled() bool {
-	return false
-}
-
-func (jsonAwareChunkSplitStrategy) validateClose(data []byte, _ guardWriterConfig) error {
-	rest := data
-	for {
-		first := firstNonWhitespace(rest)
-		if first < 0 {
-			return nil
-		}
-		rest = rest[first:]
-		if len(rest) == 0 {
-			return nil
-		}
-		if rest[0] != '{' && rest[0] != '[' {
-			// Non-JSON tail: semantic fallback is valid for this mode.
-			return nil
-		}
-		split := jsonValueBoundary(rest)
-		if split == 0 {
-			return fmt.Errorf("%w: json stream ended with incomplete value", ErrValidatorFailed)
-		}
-		rest = rest[split:]
-	}
-}
-
-func (jsonAwareChunkSplitStrategy) nextChunk(
-	data []byte,
-	cfg guardWriterConfig,
-) (int, bool, error) {
-	if len(data) == 0 {
-		return 0, true, nil
-	}
-
+// nextJSONUnit reuses the object/array framing scanner. Syntactic JSON validity
+// is independently checked before and after validation by StreamProcessor.
+func nextJSONUnit(data []byte, maxBytes int) (int, error) {
 	first := firstNonWhitespace(data)
 	if first < 0 {
-		return 0, true, nil
+		if len(data) >= maxBytes {
+			return 0, errors.New("guardy: JSON whitespace exceeds unit limit")
+		}
+		return 0, nil
 	}
 	if data[first] != '{' && data[first] != '[' {
-		// Non-JSON prefix: fallback to semantic splitter behavior.
-		return 0, false, nil
+		return 0, errors.New("guardy: JSON unit must be object or array")
 	}
-
-	splitAt := jsonValueBoundary(data)
-	if splitAt > 0 {
-		return splitAt, true, nil
+	n := jsonValueBoundary(data)
+	if n > 0 {
+		if n > maxBytes {
+			return 0, errors.New("guardy: JSON unit exceeds limit")
+		}
+		return n, nil
 	}
-
-	_, maxChunkSize := normalizeChunkConfig(cfg)
-	if len(data) >= maxChunkSize {
-		return 0, true, fmt.Errorf("%w: json fragment exceeds max chunk size before completion", ErrValidatorFailed)
+	if len(data) >= maxBytes {
+		return 0, errors.New("guardy: incomplete JSON exceeds unit limit")
 	}
-	return 0, true, nil
-}
-
-func normalizeChunkConfig(cfg guardWriterConfig) (int, int) {
-	chunkSize := cfg.chunkSize
-	if chunkSize <= 0 {
-		chunkSize = DefaultStreamChunkSize
-	}
-	maxChunkSize := cfg.maxChunkSize
-	if maxChunkSize <= 0 {
-		maxChunkSize = DefaultStreamMaxChunkSize
-	}
-	return chunkSize, maxChunkSize
+	return 0, nil
 }

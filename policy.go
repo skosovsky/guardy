@@ -14,7 +14,7 @@ type policyFuncValidator[T any] struct {
 }
 
 func (v policyFuncValidator[T]) RequiredScope() []ScopeRequirement {
-	return v.requirements
+	return append([]ScopeRequirement(nil), v.requirements...)
 }
 
 func (v policyFuncValidator[T]) Validate(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error) {
@@ -41,7 +41,7 @@ func NewPolicyFuncWithScope[T any](
 	fn func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error),
 ) PolicyValidator[T] {
 	return policyFuncValidator[T]{
-		requirements: requirements,
+		requirements: append([]ScopeRequirement(nil), requirements...),
 		fn:           fn,
 	}
 }

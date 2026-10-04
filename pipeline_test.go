@@ -496,7 +496,7 @@ func TestPipeline_SlowPath_InvalidActionReturnsError(t *testing.T) {
 	}
 }
 
-func TestPipeline_SlowPath_BlockPriorityOverError(t *testing.T) {
+func TestPipeline_SlowPath_FaultPriorityOverBlock(t *testing.T) {
 	errInfra := errors.New("infra failure")
 	blocker := &fakeValidator{
 		name: "blocker",
@@ -512,12 +512,8 @@ func TestPipeline_SlowPath_BlockPriorityOverError(t *testing.T) {
 	}
 	p := NewPipeline(WithSlowPath(blocker, failer))
 	result, err := p.Run(context.Background(), nil, "x")
-	if err != nil {
-		t.Fatalf("expected block to win, got err: %v", err)
-	}
-	rep := result.Decision()
-	if rep.Action != ActionBlock || rep.Validator != "blocker" {
-		t.Errorf("report = %+v, want block from blocker", rep)
+	if !errors.Is(err, errInfra) || !result.PolicyDecision().IsSystemFault() {
+		t.Fatalf("expected infrastructure fault to win, got decision=%+v err=%v", result.PolicyDecision(), err)
 	}
 }
 
@@ -881,23 +877,26 @@ func TestNormalizeReport_RawActionRetryWithoutFinishReport_ConsistentDeny(t *tes
 	}
 
 	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(8))
+	gw, compileErr := CompileStream(&out, testStreamConfig(p))
+	if compileErr != nil {
+		t.Fatal(compileErr)
+	}
 	if _, err = gw.Write([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}
-	err = gw.Close()
+	_, err = gw.Complete(context.Background())
 	if err == nil {
 		t.Fatal("GuardWriter: expected error on raw ActionRetry without FinishReport")
 	}
 	if !errors.Is(err, ErrBlocked) {
 		t.Fatalf("GuardWriter: err = %v, want ErrBlocked", err)
 	}
-	var streamErr *StreamError
+	var streamErr *ReleaseError
 	if !errors.As(err, &streamErr) {
 		t.Fatalf("GuardWriter: expected StreamError, got %v", err)
 	}
-	if streamErr.Action != ActionBlock {
-		t.Fatalf("GuardWriter Action = %v, want ActionBlock", streamErr.Action)
+	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
+		t.Fatalf("Stream disposition = %v, want terminal deny", streamErr.Failure.Decision.Disposition)
 	}
 }
 

@@ -23,7 +23,7 @@ var _ guardy.Validator[string] = (*JSONSchemaValidator)(nil)
 // JSONSchemaValidator validates JSON strings against a JSON Schema.
 // On schema violation it returns ActionRetry with detailed Feedback for LLM.
 //
-//nolint:revive // keep the public type name stable for backward compatibility.
+//nolint:revive // The explicit type name distinguishes the validator from generated schemas.
 type JSONSchemaValidator struct {
 	schema *gojsonschema.Schema
 	cfg    ext.RuleConfig

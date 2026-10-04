@@ -7,7 +7,7 @@
 // [JSONArgsPipeline] / [GuardedJSONArgs], [GuardedOutput],
 // [DeliveryPolicy], [GuardEvent], and [GuardRoute].
 //
-// See .cursor/docs/task16.md.
+// See CONTRACTS.md for boundary and release invariants.
 package guardy
 
 // Canonical action names for [Action.String], logging, and telemetry.
@@ -108,38 +108,56 @@ type RunResult[T any] struct {
 }
 
 // Decision returns the report that determines the pipeline outcome.
-// Priority (per task9): Block > Retry > (last Redact) > (last Pass).
+// Priority: system fault > terminal deny > retryable correction > redact > pass.
+// Shadow block reports are observations and never select an enforcement decision.
 // Reports order is nondeterministic in slow path; must scan entire slice.
 func (r *RunResult[T]) Decision() *Report {
-	var block, retry, lastRedact, lastPass *Report
+	var selected *Report
+	priority := 0
 	for i := range r.Reports {
 		rep := &r.Reports[i]
-		switch rep.Action {
-		case ActionBlock:
-			if !rep.ShadowMode && block == nil {
-				block = rep
-			}
-		case ActionRetry:
-			if retry == nil {
-				retry = rep
-			}
-		case ActionRedact:
-			lastRedact = rep
-		case ActionPass:
-			lastPass = rep
+		if rep.ShadowMode && rep.Action == ActionBlock {
+			continue
+		}
+		rank := reportPriority(rep)
+		if rank >= priority {
+			selected, priority = rep, rank
 		}
 	}
-	if block != nil {
-		return block
-	}
-	if retry != nil {
-		return retry
-	}
-	if lastRedact != nil {
-		return lastRedact
-	}
-	if lastPass != nil {
-		return lastPass
+	if selected != nil {
+		return selected
 	}
 	return FinishReport(&Report{Action: ActionPass}, ControlSpec{Action: ActionPass})
+}
+
+const (
+	priorityPass = iota + 1
+	priorityRedact
+	priorityRetry
+	priorityFatal
+	priorityNonRetryable
+	priorityBlock
+	priorityFault
+)
+
+func reportPriority(rep *Report) int {
+	switch rep.effectiveDisposition() {
+	case DispositionSystemFault:
+		return priorityFault
+	case DispositionTerminalDeny:
+		if rep.Action == ActionBlock {
+			return priorityBlock
+		}
+		if rep.Action == ActionRetry {
+			return priorityNonRetryable
+		}
+		return priorityFatal
+	case DispositionRetryableCorrection:
+		return priorityRetry
+	default:
+		if rep.Action == ActionRedact {
+			return priorityRedact
+		}
+		return priorityPass
+	}
 }

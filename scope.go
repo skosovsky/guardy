@@ -74,8 +74,9 @@ func (s StaticScope) Lookup(key string) (any, bool) {
 
 // ScopeRequirement describes a typed value required by a pipeline.
 type ScopeRequirement struct {
-	Key  string
-	Type string
+	Key      string
+	Type     string
+	expected reflect.Type
 }
 
 // ScopeKey names a typed scope value without making guardy own the host type.
@@ -100,7 +101,7 @@ func (k ScopeKey[T]) Name() string {
 
 // Requirement returns the typed requirement declared by this key.
 func (k ScopeKey[T]) Requirement() ScopeRequirement {
-	return ScopeRequirement{Key: k.name, Type: k.typeName}
+	return ScopeRequirement{Key: k.name, Type: k.typeName, expected: reflect.TypeFor[T]()}
 }
 
 // Lookup reads and type-checks the key from scope.
@@ -174,7 +175,7 @@ func scopeRequirementsFromKeys(keys []string) []ScopeRequirement {
 	}
 	out := make([]ScopeRequirement, 0, len(keys))
 	for _, key := range keys {
-		out = append(out, ScopeRequirement{Key: key, Type: ""})
+		out = append(out, ScopeRequirement{Key: key, Type: "", expected: nil})
 	}
 	return out
 }
@@ -190,36 +191,41 @@ func scopeRequirementKeys(requirements []ScopeRequirement) []string {
 		}
 		out = append(out, req.Key)
 	}
-	return out
+	return mergeRequiredKeys(nil, out)
 }
 
 func mergeScopeRequirements(existing []ScopeRequirement, next []ScopeRequirement) []ScopeRequirement {
 	if len(next) == 0 {
 		return existing
 	}
-	seen := make(map[string]int, len(existing)+len(next))
+	type requirementID struct {
+		key, contract string
+		expected      reflect.Type
+	}
+	seen := make(map[requirementID]bool, len(existing)+len(next))
+	typed := make(map[string]bool)
 	out := make([]ScopeRequirement, 0, len(existing)+len(next))
-	for _, req := range existing {
-		if req.Key == "" {
-			continue
-		}
-		seen[req.Key] = len(out)
-		out = append(out, req)
-	}
-	for _, req := range next {
-		if req.Key == "" {
-			continue
-		}
-		if idx, ok := seen[req.Key]; ok {
-			if out[idx].Type == "" && req.Type != "" {
-				out[idx].Type = req.Type
+	for _, group := range [][]ScopeRequirement{existing, next} {
+		for _, req := range group {
+			id := requirementID{key: req.Key, contract: req.Type, expected: req.expected}
+			if req.Key == "" || seen[id] {
+				continue
 			}
+			seen[id] = true
+			if req.Type != "" {
+				typed[req.Key] = true
+			}
+			out = append(out, req)
+		}
+	}
+	filtered := make([]ScopeRequirement, 0, len(out))
+	for _, req := range out {
+		if req.Type == "" && typed[req.Key] {
 			continue
 		}
-		seen[req.Key] = len(out)
-		out = append(out, req)
+		filtered = append(filtered, req)
 	}
-	return out
+	return filtered
 }
 
 func mergeRequiredKeys(existing []string, keys []string) []string {
@@ -262,9 +268,16 @@ func checkScopeRequirements(scope ExecutionScope, requirements []ScopeRequiremen
 		if req.Key == "" {
 			continue
 		}
-		if _, ok := scope.Lookup(req.Key); !ok {
+		value, ok := scope.Lookup(req.Key)
+		if !ok {
 			missing = append(missing, req.Key)
 			missingReqs = append(missingReqs, req)
+			continue
+		}
+		actual := reflect.TypeOf(value)
+		if req.Type != "" &&
+			(actual == nil || (req.expected != nil && !actual.AssignableTo(req.expected)) || (req.expected == nil && actual.String() != req.Type)) {
+			return &ScopeTypeError{Requirement: req}
 		}
 	}
 	if len(missing) > 0 {
@@ -275,3 +288,14 @@ func checkScopeRequirements(scope ExecutionScope, requirements []ScopeRequiremen
 	}
 	return nil
 }
+
+// ErrScopeIncompatible distinguishes incompatible facts from absent facts.
+var ErrScopeIncompatible = errors.New("guardy: incompatible scope value")
+
+// ScopeTypeError reports the required contract without exposing the supplied value.
+type ScopeTypeError struct{ Requirement ScopeRequirement }
+
+func (e *ScopeTypeError) Error() string {
+	return ErrScopeIncompatible.Error() + ": " + e.Requirement.Key
+}
+func (e *ScopeTypeError) Unwrap() error { return ErrScopeIncompatible }

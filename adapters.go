@@ -1,6 +1,9 @@
 package guardy
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Handler is a generic host function shape guardy can wrap without owning host types.
 type Handler[Req, Res any] func(context.Context, Req) (Res, error)
@@ -16,7 +19,7 @@ type GuardedJSONArgsHandler[Res any] func(context.Context, GuardedJSONArgs) (Res
 // WrapArgs validates raw arguments through an [ArgsPipeline] before calling next.
 func WrapArgs[Req, Res any](
 	p *ArgsPipeline[Req],
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next Handler[Req, Res],
 ) func(context.Context, string) (Res, GuardedArgs[Req], error) {
 	if p == nil {
@@ -26,6 +29,14 @@ func WrapArgs[Req, Res any](
 		panic("guardy: WrapArgs requires non-nil next")
 	}
 	return func(ctx context.Context, raw string) (Res, GuardedArgs[Req], error) {
+		scope, scopeErr := scopeFactory.scope(ctx)
+		if scopeErr != nil {
+			var zero Res
+			var payload GuardedArgs[Req]
+			payload.ConfigurationID = p.identity
+			payload, fault := argsFault(payload, scopeErr)
+			return zero, payload, fault
+		}
 		payload, err := p.Validate(ctx, scope, raw)
 		if err != nil {
 			var zero Res
@@ -40,7 +51,7 @@ func WrapArgs[Req, Res any](
 // boundary to next.
 func WrapGuardedArgs[Req, Res any](
 	p *ArgsPipeline[Req],
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next GuardedArgsHandler[Req, Res],
 ) func(context.Context, string) (Res, GuardedArgs[Req], error) {
 	if p == nil {
@@ -50,6 +61,14 @@ func WrapGuardedArgs[Req, Res any](
 		panic("guardy: WrapGuardedArgs requires non-nil next")
 	}
 	return func(ctx context.Context, raw string) (Res, GuardedArgs[Req], error) {
+		scope, scopeErr := scopeFactory.scope(ctx)
+		if scopeErr != nil {
+			var zero Res
+			var payload GuardedArgs[Req]
+			payload.ConfigurationID = p.identity
+			payload, fault := argsFault(payload, scopeErr)
+			return zero, payload, fault
+		}
 		payload, err := p.Validate(ctx, scope, raw)
 		if err != nil {
 			var zero Res
@@ -64,7 +83,7 @@ func WrapGuardedArgs[Req, Res any](
 // [GuardedJSONArgs] boundary to next.
 func WrapGuardedJSONArgs[Res any](
 	p *JSONArgsPipeline,
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next GuardedJSONArgsHandler[Res],
 ) func(context.Context, string) (Res, GuardedJSONArgs, error) {
 	if p == nil {
@@ -74,6 +93,14 @@ func WrapGuardedJSONArgs[Res any](
 		panic("guardy: WrapGuardedJSONArgs requires non-nil next")
 	}
 	return func(ctx context.Context, raw string) (Res, GuardedJSONArgs, error) {
+		scope, scopeErr := scopeFactory.scope(ctx)
+		if scopeErr != nil {
+			var zero Res
+			var payload GuardedJSONArgs
+			payload.ConfigurationID = p.identity
+			payload, fault := jsonArgsFault(payload, scopeErr)
+			return zero, payload, fault
+		}
 		args, err := p.Validate(ctx, scope, raw)
 		if err != nil {
 			var zero Res
@@ -87,7 +114,7 @@ func WrapGuardedJSONArgs[Res any](
 // WrapGuardedOutput validates next's output and returns a guarded output contract.
 func WrapGuardedOutput[Req, Res any](
 	p *Pipeline[Res],
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next Handler[Req, Res],
 ) func(context.Context, Req) (GuardedOutput[Res], error) {
 	if p == nil {
@@ -97,17 +124,28 @@ func WrapGuardedOutput[Req, Res any](
 		panic("guardy: WrapGuardedOutput requires non-nil next")
 	}
 	return func(ctx context.Context, req Req) (GuardedOutput[Res], error) {
+		scope, scopeErr := scopeFactory.scope(ctx)
+		if scopeErr != nil {
+			decision := DecisionFromReport(nil)
+			if failure, ok := errors.AsType[*PolicyFailure](scopeErr); ok {
+				decision = failure.Decision
+			}
+			var output GuardedOutput[Res]
+			output.ConfigurationID, output.Decision = p.name, decision
+			return output, scopeErr
+		}
 		res, err := next(ctx, req)
 		if err != nil {
 			var zero Res
 			return GuardedOutput[Res]{
-				Value:       zero,
-				Kind:        PayloadSafeUserText,
-				Decision:    DecisionFromReport(nil),
-				Reports:     nil,
-				Deliverable: false,
-				Channel:     "",
-				Fallback:    false,
+				ConfigurationID: p.name,
+				Value:           zero,
+				Kind:            PayloadSafeUserText,
+				Decision:        DecisionFromReport(nil),
+				Reports:         nil,
+				Deliverable:     false,
+				Channel:         "",
+				Fallback:        false,
 			}, err
 		}
 		return p.GuardOutput(ctx, scope, res)

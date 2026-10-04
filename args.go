@@ -27,18 +27,47 @@ func (f ShapeProviderFunc[T]) Shape() any {
 
 // GuardedArgs is the canonical typed argument boundary returned by guardy.
 type GuardedArgs[T any] struct {
-	Value        T
-	Raw          string
-	SanitizedRaw string
-	Reports      []Report
-	Decision     Decision
-	PayloadKind  PayloadKind
+	Value           T
+	Raw             string
+	SanitizedRaw    string
+	Reports         []Report
+	Decision        Decision
+	PayloadKind     PayloadKind
+	ConfigurationID string
 }
 
 // ArgsPipeline validates raw arguments and decodes them into T as one guardy-owned contract.
 type ArgsPipeline[T any] struct {
-	raw   *Pipeline[string]
-	shape ShapeProvider[T]
+	raw          *Pipeline[string]
+	shape        ShapeProvider[T]
+	final        *Pipeline[string]
+	decode       func(string, *T) error
+	encode       func(T) (string, error)
+	requireFinal bool
+	identity     string
+}
+
+// WithRequiredArgsFinalGuard declares mandatory final schema/policy coverage.
+// Compilation rejects nil; metadata-only ShapeProvider does not satisfy it.
+func WithRequiredArgsFinalGuard[T any](final *Pipeline[string]) ArgsOption[T] {
+	return func(p *ArgsPipeline[T]) { p.final = final; p.requireFinal = true }
+}
+
+// WithArgsConfigurationID attaches caller-owned policy/configuration identity.
+func WithArgsConfigurationID[T any](identity string) ArgsOption[T] {
+	return func(p *ArgsPipeline[T]) { p.identity = identity }
+}
+
+// WithArgsFinalGuard checks canonical bytes after decode and all post-bind hooks.
+// This pipeline must be read-only: changing final bytes is a configuration fault.
+func WithArgsFinalGuard[T any](final *Pipeline[string]) ArgsOption[T] {
+	return func(p *ArgsPipeline[T]) { p.final = final }
+}
+
+// WithArgsCodec installs caller-owned bind/encode functions. Both are required.
+// Encode must faithfully represent the bound value; custom codecs own this invariant.
+func WithArgsCodec[T any](decode func(string, *T) error, encode func(T) (string, error)) ArgsOption[T] {
+	return func(p *ArgsPipeline[T]) { p.decode, p.encode = decode, encode }
 }
 
 // ArgsOption configures [ArgsPipeline].
@@ -56,9 +85,23 @@ func CompileArgs[T any](raw *Pipeline[string], opts ...ArgsOption[T]) (*ArgsPipe
 	if raw == nil {
 		return nil, errArgsPipelineNil
 	}
-	p := &ArgsPipeline[T]{raw: raw, shape: nil}
+	p := &ArgsPipeline[T]{
+		raw:          raw,
+		shape:        nil,
+		final:        nil,
+		decode:       func(s string, v *T) error { return json.Unmarshal([]byte(s), v) },
+		encode:       func(v T) (string, error) { b, err := json.Marshal(v); return string(b), err },
+		requireFinal: false,
+		identity:     raw.name,
+	}
 	for _, opt := range opts {
 		opt(p)
+	}
+	if p.decode == nil || p.encode == nil {
+		return nil, errors.New("guardy: incomplete args codec")
+	}
+	if p.requireFinal && p.final == nil {
+		return nil, streamConfigurationError(errors.New("guardy: mandatory final args guard unavailable"))
 	}
 	return p, nil
 }
@@ -85,7 +128,10 @@ func (p *ArgsPipeline[T]) RequiredScope() []ScopeRequirement {
 	if p == nil || p.raw == nil {
 		return nil
 	}
-	return p.raw.RequiredScope()
+	if p.final == nil {
+		return p.raw.RequiredScope()
+	}
+	return mergeScopeRequirements(p.raw.RequiredScope(), p.final.RequiredScope())
 }
 
 // RequiredScopeKeys returns scope keys from the raw guard.
@@ -93,7 +139,7 @@ func (p *ArgsPipeline[T]) RequiredScopeKeys() []string {
 	if p == nil || p.raw == nil {
 		return nil
 	}
-	return p.raw.RequiredScopeKeys()
+	return scopeRequirementKeys(p.RequiredScope())
 }
 
 // Validate runs raw validation before decoding into T.
@@ -101,16 +147,23 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 	if p == nil || p.raw == nil {
 		var zero T
 		return GuardedArgs[T]{
-			Value:        zero,
-			Raw:          raw,
-			SanitizedRaw: raw,
-			Reports:      nil,
-			Decision:     DecisionFromReport(nil),
-			PayloadKind:  PayloadSafeUserText,
+			ConfigurationID: "",
+			Value:           zero,
+			Raw:             raw,
+			SanitizedRaw:    raw,
+			Reports:         nil,
+			Decision:        DecisionFromReport(nil),
+			PayloadKind:     PayloadSafeUserText,
 		}, errArgsPipelineNil
+	}
+	if err := checkScopeRequirements(scope, p.RequiredScope()); err != nil {
+		var payload GuardedArgs[T]
+		payload.Raw, payload.ConfigurationID = raw, p.identity
+		return argsFault(payload, err)
 	}
 	result, err := p.raw.Run(ctx, scope, raw)
 	payload := guardedArgsFromRun[T](raw, result)
+	payload.ConfigurationID = p.identity
 	if err != nil {
 		return payload, err
 	}
@@ -119,7 +172,7 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 	}
 
 	var value T
-	if unmarshalErr := json.Unmarshal([]byte(result.Output), &value); unmarshalErr != nil {
+	if unmarshalErr := p.decode(result.Output, &value); unmarshalErr != nil {
 		rep := FinishReport(&Report{
 			Action:   ActionRetry,
 			Code:     CodeJSONInvalid,
@@ -141,8 +194,40 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 		decisionReport := refreshGuardedArgsDecision(&payload)
 		return payload, retryErrorFromReport(decisionReport)
 	}
+	canonical, encodeErr := p.encode(value)
+	if encodeErr != nil {
+		return argsFault(payload, encodeErr)
+	}
+	payload.SanitizedRaw = canonical
+	if p.final != nil {
+		checked, checkErr := p.final.Run(ctx, scope, canonical)
+		payload.Reports = append(payload.Reports, checked.Reports...)
+		rep := refreshGuardedArgsDecision(&payload)
+		if checkErr != nil {
+			return payload, checkErr
+		}
+		if decErr := errorFromDecision(rep); decErr != nil {
+			return payload, decErr
+		}
+		if checked.Output != canonical {
+			return argsFault(payload, errors.New("guardy: final args guard mutated canonical payload"))
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return argsFault(payload, err)
+	}
 	payload.Value = value
 	return payload, nil
+}
+
+func argsFault[T any](payload GuardedArgs[T], cause error) (GuardedArgs[T], error) {
+	payload.Reports = append(payload.Reports, validatorFaultReport(cause))
+	refreshGuardedArgsDecision(&payload)
+	err := validatorFaultError(cause)
+	if failure, ok := errors.AsType[*PolicyFailure](err); ok {
+		payload.Decision = failure.Decision
+	}
+	return payload, err
 }
 
 func refreshGuardedArgsDecision[T any](args *GuardedArgs[T]) *Report {
@@ -158,11 +243,12 @@ func refreshGuardedArgsDecision[T any](args *GuardedArgs[T]) *Report {
 func guardedArgsFromRun[T any](raw string, result RunResult[string]) GuardedArgs[T] {
 	var zero T
 	return GuardedArgs[T]{
-		Value:        zero,
-		Raw:          raw,
-		SanitizedRaw: result.Output,
-		Reports:      append([]Report(nil), result.Reports...),
-		Decision:     result.PolicyDecision(),
-		PayloadKind:  result.OutputKind,
+		ConfigurationID: "",
+		Value:           zero,
+		Raw:             raw,
+		SanitizedRaw:    result.Output,
+		Reports:         append([]Report(nil), result.Reports...),
+		Decision:        result.PolicyDecision(),
+		PayloadKind:     result.OutputKind,
 	}
 }

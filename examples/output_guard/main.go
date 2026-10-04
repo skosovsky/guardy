@@ -38,8 +38,7 @@ func runPipeline(ctx context.Context, pipeline *guardy.Pipeline[string], input, 
 	fmt.Println("---", label, "---")
 	output, err := pipeline.GuardOutput(ctx, nil, input)
 	if err != nil {
-		var failure *guardy.PolicyFailure
-		if errors.As(err, &failure) {
+		if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 			fmt.Fprintf(os.Stderr, "blocked: code=%s disposition=%s msg=%s\n",
 				failure.Decision.Code, failure.Decision.Disposition, failure.Decision.SafeMessage)
 			fmt.Fprintln(os.Stderr, "PayloadKind:", output.Kind)

@@ -12,7 +12,7 @@ jobs:
     outputs:
       modules: ${{ steps.set-matrix.outputs.modules }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
       - id: set-matrix
         run: |
           MODULES=$(find . -type d \( -name ".*" -not -name "." -o -name "vendor" \) -prune -o -type f -name "go.mod" -exec dirname {} \; | jq -R -s -c 'split("\n") | map(select(length > 0))')
@@ -26,14 +26,14 @@ jobs:
       matrix:
         module: ${{ fromJson(needs.prepare-matrix.outputs.modules) }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           go-version-file: ${{ matrix.module }}/go.mod
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@v9.3.0
         with:
-          version: v2.11.3
+          version: v2.14.0
           working-directory: ${{ matrix.module }}
           args: --timeout=5m
 
@@ -46,8 +46,8 @@ jobs:
       matrix:
         module: ${{ fromJson(needs.prepare-matrix.outputs.modules) }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
         with:
           cache: true
           go-version-file: ${{ matrix.module }}/go.mod

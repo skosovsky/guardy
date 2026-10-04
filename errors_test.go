@@ -44,69 +44,6 @@ func TestValidatorFaultError_SystemFault(t *testing.T) {
 	}
 }
 
-func TestStreamErrorFromDecision_RetryNotRetryable(t *testing.T) {
-	t.Parallel()
-	rep := FinishReport(&Report{
-		Action:    ActionRetry,
-		Retryable: false,
-		Reason:    "no retry",
-	}, ControlSpec{Action: ActionRetry, Retryable: new(false)})
-	err := streamErrorFromDecision(rep)
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.Failure.Decision.Retryable {
-		t.Fatal("Retryable should stay false")
-	}
-	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
-	}
-	if streamErr.Action != ActionBlock {
-		t.Fatalf("Action = %v, want ActionBlock for terminal retry", streamErr.Action)
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatal("expected ErrBlocked for terminal retry")
-	}
-}
-
-func TestStreamErrorFromDecision_Block(t *testing.T) {
-	t.Parallel()
-	rep := FinishReport(&Report{
-		Action: ActionBlock,
-		Code:   "DENIED",
-	}, ControlSpec{Action: ActionBlock})
-	err := streamErrorFromDecision(rep)
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.Failure.Decision.Retryable {
-		t.Fatal("block should not be Retryable")
-	}
-	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatal("expected ErrBlocked")
-	}
-}
-
-func TestStreamErrorFromDecision_NilReport(t *testing.T) {
-	t.Parallel()
-	err := streamErrorFromDecision(nil)
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.Action != ActionBlock {
-		t.Fatalf("action = %v", streamErr.Action)
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatal("expected ErrBlocked")
-	}
-}
-
 func TestRetryError_UnwrapAndDisposition(t *testing.T) {
 	t.Parallel()
 	rep := FinishReport(&Report{
@@ -152,17 +89,24 @@ func TestErrorFromDecision_RetryableReturnsRetryError(t *testing.T) {
 		Feedback: "fix",
 	}, ControlSpec{Action: ActionRetry})
 	err := errorFromDecision(rep)
-	var retryErr *RetryError
-	if !errors.As(err, &retryErr) {
+	if _, ok := errors.AsType[*RetryError](err); !ok {
 		t.Fatalf("expected RetryError, got %v", err)
 	}
 }
 
-func TestStreamErrorFromDecision_PassReturnsValidatorFailed(t *testing.T) {
-	t.Parallel()
-	rep := FinishReport(&Report{Action: ActionPass}, ControlSpec{Action: ActionPass})
-	err := streamErrorFromDecision(rep)
-	if !errors.Is(err, ErrValidatorFailed) {
-		t.Fatalf("err = %v", err)
+func TestCanonicalErrorGate(t *testing.T) {
+	// Arrange / Act / Assert: all stream failures now reuse the canonical gate.
+	for _, rep := range []Report{{Action: ActionBlock}, {Action: ActionRetry, Retryable: false}, {Action: ActionPass, Fatal: true}} {
+		err := errorFromDecision(&rep)
+		var pf *PolicyFailure
+		if !errors.Is(err, ErrBlocked) || !errors.As(err, &pf) || !pf.Decision.IsTerminal() {
+			t.Fatalf("%+v %v", rep, err)
+		}
+	}
+	if err := errorFromDecision(&Report{Action: ActionPass}); err != nil {
+		t.Fatal(err)
+	}
+	if err := errorFromDecision(nil); !errors.Is(err, ErrBlocked) {
+		t.Fatal(err)
 	}
 }

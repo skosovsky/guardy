@@ -51,24 +51,26 @@ func WithDeliveryFallback(fallback any) DeliveryPolicyOption {
 // GuardedOutput is the canonical guarded output value returned by guardy.
 // Host transports should format this value, not re-classify its safety.
 type GuardedOutput[T any] struct {
-	Value       T
-	Kind        PayloadKind
-	Decision    Decision
-	Reports     []Report
-	Deliverable bool
-	Channel     string
-	Fallback    bool
+	Value           T
+	Kind            PayloadKind
+	Decision        Decision
+	Reports         []Report
+	Deliverable     bool
+	Channel         string
+	Fallback        bool
+	ConfigurationID string
 }
 
 // GuardedDelivery is the channel-aware guarded output contract.
 type GuardedDelivery[T any] struct {
-	Value       T
-	Kind        PayloadKind
-	Decision    Decision
-	Reports     []Report
-	Deliverable bool
-	Channel     string
-	Fallback    bool
+	Value           T
+	Kind            PayloadKind
+	Decision        Decision
+	Reports         []Report
+	Deliverable     bool
+	Channel         string
+	Fallback        bool
+	ConfigurationID string
 }
 
 // DeliverableValue returns the guarded value only when guardy marked it deliverable.
@@ -105,30 +107,73 @@ func (p *Pipeline[T]) GuardDelivery(
 	policy = normalizeDeliveryPolicy(policy)
 	result, err := p.Run(ctx, scope, output)
 	guarded := guardedOutputFromRun(result, policy)
+	guarded.ConfigurationID = p.name
 	if err != nil {
 		return suppressDelivery(guarded), err
 	}
 	if decErr := errorFromDecision(result.Decision()); decErr != nil {
-		guarded = applyDeliveryFallback(guarded, policy)
+		if result.PolicyDecision().IsSystemFault() {
+			return suppressDelivery(guarded), decErr
+		}
+		var fallbackErr error
+		guarded, fallbackErr = p.checkedDeliveryFallback(ctx, scope, guarded, policy)
+		if fallbackErr != nil {
+			return guarded, fallbackErr
+		}
 		return guarded, decErr
 	}
+	fallback := policy.Fallback
+	policy.Fallback = nil
 	guarded, err = applyDeliveryPolicy(guarded, policy)
 	if err != nil {
+		policy.Fallback = fallback
+		var fallbackErr error
+		guarded, fallbackErr = p.checkedDeliveryFallback(ctx, scope, guarded, policy)
+		if fallbackErr != nil {
+			return guarded, fallbackErr
+		}
 		return guarded, err
 	}
 	return guarded, nil
 }
 
+func (p *Pipeline[T]) checkedDeliveryFallback(
+	ctx context.Context,
+	scope ExecutionScope,
+	blocked GuardedDelivery[T],
+	policy DeliveryPolicy,
+) (GuardedDelivery[T], error) {
+	candidate, ok := policy.Fallback.(T)
+	if !ok {
+		return suppressDelivery(blocked), nil
+	}
+	policy.Fallback = nil
+	checked, err := p.GuardDelivery(ctx, scope, policy, candidate)
+	if err != nil || !checked.Deliverable {
+		if checked.Decision.IsSystemFault() {
+			return suppressDelivery(checked), err
+		}
+		return suppressDelivery(blocked), nil
+	}
+	blocked.Value = checked.Value
+	blocked.Kind = checked.Kind
+	blocked.Deliverable = true
+	blocked.Fallback = true
+	blocked.Reports = append(blocked.Reports, checked.Reports...)
+	return blocked, nil
+}
+
 func guardedOutputFromRun[T any](result RunResult[T], policy DeliveryPolicy) GuardedDelivery[T] {
 	decision := result.PolicyDecision()
 	return GuardedDelivery[T]{
-		Value:       result.Output,
-		Kind:        result.OutputKind,
-		Decision:    decision,
-		Reports:     append([]Report(nil), result.Reports...),
-		Deliverable: decision.Disposition == DispositionNone,
-		Channel:     policy.Channel,
-		Fallback:    false,
+		ConfigurationID: "",
+		Value:           result.Output,
+		Kind:            result.OutputKind,
+		Decision:        decision,
+		Reports:         append([]Report(nil), result.Reports...),
+		Deliverable:     decision.Disposition == DispositionNone,
+		Channel:         policy.Channel,
+		Fallback:        false,
 	}
 }
 
@@ -174,7 +219,7 @@ func applyDeliveryPolicy[T any](
 	guarded.Kind = kind
 	guarded.Reports = append(guarded.Reports, *rep)
 	guarded.Decision = DecisionFromReport(rep)
-	guarded = applyDeliveryFallback(guarded, policy)
+	guarded = suppressDelivery(guarded)
 	return guarded, blockErrorFromReport(rep)
 }
 
@@ -183,25 +228,6 @@ func suppressDelivery[T any](guarded GuardedDelivery[T]) GuardedDelivery[T] {
 	guarded.Value = zero
 	guarded.Deliverable = false
 	guarded.Fallback = false
-	return guarded
-}
-
-func applyDeliveryFallback[T any](guarded GuardedDelivery[T], policy DeliveryPolicy) GuardedDelivery[T] {
-	if fallback, ok := policy.Fallback.(T); ok {
-		kind := classifyDeliveryKind(PayloadSafeUserText, fallback)
-		if !deliveryPolicyAllows(policy, kind) {
-			return suppressDelivery(guarded)
-		}
-		guarded.Value = fallback
-		guarded.Kind = kind
-		guarded.Decision.PayloadKind = kind
-		guarded.Deliverable = true
-		guarded.Fallback = true
-		return guarded
-	}
-	var zero T
-	guarded.Value = zero
-	guarded.Deliverable = false
 	return guarded
 }
 

@@ -26,13 +26,13 @@ func ApplyControlDefaults(rep *Report, spec ControlSpec) {
 }
 
 // ShouldRetry reports whether the caller should attempt a retry (e.g. LLM correction).
-// Prefer [Report.IsRetryableCorrection] for control flow (task14 §2.2).
+// Prefer [Report.IsRetryableCorrection] for control flow.
 func (r *Report) ShouldRetry() bool {
 	return r.IsRetryableCorrection()
 }
 
 // ShouldStop reports whether the upstream pipeline or request must halt.
-// Prefer [Report.IsTerminalDeny] for control flow (task14 §2.2).
+// Prefer [Report.IsTerminalDeny] for control flow.
 func (r *Report) ShouldStop() bool {
 	return r.IsTerminalDeny()
 }

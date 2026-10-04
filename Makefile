@@ -1,4 +1,5 @@
 GO      := go
+GOLANGCI_LINT ?= golangci-lint
 MODULES := $(shell find . -type d \( -name ".*" -not -name "." -o -name "vendor" \) -prune -o -type f -name "go.mod" -exec dirname {} \;)
 
 .PHONY: lint fix test bench bench-hotpath fuzz cover release-patch release-break
@@ -6,7 +7,7 @@ MODULES := $(shell find . -type d \( -name ".*" -not -name "." -o -name "vendor"
 lint:
 	@for dir in $(MODULES); do \
 		echo "golangci-lint - $$dir"; \
-		(cd "$$dir" && golangci-lint run ./...) || exit 1; \
+		(cd "$$dir" && $(GOLANGCI_LINT) run --allow-serial-runners ./...) || exit 1; \
 	done
 
 fix:
@@ -14,7 +15,7 @@ fix:
 	@for dir in $(MODULES); do \
 		echo "fix & tidy - $$dir"; \
 		(cd "$$dir" && $(GO) fix ./... && $(GO) mod tidy) || exit 1; \
-		(cd "$$dir" && golangci-lint run --fix ./...) || exit 1; \
+		(cd "$$dir" && $(GOLANGCI_LINT) run --fix ./...) || exit 1; \
 	done
 
 test:

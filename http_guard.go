@@ -189,7 +189,7 @@ func scopeRequirementResponses(err error) []scopeRequirementResponse {
 	}
 	out := make([]scopeRequirementResponse, 0, len(requirements))
 	for _, req := range requirements {
-		out = append(out, scopeRequirementResponse(req))
+		out = append(out, scopeRequirementResponse{Key: req.Key, Type: req.Type})
 	}
 	return out
 }

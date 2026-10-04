@@ -76,14 +76,7 @@ func TestTypedScopeRequirement_TypeMismatchPolicyDecision(t *testing.T) {
 	result, err := pipeline.Run(context.Background(), NewScope(ScopeValue(wrongTypeKey, "wrong-type")), "ok")
 
 	// Assert.
-	if err != nil {
-		t.Fatal(err)
-	}
-	decision := result.PolicyDecision()
-	if !decision.IsTerminal() {
-		t.Fatalf("Decision = %+v", decision)
-	}
-	if decision.Code != CodeAttributeTypeMismatch {
-		t.Fatalf("Code = %q", decision.Code)
+	if !errors.Is(err, ErrScopeIncompatible) {
+		t.Fatalf("Decision = %+v, err=%v", result.PolicyDecision(), err)
 	}
 }

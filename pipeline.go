@@ -2,6 +2,7 @@ package guardy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -10,6 +11,9 @@ import (
 )
 
 // ValidatorMiddleware wraps a Validator with cross-cutting logic (metrics, logging).
+// Construction must be deterministic: stream compilation checks the applied
+// wrapper capabilities, including scoped wrappers reconstructed per invocation.
+// Unit/partial streaming requires an explicit declaration on the resulting wrapper.
 type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 
 // Pipeline orchestrates the execution of multiple Validators.
@@ -32,6 +36,8 @@ type Pipeline[T any] struct {
 	// Wrapped chains built at Use() time (zero-overhead hot path).
 	fastPathWrapped []Validator[T]
 	slowPathWrapped []Validator[T]
+	fastPathLayers  []Validator[T]
+	slowPathLayers  []Validator[T]
 }
 
 // PipelineOption configures a Pipeline.
@@ -100,8 +106,8 @@ func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) *Pipeline[T] {
 	}
 	next := p.clone()
 	next.middlewares = append(next.middlewares, mw...)
-	next.fastPathWrapped = next.wrapAll(next.fastPath)
-	next.slowPathWrapped = next.wrapAll(next.slowPath)
+	next.fastPathWrapped, next.fastPathLayers = next.wrapAll(next.fastPath)
+	next.slowPathWrapped, next.slowPathLayers = next.wrapAll(next.slowPath)
 	return next
 }
 
@@ -133,20 +139,42 @@ func (p *Pipeline[T]) fastChain() []Validator[T] {
 }
 
 func (p *Pipeline[T]) policyChain(scope ExecutionScope) []Validator[T] {
+	chain, _ := p.buildPolicyChain(scope, false)
+	return chain
+}
+
+func (p *Pipeline[T]) buildPolicyChain(scope ExecutionScope, collectLayers bool) ([]Validator[T], []Validator[T]) {
 	if len(p.policyValidators) == 0 {
-		return nil
+		return nil, nil
 	}
 	out := make([]Validator[T], len(p.policyValidators))
+	var layers []Validator[T]
 	for i, pv := range p.policyValidators {
 		base := policyValidatorAdapter[T]{p: pv, scope: scope}
 		wrapped := Validator[T](base)
+		if capable, ok := pv.(streamCapable); ok {
+			wrapped = streamingPolicyAdapter[T]{policyValidatorAdapter: base, capability: capable.StreamCapabilities()}
+		}
 		for _, mw := range slices.Backward(p.middlewares) {
 			wrapped = mw(wrapped)
+			if collectLayers {
+				layers = append(layers, wrapped)
+			}
 		}
 		out[i] = wrapped
 	}
-	return out
+	return out, layers
 }
+
+// Preserve a declared scoped rule capability through the invocation adapter.
+// Middleware still has to declare the capabilities of its resulting wrapper.
+type streamingPolicyAdapter[T any] struct {
+	policyValidatorAdapter[T]
+
+	capability StreamCapabilities
+}
+
+func (v streamingPolicyAdapter[T]) StreamCapabilities() StreamCapabilities { return v.capability }
 
 func (p *Pipeline[T]) slowChain() []Validator[T] {
 	if len(p.middlewares) == 0 {
@@ -155,19 +183,21 @@ func (p *Pipeline[T]) slowChain() []Validator[T] {
 	return p.slowPathWrapped
 }
 
-func (p *Pipeline[T]) wrapAll(vv []Validator[T]) []Validator[T] {
+func (p *Pipeline[T]) wrapAll(vv []Validator[T]) ([]Validator[T], []Validator[T]) {
 	if len(p.middlewares) == 0 {
-		return vv
+		return vv, nil
 	}
 	out := make([]Validator[T], len(vv))
+	var layers []Validator[T]
 	for i, v := range vv {
 		wrapped := v
 		for _, mw := range slices.Backward(p.middlewares) {
 			wrapped = mw(wrapped)
+			layers = append(layers, wrapped)
 		}
 		out[i] = wrapped
 	}
-	return out
+	return out, layers
 }
 
 func (p *Pipeline[T]) clone() *Pipeline[T] {
@@ -185,6 +215,8 @@ func (p *Pipeline[T]) clone() *Pipeline[T] {
 	}
 	next.fastPathWrapped = append([]Validator[T](nil), p.fastPathWrapped...)
 	next.slowPathWrapped = append([]Validator[T](nil), p.slowPathWrapped...)
+	next.fastPathLayers = append([]Validator[T](nil), p.fastPathLayers...)
+	next.slowPathLayers = append([]Validator[T](nil), p.slowPathLayers...)
 	return next
 }
 
@@ -297,9 +329,8 @@ func (p *Pipeline[T]) validatorFaultResult(output T, reports []Report, cause err
 //
 //nolint:funlen,gocognit,gocyclo,cyclop // single orchestration function; splitting would obscure phase flow
 func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (RunResult[T], error) {
-	var zero RunResult[T]
 	if err := checkScopeRequirements(scope, p.requiredScope); err != nil {
-		return zero, err
+		return p.validatorFaultResult(input, nil, err)
 	}
 	if scope == nil {
 		scope = MapScope{}
@@ -313,9 +344,12 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	current := input
 	for _, v := range fastToRun {
 		if err := fastCtx.Err(); err != nil {
-			return zero, err
+			return p.validatorFaultResult(current, reports, err)
 		}
 		out, rep, err := v.Validate(fastCtx, current)
+		if err == nil {
+			err = fastCtx.Err()
+		}
 		if err != nil {
 			return p.validatorFaultResult(current, reports, err)
 		}
@@ -338,9 +372,12 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	policyToRun := p.policyChain(scope)
 	for _, v := range policyToRun {
 		if err := policyCtx.Err(); err != nil {
-			return zero, err
+			return p.validatorFaultResult(current, reports, err)
 		}
 		out, rep, err := v.Validate(policyCtx, current)
+		if err == nil {
+			err = policyCtx.Err()
+		}
 		if err != nil {
 			return p.validatorFaultResult(current, reports, err)
 		}
@@ -360,6 +397,9 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 
 	// Phase 2: parallel Slow-Path (read-only; Redact forbidden)
 	if len(p.slowPath) == 0 {
+		if err := ctx.Err(); err != nil {
+			return p.validatorFaultResult(current, reports, err)
+		}
 		return p.finalizeResult(current, reports), nil
 	}
 
@@ -386,6 +426,16 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			out, rep, validateErr := v.Validate(gctx, current)
 			_ = out // slow-path is read-only, we ignore mutations
 			if validateErr != nil {
+				// A sibling deny cancels cooperative checks; genuine detector faults
+				// still outrank deny/retry in the canonical result.
+				if errors.Is(validateErr, context.Canceled) && ctx.Err() == nil {
+					mu.Lock()
+					stopped := block != nil || retry != nil
+					mu.Unlock()
+					if stopped {
+						return nil
+					}
+				}
 				mu.Lock()
 				if firstErr == nil {
 					firstErr = validateErr
@@ -423,14 +473,14 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	err := g.Wait()
 	reports = append(reports, slowReps...)
 	partial := p.finalizeResult(current, reports)
-	if block != nil || retry != nil {
-		return partial, nil
-	}
 	if err != nil {
-		return partial, validatorFaultError(err)
+		return p.validatorFaultResult(current, reports, err)
 	}
 	if firstErr != nil {
-		return partial, validatorFaultError(firstErr)
+		return p.validatorFaultResult(current, reports, firstErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return p.validatorFaultResult(current, reports, err)
 	}
 	return partial, nil
 }

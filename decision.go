@@ -107,7 +107,7 @@ func policyDecisionReport(reports []Report, outputKind PayloadKind) *Report {
 // PolicyFailure exposes a guardy decision as an error contract.
 // It is available through [errors.As] from guardy boundary errors.
 //
-//nolint:errname // Task15 names the canonical contract PolicyFailure.
+//nolint:errname // PolicyFailure represents the canonical boundary failure contract.
 type PolicyFailure struct {
 	Decision Decision
 	Cause    error

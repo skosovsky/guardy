@@ -2,6 +2,8 @@ package guardy
 
 import (
 	"context"
+	"errors"
+	"reflect"
 )
 
 // PostBindValidator is optional domain validation after JSON unmarshal in [ArgsPipeline.Validate].
@@ -13,9 +15,18 @@ type PostBindValidator interface {
 }
 
 func invokePostBind(ctx context.Context, v any) error {
-	pb, ok := v.(PostBindValidator)
-	if !ok {
-		return nil
+	value := reflect.ValueOf(v)
+	for value.IsValid() {
+		if value.Kind() == reflect.Pointer && value.IsNil() {
+			return errors.New("guardy: null argument cannot be validated")
+		}
+		if pb, ok := reflect.TypeAssert[PostBindValidator](value); ok {
+			return pb.ValidatePostBind(ctx)
+		}
+		if value.Kind() != reflect.Pointer && value.Kind() != reflect.Interface {
+			break
+		}
+		value = value.Elem()
 	}
-	return pb.ValidatePostBind(ctx)
+	return nil
 }

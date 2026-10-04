@@ -6,885 +6,259 @@ import (
 	"errors"
 	"io"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
-func TestGuardWriter_Pass(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(4))
-	_, err := gw.Write([]byte("hello"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = gw.Close()
-	if out.String() != "hello" {
-		t.Errorf("out = %q", out.String())
-	}
+// The old incremental writer tests are migrated to explicit release profiles.
+// Close now aborts: every successful producer must explicitly call Complete.
+func testStreamConfig(p *Pipeline[string]) StreamConfig {
+	return StreamConfig{Identity: "contract", Profile: ReleaseWholeResponse, Pipeline: p,
+		Delivery: NewDeliveryPolicy("external"), MaxInputBytes: 32768, MaxPendingBytes: 32768,
+		MaxUnitBytes: 32768, MaxOutputBytes: 65536, ValidationTimeout: time.Second}
 }
 
-func TestGuardWriter_Block(t *testing.T) {
-	v := &fakeValidator{
-		name: "block",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "x") {
-				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
+func TestStreamPassRedactAndEmpty(t *testing.T) {
+	for _, test := range []struct {
+		name, input, output string
+		action              Action
+	}{
+		{"pass", "hello", "hello", ActionPass},
+		{"mutated_pass", "hello", "HELLO", ActionPass},
+		{"redact", "secret", "[safe]", ActionRedact},
+		{"empty_redaction", "secret", "", ActionRedact},
+		{"cyrillic", "Привет мир", "Привет мир", ActionPass},
+		{"emoji", "a😊b", "a😊b", ActionPass},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange.
+			rule := ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
+				return test.output, &Report{Action: test.action}, nil
+			})
+			var sink bytes.Buffer
+			s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithFastPath(rule))))
+			if err != nil {
+				t.Fatal(err)
 			}
-			return text, &Report{Action: ActionPass, Validator: "block"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	n, err := gw.Write([]byte("ab"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 2 {
-		t.Errorf("n = %d", n)
-	}
-	_, err = gw.Write([]byte("xy"))
-	if err == nil {
-		t.Error("expected error on block")
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Errorf("err = %v", err)
-	}
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.ReportSnapshot().Action != ActionBlock {
-		t.Errorf("Report.Action = %v", streamErr.ReportSnapshot().Action)
-	}
-	_, _ = gw.Write([]byte("z"))
-	if out.String() != "ab" {
-		t.Errorf("out = %q (blocked content should not appear)", out.String())
-	}
-}
-
-func TestGuardWriter_Retry(t *testing.T) {
-	v := &fakeValidator{
-		name: "retry",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "x") {
-				return text, FinishReport(&Report{
-					Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it",
-				}, ControlSpec{Action: ActionRetry}), nil
+			// Act: even UTF-8 partial bytes remain pending.
+			for _, b := range []byte(test.input) {
+				if _, err = s.Write([]byte{b}); err != nil {
+					t.Fatal(err)
+				}
 			}
-			return text, &Report{Action: ActionPass, Validator: ActionRetry.String()}, nil
+			if sink.Len() != 0 {
+				t.Fatal("premature release")
+			}
+			outcome, err := s.Complete(context.Background())
+			// Assert.
+			if err != nil || sink.String() != test.output || outcome.ReleasedBytes != int64(len(test.output)) {
+				t.Fatalf("%q %+v %v", sink.String(), outcome, err)
+			}
+			if _, err := s.Write([]byte("later")); !errors.Is(err, io.ErrClosedPipe) {
+				t.Fatalf("write after terminal: %v", err)
+			}
+		})
+	}
+}
+
+func TestStreamCanonicalDenyRetryAndFault(t *testing.T) {
+	for _, rep := range []Report{
+		{Action: ActionBlock, Code: "DENY"},
+		{Action: ActionRetry, Retryable: true, Code: "CORRECT"},
+		{Action: ActionRetry, Retryable: false, Code: "TERMINAL"},
+		{Action: ActionPass, Fatal: true, Code: "FATAL"},
+		{Action: ActionPass, Disposition: DispositionSystemFault, Code: "FAULT"},
+	} {
+		// Arrange.
+		rule := ValidatorFunc[string](
+			func(_ context.Context, s string) (string, *Report, error) { return s, &rep, nil },
+		)
+		var sink bytes.Buffer
+		s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithFastPath(rule))))
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = s.Write([]byte("secret"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Act.
+		_, err = s.Complete(context.Background())
+		var failure *PolicyFailure
+		// Assert.
+		if err == nil || sink.Len() != 0 || !errors.As(err, &failure) || failure.Decision.Code != rep.Code {
+			t.Fatalf("%+v %q %v", failure, sink.String(), err)
+		}
+		if err2 := s.Close(); !errors.Is(err2, err) {
+			t.Fatalf("non-sticky: %v", err2)
+		}
+	}
+}
+
+func TestStreamRequiredScopeBeforeValidation(t *testing.T) {
+	// Arrange.
+	key := NewScopeKey[string]("destination")
+	calls := 0
+	policy := NewPolicyFuncWithScope(
+		[]ScopeRequirement{key.Requirement()},
+		func(_ context.Context, s string, _ ExecutionScope) (string, *Report, error) {
+			calls++
+			return s, nil, nil
 		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	_, _ = gw.Write([]byte("ab"))
-	_, err := gw.Write([]byte("xy"))
-	if err == nil {
-		t.Fatal("expected error on retry")
-	}
-	if !errors.Is(err, ErrRetryRequested) {
-		t.Errorf("err = %v, want ErrRetryRequested", err)
-	}
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if !streamErr.Failure.Decision.Retryable {
-		t.Error("retry decision should set Retryable")
-	}
-	if streamErr.ReportSnapshot().Feedback != "fix it" {
-		t.Errorf("Feedback = %q", streamErr.ReportSnapshot().Feedback)
-	}
-	if out.String() != "ab" {
-		t.Errorf("out = %q (retry must not write chunk)", out.String())
-	}
-}
-
-func TestGuardWriter_UserChannelBlocksTechnicalPayload(t *testing.T) {
-	t.Parallel()
-	v := ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
-		return input, FinishReport(&Report{
-			Action: ActionPass, Validator: "classifier", PayloadKind: PayloadTechnicalPayload,
-		}, ControlSpec{Action: ActionPass}), nil
-	})
-	p := NewPipeline(WithUserChannel[string](), WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(64))
-	_, err := gw.Write([]byte(`{"tool":"search"}`))
-	if err == nil {
-		err = gw.Close()
-	}
-	if err == nil {
-		t.Fatal("expected block error")
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("err = %v", err)
-	}
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.ReportSnapshot().Validator != "user_channel" {
-		t.Fatalf("Validator = %q, want user_channel", streamErr.ReportSnapshot().Validator)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("out = %q, want empty", out.String())
-	}
-}
-
-func TestGuardWriter_ScopeIncompleteBeforeValidation(t *testing.T) {
-	t.Parallel()
-	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
 	)
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(8), WithExecutionScope(MapScope{}))
-	_, err := gw.Write([]byte("hello"))
-	if err == nil {
-		err = gw.Close()
-	}
-	if !errors.Is(err, ErrScopeIncomplete) {
-		t.Fatalf("err = %v, want ErrScopeIncomplete", err)
-	}
-}
-
-func TestGuardWriter_Redact(t *testing.T) {
-	v := &fakeValidator{
-		name: "redact",
-		validate: func(context.Context, string) (string, *Report, error) {
-			return "[CLEAN]", &Report{Action: ActionRedact, Validator: "redact", MutatedText: "[CLEAN]"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10))
-	_, _ = gw.Write([]byte("dirty"))
-	_ = gw.Close()
-	if out.String() != "[CLEAN]" {
-		t.Errorf("out = %q", out.String())
-	}
-}
-
-func TestGuardWriter_RedactToEmptyChunk(t *testing.T) {
-	v := &fakeValidator{
-		name: "wiper",
-		validate: func(context.Context, string) (string, *Report, error) {
-			return "", &Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10))
-	_, _ = gw.Write([]byte("secret"))
-	_ = gw.Close()
-	if out.String() != "" {
-		t.Errorf("out = %q, want empty (redact to empty must not leak chunk)", out.String())
-	}
-}
-
-func TestGuardWriter_FlushOnClose(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(100))
-	_, _ = gw.Write([]byte("small"))
-	if out.Len() != 0 {
-		t.Error("buffer should not be written until chunk size or Close")
-	}
-	_ = gw.Close()
-	if out.String() != "small" {
-		t.Errorf("out = %q", out.String())
-	}
-}
-
-func TestGuardWriter_WriteReturnsNAcceptedOnError(t *testing.T) {
-	v := &fakeValidator{
-		name: "block",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			// Block when "bb" appears (overlap may prepend prior chunk, so use Contains)
-			if strings.Contains(text, "bb") {
-				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
-			}
-			return text, &Report{Action: ActionPass, Validator: "block"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	_, _ = gw.Write([]byte("aa"))
-	n, err := gw.Write([]byte("bb"))
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if n != 0 {
-		t.Errorf("Write must return 0 on error per io.Writer contract: n = %d", n)
-	}
-	if out.String() != "aa" {
-		t.Errorf("out = %q", out.String())
-	}
-}
-
-func TestGuardWriter_ImplementsWriter(_ *testing.T) {
-	var _ io.WriteCloser = (*GuardWriter)(nil)
-}
-
-func TestGuardWriter_WithContext(t *testing.T) {
-	var contextCalled atomic.Bool
-	ctxFn := func() (context.Context, context.CancelFunc) {
-		contextCalled.Store(true)
-		return context.Background(), func() {}
-	}
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithContext(ctxFn))
-	_, _ = gw.Write([]byte("trigger"))
-	_ = gw.Close()
-	if !contextCalled.Load() {
-		t.Error("WithContext: context factory was not called")
-	}
-}
-
-func TestGuardWriter_WithTimeout(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithTimeout(2*time.Second))
-	_, err := gw.Write([]byte("hello"))
+	var sink bytes.Buffer
+	s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithPolicyValidators(policy))))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = gw.Close()
-	if out.String() != "hello" {
-		t.Errorf("out = %q", out.String())
+	_, _ = s.Write([]byte("secret"))
+	// Act.
+	_, err = s.Complete(context.Background())
+	// Assert.
+	if !errors.Is(err, ErrScopeIncomplete) || calls != 0 || sink.Len() != 0 {
+		t.Fatalf("%v %d %q", err, calls, sink.String())
 	}
 }
 
-func TestGuardWriter_ChunkSizeZeroOrNegative_UsesDefault(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(0))
-	_, _ = gw.Write([]byte("a"))
-	_ = gw.Close()
-	if out.String() != "a" {
-		t.Errorf("out = %q", out.String())
-	}
-	out.Reset()
-	gw2 := NewGuardWriter(&out, p, WithChunkSize(-1))
-	_, _ = gw2.Write([]byte("b"))
-	_ = gw2.Close()
-	if out.String() != "b" {
-		t.Errorf("out = %q", out.String())
+func TestStreamInvalidConfiguration(t *testing.T) {
+	// Arrange / Act / Assert.
+	for _, change := range []func(*StreamConfig){
+		func(c *StreamConfig) { c.Profile = "" },
+		func(c *StreamConfig) { c.MaxPendingBytes = 0 },
+		func(c *StreamConfig) { c.ValidationTimeout = -time.Second },
+		func(c *StreamConfig) { c.Pipeline = nil },
+	} {
+		cfg := testStreamConfig(NewPipeline[string]())
+		change(&cfg)
+		if _, err := CompileStream(io.Discard, cfg); err == nil {
+			t.Fatal("invalid configuration accepted")
+		}
 	}
 }
 
-func TestGuardWriter_UTF8Safe_Cyrillic(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(3))
-	_, err := gw.Write([]byte("привет"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = gw.Close()
-	if out.String() != "привет" {
-		t.Errorf("out = %q (Cyrillic must not be corrupted)", out.String())
-	}
-}
-
-func TestGuardWriter_UTF8Safe_Emoji(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	emoji := "x\U0001f600y"
-	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	_, err := gw.Write([]byte(emoji))
-	if err != nil {
-		t.Fatal(err)
-	}
-	_ = gw.Close()
-	if out.String() != emoji {
-		t.Errorf("out = %q (emoji must not be corrupted)", out.String())
-	}
-}
-
-func TestGuardWriter_SemanticBoundary_ForbiddenWord(t *testing.T) {
-	v := &fakeValidator{
-		name: "block",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "bad") {
-				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
+func TestStreamBoundedIncrementalUTF8(t *testing.T) {
+	// Arrange: best-effort has explicit partial capability and finite output bounds.
+	calls := 0
+	rule := WithStreamingCapabilities(
+		ValidatorFunc[string](func(ctx context.Context, s string) (string, *Report, error) {
+			calls++
+			if !utf8.ValidString(s) {
+				t.Error("split UTF-8 rune")
 			}
-			return text, &Report{Action: ActionPass, Validator: "block"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(7))
-	_, err := gw.Write([]byte("ok bad x"))
-	if err == nil {
-		t.Fatal("expected block when forbidden word 'bad' is in stream")
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Errorf("err = %v", err)
-	}
-	outStr := out.String()
-	if outStr != "" && outStr != "ok " {
-		t.Errorf("out = %q (blocked content)", outStr)
-	}
-}
-
-func TestGuardWriter_StreamingPass_MutatedOutput(t *testing.T) {
-	t.Parallel()
-	mutator := &fakeValidator{
-		name: "mutate",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return strings.ToUpper(text), &Report{Action: ActionPass, Validator: "mutate"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(mutator))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(32))
-	_, _ = gw.Write([]byte("hello world "))
-	_ = gw.Close()
-	if got := out.String(); got != "HELLO WORLD " {
-		t.Fatalf("got = %q, want uppercased pipeline output", got)
-	}
-}
-
-// TestGuardWriter_StreamingRedact_MutatedOutput verifies that on ActionRedact
-// the output buffer receives the mutated text (not original) for both partial and full chunks.
-func TestGuardWriter_StreamingRedact_MutatedOutput(t *testing.T) {
-	redactor := &fakeValidator{
-		name: "redact",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "PII") {
-				return strings.ReplaceAll(text, "PII", "[REDACTED]"), &Report{
-					Action: ActionRedact, Validator: "redact",
-					MutatedText: strings.ReplaceAll(text, "PII", "[REDACTED]"),
-				}, nil
+			if StreamValidationStage(ctx) != StreamPartial {
+				t.Error("missing partial stage")
 			}
-			return text, &Report{Action: ActionPass, Validator: "redact"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(redactor))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(20))
-	// Write enough to trigger chunk with PII, then more
-	_, _ = gw.Write([]byte("hello PII world "))
-	_, _ = gw.Write([]byte("and more PII here"))
-	_ = gw.Close()
-	got := out.String()
-	if got != "hello [REDACTED] world and more [REDACTED] here" {
-		t.Errorf("got = %q, want mutated text with PII redacted", got)
-	}
-}
-
-// TestGuardWriter_OverlapBoundaryBypass verifies that a forbidden pattern split across
-// chunk boundaries is detected (overlap prevents bypass).
-func TestGuardWriter_OverlapBoundaryBypass(t *testing.T) {
-	v := &fakeValidator{
-		name: "block",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "badword") {
-				return text, &Report{Action: ActionBlock, Validator: "block"}, nil
-			}
-			return text, &Report{Action: ActionPass, Validator: "block"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	// Chunk size 7: "xxxxbad" (7) ends chunk 1, "wordyyy" (7) starts chunk 2. Overlap carries "bad" into next validation.
-	gw := NewGuardWriter(&out, p, WithChunkSize(7))
-	_, err := gw.Write([]byte("xxxxbadwordyyy"))
-	if err == nil {
-		t.Fatal("expected block when forbidden word spans chunk boundary")
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Errorf("err = %v", err)
-	}
-}
-
-func TestGuardWriter_MaxChunkSize_DelimiterlessASCII(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	input := strings.Repeat("A", 10_000)
-
-	gw := NewGuardWriter(&out, p, WithChunkSize(4096), WithMaxChunkSize(1024))
-	if _, err := gw.Write([]byte(input)); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := calls.Load(); got != 10 {
-		t.Fatalf("validator calls = %d, want 10", got)
-	}
-	if out.String() != input {
-		t.Fatal("output mismatch for delimiterless ASCII input")
-	}
-}
-
-func TestGuardWriter_MaxChunkSize_DelimiterlessUTF8(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	input := strings.Repeat("界", 3000)
-
-	gw := NewGuardWriter(&out, p, WithChunkSize(4096), WithMaxChunkSize(1024))
-	if _, err := gw.Write([]byte(input)); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := calls.Load(); got != 9 {
-		t.Fatalf("validator calls = %d, want 9", got)
-	}
-	if out.String() != input {
-		t.Fatal("output mismatch for delimiterless UTF-8 input")
-	}
-}
-
-func TestGuardWriter_ChunkSizeRespectedForNormalText(t *testing.T) {
-	var firstChunk string
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			if firstChunk == "" {
-				firstChunk = text
-			}
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(10), WithMaxChunkSize(5))
-
-	if _, err := gw.Write([]byte("aa bb cc dd ee")); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if firstChunk != "aa bb cc " {
-		t.Fatalf("first chunk = %q, want %q", firstChunk, "aa bb cc ")
-	}
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("validator calls = %d, want 2", got)
-	}
-	if out.String() != "aa bb cc dd ee" {
-		t.Fatalf("output = %q", out.String())
-	}
-}
-
-func TestGuardWriter_DefaultChunkSizeNotCappedForBoundaryRichText(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-
-	var b strings.Builder
-	for range 60 {
-		b.WriteString(strings.Repeat("a", 50))
-		b.WriteByte(' ')
-	}
-	input := b.String()
-
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p)
-
-	if _, err := gw.Write([]byte(input)); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("validator calls after Write = %d, want 0", got)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("validator calls after Close = %d, want 1", got)
-	}
-	if out.String() != input {
-		t.Fatal("output mismatch for boundary-rich input")
-	}
-}
-
-func TestGuardWriter_JSONAwareSplitter_WaitsForCompleteObject(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(4), WithJSONAwareSplitter())
-
-	if _, err := gw.Write([]byte(`{"a":`)); err != nil {
-		t.Fatal(err)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("output should be empty for incomplete JSON, got %q", out.String())
-	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("validator calls = %d, want 0 for incomplete JSON", got)
-	}
-
-	if _, err := gw.Write([]byte(`"x"}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	if got := out.String(); got != `{"a":"x"}` {
-		t.Fatalf("output = %q, want complete JSON object", got)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("validator calls = %d, want 1", got)
-	}
-}
-
-func TestGuardWriter_JSONAwareSplitter_HandlesBracesInString(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithJSONAwareSplitter())
-
-	if _, err := gw.Write([]byte(`{"a":"{x}"`)); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("validator calls for incomplete JSON = %d, want 0", got)
-	}
-	if _, err := gw.Write([]byte(`}`)); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if got := out.String(); got != `{"a":"{x}"}` {
-		t.Fatalf("output = %q", got)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("validator calls = %d, want 1", got)
-	}
-}
-
-func TestGuardWriter_JSONAwareSplitter_CloseWithIncompleteJSON(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(8), WithJSONAwareSplitter())
-
-	if _, err := gw.Write([]byte(`{"a":`)); err != nil {
-		t.Fatal(err)
-	}
-	err := gw.Close()
-	if err == nil {
-		t.Fatal("expected error for incomplete JSON on Close")
-	}
-	if !errors.Is(err, ErrValidatorFailed) {
-		t.Fatalf("err = %v, want ErrValidatorFailed", err)
-	}
-	if out.Len() != 0 {
-		t.Fatalf("output must remain empty, got %q", out.String())
-	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("validator calls = %d, want 0", got)
-	}
-}
-
-func TestGuardWriter_JSONAwareSplitter_IncompleteExceedsMaxChunk(t *testing.T) {
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(
-		&out,
-		p,
-		WithChunkSize(64),
-		WithMaxChunkSize(10),
-		WithJSONAwareSplitter(),
+			return s, nil, nil
+		}),
+		StreamCapabilities{Partial: true},
 	)
-
-	_, err := gw.Write([]byte(`{"a":"123456789`))
-	if err == nil {
-		t.Fatal("expected max chunk overflow error")
+	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg.Profile = ReleaseBestEffort
+	cfg.MaxUnitBytes = 1024
+	cfg.MaxPendingBytes = 2048
+	input := strings.Repeat("😊abc", 2000)
+	var sink bytes.Buffer
+	s, err := CompileStream(&sink, cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !errors.Is(err, ErrValidatorFailed) {
-		t.Fatalf("err = %v, want ErrValidatorFailed", err)
+	// Act.
+	for offset := 0; offset < len(input); {
+		end := min(offset+17, len(input))
+		if _, err = s.Write([]byte(input[offset:end])); err != nil {
+			t.Fatal(err)
+		}
+		offset = end
 	}
-	if out.Len() != 0 {
-		t.Fatalf("output must remain empty, got %q", out.String())
+	outcome, err := s.Complete(context.Background())
+	// Assert: bounded chunks, no per-byte validator degradation.
+	if err != nil || sink.String() != input || calls > len(input)/1020+2 ||
+		outcome.PeakPendingBytes > cfg.MaxPendingBytes {
+		t.Fatalf("calls=%d %+v %v", calls, outcome, err)
 	}
 }
 
-func TestGuardWriter_JSONAwareSplitter_ArrayOfObjects(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(6), WithJSONAwareSplitter())
-
-	input := `[{"a":1},{"b":2}]`
-	if _, err := gw.Write([]byte(input[:8])); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := gw.Write([]byte(input[8:])); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != input {
-		t.Fatalf("output = %q, want %q", out.String(), input)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("validator calls = %d, want 1", got)
-	}
-}
-
-func TestGuardWriter_JSONAwareSplitter_EscapedQuotesAndPunctuationInString(t *testing.T) {
-	var calls atomic.Int32
-	v := &fakeValidator{
-		name: "pass",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			calls.Add(1)
-			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(5), WithJSONAwareSplitter())
-
-	input := "{\"a\":\"x\\\"y [ ] { } , :\"}"
-	if _, err := gw.Write([]byte(input[:10])); err != nil {
-		t.Fatal(err)
-	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("validator calls for incomplete JSON = %d, want 0", got)
-	}
-	if _, err := gw.Write([]byte(input[10:])); err != nil {
-		t.Fatal(err)
-	}
-	if err := gw.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != input {
-		t.Fatalf("output = %q, want %q", out.String(), input)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("validator calls = %d, want 1", got)
-	}
-}
-
-func TestGuardWriter_Block_ExposesReportViaErrorsAs(t *testing.T) {
-	v := &fakeValidator{
-		name: "block",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "bad") {
-				return text, FinishReport(&Report{
-					Action:          ActionBlock,
-					Validator:       "block",
-					Code:            "STREAM_FORBIDDEN",
-					SafeUserMessage: "not allowed",
-				}, ControlSpec{Action: ActionBlock}), nil
+func TestJSONUnitFramingAcrossEverySplit(t *testing.T) {
+	for _, input := range []string{
+		`{"name":"Ada"}`,
+		`{"note":"braces } [ and escaped \" quote"}`,
+		`[{"name":"one"},{"name":"two"}]`,
+	} {
+		for split := 0; split <= len(input); split++ {
+			// Arrange.
+			rule := WithStreamingCapabilities(
+				ValidatorFunc[string](
+					func(_ context.Context, s string) (string, *Report, error) { return s, nil, nil },
+				),
+				StreamCapabilities{Unit: true},
+			)
+			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg.Profile = ReleaseValidatedUnits
+			cfg.JSONValues = true
+			cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
+			cfg.Delivery = NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
+			var sink bytes.Buffer
+			s, err := CompileStream(&sink, cfg)
+			if err != nil {
+				t.Fatal(err)
 			}
-			return text, &Report{Action: ActionPass, Validator: "block"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(64))
-	_, _ = gw.Write([]byte("ok "))
-	_, _ = gw.Write([]byte("bad"))
-	err := gw.Close()
-	if err == nil {
-		t.Fatal("expected block")
-	}
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.ReportSnapshot().Code != "STREAM_FORBIDDEN" {
-		t.Errorf("Code = %q", streamErr.ReportSnapshot().Code)
-	}
-	if streamErr.Failure.Decision.SafeMessage != "not allowed" {
-		t.Errorf("SafeMessage = %q", streamErr.Failure.Decision.SafeMessage)
-	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Error("expected ErrBlocked via Unwrap")
+			// Act.
+			_, e1 := s.Write([]byte(input[:split]))
+			_, e2 := s.Write([]byte(input[split:]))
+			_, e3 := s.Complete(context.Background())
+			// Assert.
+			if e1 != nil || e2 != nil || e3 != nil || sink.String() != input {
+				t.Fatalf("%q split=%d: %v %v %v output=%q", input, split, e1, e2, e3, sink.String())
+			}
+		}
 	}
 }
 
-func TestGuardWriter_Retry_ExposesReportViaErrorsAs(t *testing.T) {
-	v := &fakeValidator{
-		name: "retry",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "fix") {
-				return text, FinishReport(&Report{
-					Action:    ActionRetry,
-					Validator: ActionRetry.String(),
-					Code:      "STREAM_RETRY",
-					Feedback:  "regenerate",
-				}, ControlSpec{Action: ActionRetry}), nil
-			}
-			return text, &Report{Action: ActionPass, Validator: ActionRetry.String()}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(64))
-	_, _ = gw.Write([]byte("fix"))
-	err := gw.Close()
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatalf("expected StreamError, got %v", err)
-	}
-	if streamErr.Failure.Decision.Code != "STREAM_RETRY" {
-		t.Errorf("Code = %q", streamErr.Failure.Decision.Code)
-	}
-	if !streamErr.Failure.Decision.Retryable {
-		t.Error("expected Retryable")
-	}
-	if !errors.Is(err, ErrRetryRequested) {
-		t.Error("expected ErrRetryRequested via Unwrap")
+func TestJSONIncompleteMalformedAndLimit(t *testing.T) {
+	for _, input := range []string{`{"name":`, `{"name":[}]`, strings.Repeat(" ", 65)} {
+		// Arrange.
+		cfg := testStreamConfig(NewPipeline[string]())
+		cfg.Profile = ReleaseValidatedUnits
+		cfg.JSONValues = true
+		cfg.MaxUnitBytes = 64
+		cfg.MaxPendingBytes = 65
+		var sink bytes.Buffer
+		s, err := CompileStream(&sink, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Act.
+		_, err = s.Write([]byte(input))
+		if err == nil {
+			_, err = s.Complete(context.Background())
+		}
+		// Assert.
+		if err == nil || sink.Len() != 0 {
+			t.Fatalf("input=%q err=%v output=%q", input, err, sink.String())
+		}
 	}
 }
 
-func TestGuardWriter_TerminalRetryReturnsBlockError(t *testing.T) {
-	v := &fakeValidator{
-		name: "terminal-retry",
-		validate: func(_ context.Context, text string) (string, *Report, error) {
-			if strings.Contains(text, "x") {
-				return text, FinishReport(&Report{
-					Action:    ActionRetry,
-					Validator: ActionRetry.String(),
-					Retryable: false,
-					Reason:    "no retry",
-				}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
-			}
-			return text, &Report{Action: ActionPass, Validator: "terminal-retry"}, nil
-		},
-	}
-	p := NewPipeline(WithFastPath(v))
-	var out bytes.Buffer
-	gw := NewGuardWriter(&out, p, WithChunkSize(2))
-	if _, err := gw.Write([]byte("ab")); err != nil {
+func TestStreamObserverCannotChangeDelivery(t *testing.T) {
+	// Arrange.
+	cfg := testStreamConfig(NewPipeline[string]())
+	cfg.Observer = func(StreamEvent) { panic("observer only") }
+	var sink bytes.Buffer
+	s, err := CompileStream(&sink, cfg)
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := gw.Write([]byte("xy"))
-	if err == nil {
-		t.Fatal("expected error on terminal retry")
+	// Act.
+	_, err = s.Write([]byte("safe"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !errors.Is(err, ErrBlocked) {
-		t.Fatalf("err = %v, want ErrBlocked", err)
-	}
-	var streamErr *StreamError
-	if !errors.As(err, &streamErr) {
-		t.Fatal("expected StreamError")
-	}
-	if streamErr.Action != ActionBlock {
-		t.Fatalf("Action = %v, want ActionBlock", streamErr.Action)
-	}
-	if streamErr.Failure.Decision.Disposition != DispositionTerminalDeny {
-		t.Fatalf("disposition = %v", streamErr.Failure.Decision.Disposition)
+	_, err = s.Complete(context.Background())
+	// Assert.
+	if err != nil || sink.String() != "safe" {
+		t.Fatalf("%q %v", sink.String(), err)
 	}
 }
+
+var _ io.WriteCloser = (*StreamProcessor)(nil)

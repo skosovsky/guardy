@@ -1,5 +1,4 @@
-// Streaming filter: validate token stream with GuardWriter.
-// When a forbidden word (Wordlist) appears in a chunk, the pipeline Blocks and GuardWriter returns ErrBlocked.
+// Streaming filter: validate the whole producer response before any delivery.
 package main
 
 import (
@@ -8,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
 )
 
-const exampleChunkSize = 64
+const streamLimitBytes = 4096
 
 func main() {
 	wordlistV := ext.NewWordlistValidator([]string{"forbidden", "blocked"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
@@ -21,14 +21,26 @@ func main() {
 
 	mockStream := "Hello world this is forbidden content here."
 	var out bytes.Buffer
-	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(exampleChunkSize))
+	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{
+		Identity:          "response",
+		Profile:           guardy.ReleaseWholeResponse,
+		Pipeline:          pipeline,
+		Delivery:          guardy.NewDeliveryPolicy("external"),
+		MaxInputBytes:     streamLimitBytes,
+		MaxPendingBytes:   streamLimitBytes,
+		MaxUnitBytes:      streamLimitBytes,
+		MaxOutputBytes:    streamLimitBytes,
+		ValidationTimeout: time.Second,
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	_ = context.Background()
 	for token := range strings.FieldsSeq(mockStream) {
 		_, err := gw.Write([]byte(token + " "))
 		if err != nil {
-			var failure *guardy.PolicyFailure
-			if errors.As(err, &failure) {
+			if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 				fmt.Println("Stream blocked:", failure.Decision.Code, failure.Decision.SafeMessage)
 				return
 			}
@@ -40,9 +52,8 @@ func main() {
 			return
 		}
 	}
-	if err := gw.Close(); err != nil {
-		var failure *guardy.PolicyFailure
-		if errors.As(err, &failure) {
+	if _, err := gw.Complete(context.Background()); err != nil {
+		if failure, ok := errors.AsType[*guardy.PolicyFailure](err); ok {
 			fmt.Println("Stream blocked on close:", failure.Decision.Code)
 			return
 		}

@@ -3,9 +3,15 @@ package guardy
 import (
 	"context"
 	"errors"
+	"math"
 )
 
 var errSemanticMatcherNil = errors.New("guardy: semantic matcher is nil")
+
+var (
+	errSemanticThresholdInvalid = errors.New("guardy: semantic threshold must be finite")
+	errSemanticScoreInvalid     = errors.New("guardy: semantic score must be finite")
+)
 
 // Matcher returns a similarity score for the text (e.g. from a vector search).
 // Higher score means more likely to block; threshold is applied by SemanticValidator.
@@ -23,18 +29,26 @@ type SemanticValidator struct {
 
 // NewSemanticValidator builds a validator that blocks when m.Match returns score > threshold.
 // If shadow is true, block reports are marked ShadowMode so the pipeline does not short-circuit.
+// Validate rejects non-finite thresholds/scores as faults; the matcher defines
+// its own finite score range. This does not estimate detector accuracy.
 func NewSemanticValidator(m Matcher, threshold float64, shadow bool) *SemanticValidator {
 	return &SemanticValidator{matcher: m, threshold: threshold, shadow: shadow, name: "semantic"}
 }
 
 // Validate runs the matcher and returns block when score > threshold.
 func (s *SemanticValidator) Validate(ctx context.Context, input string) (string, *Report, error) {
+	if math.IsNaN(s.threshold) || math.IsInf(s.threshold, 0) {
+		return input, nil, errSemanticThresholdInvalid
+	}
 	if s.matcher == nil {
 		return "", nil, errSemanticMatcherNil
 	}
 	score, err := s.matcher.Match(ctx, input)
 	if err != nil {
 		return input, nil, err
+	}
+	if math.IsNaN(score) || math.IsInf(score, 0) {
+		return input, nil, errSemanticScoreInvalid
 	}
 	if score > s.threshold {
 		return input, FinishReport(&Report{

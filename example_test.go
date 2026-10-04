@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"time"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
@@ -100,14 +101,21 @@ func ExampleGuard() {
 	// 200
 }
 
-func ExampleNewGuardWriter() {
+func ExampleCompileStream() {
 	v := &examplePassValidator{}
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
 
 	var out strings.Builder
-	gw := guardy.NewGuardWriter(&out, pipeline, guardy.WithChunkSize(64))
+	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{
+		Identity: "response", Profile: guardy.ReleaseWholeResponse, Pipeline: pipeline,
+		Delivery: guardy.NewDeliveryPolicy("external"), MaxInputBytes: 4096,
+		MaxPendingBytes: 4096, MaxUnitBytes: 4096, MaxOutputBytes: 4096, ValidationTimeout: time.Second,
+	})
+	if err != nil {
+		panic(err)
+	}
 	_, _ = gw.Write([]byte("streaming text "))
-	_ = gw.Close()
+	_, _ = gw.Complete(context.Background())
 	fmt.Println(out.String())
 	// Output:
 	// streaming text

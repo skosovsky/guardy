@@ -120,15 +120,19 @@ func TestWrapOutput_ExposesPolicyFailure(t *testing.T) {
 	assertPolicyFailure(t, err, "OUTPUT_DENIED")
 }
 
-func TestGuardWriter_ExposesPolicyFailure(t *testing.T) {
+func TestStreamProcessor_ExposesPolicyFailure(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	pipeline := NewPipeline(WithFastPath(blockingStringValidator("STREAM_DENIED")))
 	var out bytes.Buffer
-	writer := NewGuardWriter(&out, pipeline, WithChunkSize(1))
+	writer, err := CompileStream(&out, testStreamConfig(pipeline))
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// Act.
-	_, err := writer.Write([]byte("x"))
+	_, _ = writer.Write([]byte("x"))
+	_, err = writer.Complete(context.Background())
 
 	// Assert.
 	assertPolicyFailure(t, err, "STREAM_DENIED")

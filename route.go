@@ -76,7 +76,8 @@ func RouteDecision(decision Decision, policy RemediationPolicy) GuardRoute {
 func routeRetryCorrection(route GuardRoute, policy RemediationPolicy) GuardRoute {
 	route.Outcome = GuardRouteRetryCorrection
 	route.Retryable = true
-	if policy.MaxRetries > 0 && policy.RetryAttempt >= policy.MaxRetries {
+	// A zero or negative budget permits no retries. Caller owns the counter.
+	if policy.MaxRetries <= 0 || policy.RetryAttempt >= policy.MaxRetries {
 		route.RetryExhausted = true
 		route.Retryable = false
 		if policy.AllowFallback {

@@ -101,8 +101,7 @@ func TestArgsPipeline_InvalidJSONReturnsRetryableDecision(t *testing.T) {
 	payload, err := argsPipeline.Validate(context.Background(), nil, `not-json`)
 
 	// Assert.
-	var retryErr *RetryError
-	if !errors.As(err, &retryErr) {
+	if _, ok := errors.AsType[*RetryError](err); !ok {
 		t.Fatalf("expected RetryError, got %v", err)
 	}
 	var failure *PolicyFailure
@@ -162,8 +161,7 @@ func TestArgsPipeline_PostBindViolationReturnsRetryableDecision(t *testing.T) {
 	payload, err := argsPipeline.Validate(context.Background(), nil, `{"age":10}`)
 
 	// Assert.
-	var retryErr *RetryError
-	if !errors.As(err, &retryErr) {
+	if _, ok := errors.AsType[*RetryError](err); !ok {
 		t.Fatalf("expected RetryError, got %v", err)
 	}
 	if payload.Decision.Code != CodePostBindViolation {

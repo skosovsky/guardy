@@ -12,8 +12,8 @@ go run .
 
 - **input_guard** — Prompt guard: validates user prompt before sending to LLM (Regex + Length). Reads from stdin; exits with code 3 on Block.
 - **output_guard** — Validates and redacts PII in LLM output; `WithUserChannel` + technical JSON classifier block unsafe payloads for end users.
-- **streaming_filter** — Writes a mock token stream through GuardWriter; demonstrates Block (ErrBlocked) when a forbidden word appears in a chunk.
-- **json_streaming** — Demonstrates `GuardWriter` with `WithJSONAwareSplitter()` for streamed JSON/tool-call payloads.
+- **streaming_filter** — Buffers a mock producer with an explicit whole-response profile; trusted completion blocks forbidden content before release.
+- **json_streaming** — Uses `CompileStream` with explicit whole-response and JSON validation; malformed/forbidden final content is never flushed.
 - **reversible_redaction** — Demonstrates `TokenVault` + `UnredactText` flow for reversible redaction.
 - **multi_turn** — Demonstrates BYOT multi-message validation using `ext.MapSlice`.
 - **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default.

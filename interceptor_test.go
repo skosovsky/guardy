@@ -357,8 +357,7 @@ func TestWrapOutput_UserChannelBlocksTechnicalPayload(t *testing.T) {
 		return `{"tool":"search"}`, nil
 	}))
 	_, err := wrapped(context.Background(), "prompt")
-	var blockErr *BlockError
-	if !errors.As(err, &blockErr) {
+	if _, ok := errors.AsType[*BlockError](err); !ok {
 		t.Fatalf("expected BlockError, got %v", err)
 	}
 }

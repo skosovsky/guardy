@@ -315,6 +315,9 @@ func TestPipeline_GuardDeliveryUsesTypedFallback(t *testing.T) {
 	// Arrange.
 	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
+			if input == "safe fallback" {
+				return input, &Report{Action: ActionPass}, nil
+			}
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",

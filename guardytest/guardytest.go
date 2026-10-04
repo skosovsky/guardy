@@ -29,7 +29,7 @@ func MustPass(t testing.TB, report *guardy.Report) {
 }
 
 // MustBlock asserts that report.Action == ActionBlock. It calls t.Fatal on failure.
-// Prefer [MustTerminalDeny] for disposition-based control-flow tests (task14 §2.2).
+// Prefer [MustTerminalDeny] for disposition-based control-flow tests.
 func MustBlock(t testing.TB, report *guardy.Report) {
 	t.Helper()
 	if report == nil || report.Action != guardy.ActionBlock {
