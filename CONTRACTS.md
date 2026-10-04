@@ -72,6 +72,15 @@ delivery when they return.
 MaxInputBytes, MaxUnitBytes, MaxPendingBytes and MaxOutputBytes count bytes; zero is
 invalid. Limits are checked before copying input and before releasing expanded
 redaction. Raw and output allocation inside caller validators is caller-owned.
+Framing state belongs to each processor. JSON/newline framing visits each input
+byte a bounded number of times across writes and releases; consumed units do not
+trigger repeated scanning or shifting of a live tail. Buffer growth/consumption is
+amortized linear in accepted bytes plus units. This claim excludes caller callbacks,
+JSON syntax checks and per-unit policy/transport work. Retained pending allocation
+capacity is bounded by MaxPendingBytes; the fixed scanner/cursor state owns no
+unbounded queue or delimiter stack. PeakPendingBytes records peak reserved pending
+capacity, including unused space; it does not measure total process allocation or
+transient validator/output values.
 Sequence counts attempted approved units; released bytes are actual transport bytes.
 Short writes terminate as transport failure and never retry automatically. Abort
 before whole-response release emits nothing. Transport failure after approval may

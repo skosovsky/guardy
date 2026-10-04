@@ -770,3 +770,12 @@ canonical arguments with JSON redaction and final schema/policy, binds a host
 approval, resumes against fresh facts, and observes real handler calls and bytes
 at independent context, persistence, export and delivery sinks. All harness types
 and approvals are caller-owned; no Agent/Message/Session type is required.
+
+
+JSON/newline streaming uses processor-local incremental framing and bounded pending
+storage. Already scanned prefixes are retained as scanner state rather than parsed
+again on each Write; consuming a unit does not repeatedly shift the live tail.
+`PeakPendingBytes` records reserved pending capacity, which stays within
+`MaxPendingBytes`. Fixed scanner state and caller-owned validation/output allocations
+are separate. Deterministic operation tests check framing/buffer work; local
+before/after benchmarks in `STREAM_MEASUREMENTS.md` do not promise callback latency.

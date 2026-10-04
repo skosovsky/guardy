@@ -88,6 +88,7 @@ const (
 
 // StreamOutcome is a snapshot. ReleasedBytes measures actual transport writes;
 // Sequence numbers approved attempts, not a claim that failed writes were complete.
+// PeakPendingBytes counts the maximum retained ring allocation, including unused capacity.
 type StreamOutcome struct {
 	Identity         string
 	Category         StreamCategory
@@ -140,7 +141,8 @@ type StreamProcessor struct {
 	mu                sync.Mutex
 	writer            io.Writer
 	cfg               StreamConfig
-	pending           []byte
+	pending           streamBuffer
+	framer            frameScanner
 	outcome           StreamOutcome
 	terminalErr       error
 	fallbackAttempted bool
@@ -176,10 +178,21 @@ func CompileStream(writer io.Writer, cfg StreamConfig) (*StreamProcessor, error)
 	outcome.Identity = cfg.Identity
 	outcome.Decision = DecisionFromReport(nil)
 	return &StreamProcessor{
-		mu:                sync.Mutex{},
-		writer:            writer,
-		cfg:               cfg,
-		pending:           nil,
+		mu:      sync.Mutex{},
+		writer:  writer,
+		cfg:     cfg,
+		pending: streamBuffer{data: nil, head: 0, size: 0, copied: 0},
+		framer: frameScanner{
+			offset:   0,
+			objects:  0,
+			arrays:   0,
+			started:  false,
+			inString: false,
+			escape:   false,
+			complete: false,
+			invalid:  false,
+			visited:  0,
+		},
 		terminalErr:       nil,
 		fallbackAttempted: false,
 		outcome:           outcome,
@@ -271,16 +284,16 @@ func (s *StreamProcessor) WriteContext(ctx context.Context, p []byte) (int, erro
 	}
 	accepted := 0
 	for len(p) > 0 {
-		room := s.cfg.MaxPendingBytes - len(s.pending)
+		room := s.cfg.MaxPendingBytes - s.pending.size
 		if room <= 0 {
 			return accepted, s.fail(StreamLimit, errors.New("guardy: pending limit"), DecisionFromReport(nil))
 		}
 		n := min(room, len(p))
-		s.pending = append(s.pending, p[:n]...)
+		s.pending.append(p[:n], s.cfg.MaxPendingBytes)
 		p = p[n:]
 		accepted += n
 		s.outcome.ReceivedBytes += int64(n)
-		s.outcome.PeakPendingBytes = max(s.outcome.PeakPendingBytes, len(s.pending))
+		s.outcome.PeakPendingBytes = max(s.outcome.PeakPendingBytes, len(s.pending.data))
 		if s.cfg.Profile == ReleaseWholeResponse {
 			continue
 		}
@@ -292,7 +305,7 @@ func (s *StreamProcessor) WriteContext(ctx context.Context, p []byte) (int, erro
 }
 
 func (s *StreamProcessor) releasePending(ctx context.Context, final bool) error {
-	for len(s.pending) > 0 {
+	for s.pending.size > 0 {
 		n, stage, err := s.nextUnit(final)
 		if err != nil {
 			return err
@@ -303,11 +316,11 @@ func (s *StreamProcessor) releasePending(ctx context.Context, final bool) error 
 		if n > s.cfg.MaxUnitBytes {
 			return s.fail(StreamLimit, errors.New("guardy: unit limit"), DecisionFromReport(nil))
 		}
-		if err := s.validateAndRelease(ctx, string(s.pending[:n]), stage); err != nil {
+		if err := s.validateAndRelease(ctx, s.pending.prefix(n), stage); err != nil {
 			return err
 		}
-		copy(s.pending, s.pending[n:])
-		s.pending = s.pending[:len(s.pending)-n]
+		s.pending.consume(n)
+		s.framer.reset()
 	}
 	return nil
 }
@@ -317,8 +330,8 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 		return s.nextJSONUnit(final)
 	}
 	if s.cfg.Profile == ReleaseValidatedUnits {
-		n := newlineUnitBoundary(s.pending, final)
-		if n == 0 && len(s.pending) >= s.cfg.MaxUnitBytes {
+		n := s.framer.newline(&s.pending, final)
+		if n == 0 && s.pending.size >= s.cfg.MaxUnitBytes {
 			return 0, StreamUnit, s.fail(
 				StreamLimit,
 				errors.New("guardy: incomplete unit exceeds limit"),
@@ -327,17 +340,22 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 		}
 		return n, StreamUnit, nil
 	}
-	if len(s.pending) < s.cfg.MaxUnitBytes && !final {
+	if s.pending.size < s.cfg.MaxUnitBytes && !final {
 		return 0, StreamPartial, nil
 	}
-	n := min(len(s.pending), s.cfg.MaxUnitBytes)
+	n := min(s.pending.size, s.cfg.MaxUnitBytes)
 	for offset := 0; offset < n; {
-		if !utf8.FullRune(s.pending[offset:n]) {
+		var runeBytes [utf8.UTFMax]byte
+		available := min(utf8.UTFMax, n-offset)
+		for i := range available {
+			runeBytes[i] = s.pending.at(offset + i)
+		}
+		if !utf8.FullRune(runeBytes[:available]) {
 			n = offset
 			break
 		}
-		_, size := utf8.DecodeRune(s.pending[offset:n])
-		if size == 1 && s.pending[offset] >= utf8.RuneSelf {
+		_, size := utf8.DecodeRune(runeBytes[:available])
+		if size == 1 && runeBytes[0] >= utf8.RuneSelf {
 			return 0, StreamPartial, s.fail(
 				StreamIncomplete,
 				errors.New("guardy: invalid UTF-8 unit"),
@@ -360,18 +378,12 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 }
 
 func (s *StreamProcessor) nextJSONUnit(final bool) (int, StreamStage, error) {
-	n, err := nextJSONUnit(s.pending, s.cfg.MaxUnitBytes)
+	n, err := s.framer.json(&s.pending, s.cfg.MaxUnitBytes, final)
 	if err != nil {
 		return 0, StreamUnit, s.fail(StreamLimit, err, DecisionFromReport(nil))
 	}
 	if n == 0 && final {
 		return 0, StreamUnit, s.fail(StreamIncomplete, io.ErrUnexpectedEOF, DecisionFromReport(nil))
-	}
-	// Retain the last complete value until the next value starts or the trusted
-	// end arrives, so trailing framing whitespace is part of the same unit
-	// regardless of transport chunk boundaries.
-	if n == len(s.pending) && !final {
-		return 0, StreamUnit, nil
 	}
 	return n, StreamUnit, nil
 }
@@ -400,16 +412,17 @@ func (s *StreamProcessor) Complete(ctx context.Context) (StreamOutcome, error) {
 		return s.outcome, s.fail(StreamTimeout, err, DecisionFromReport(nil))
 	}
 	if s.cfg.Profile == ReleaseWholeResponse {
-		if len(s.pending) > s.cfg.MaxUnitBytes {
+		if s.pending.size > s.cfg.MaxUnitBytes {
 			return s.outcome, s.fail(StreamLimit, errors.New("guardy: final unit limit"), DecisionFromReport(nil))
 		}
-		if err := s.validateAndRelease(ctx, string(s.pending), StreamFinal); err != nil {
+		if err := s.validateAndRelease(ctx, s.pending.prefix(s.pending.size), StreamFinal); err != nil {
 			return s.outcome, err
 		}
 	} else if err := s.releasePending(ctx, true); err != nil {
 		return s.outcome, err
 	}
-	s.pending = nil
+	s.pending.clear()
+	s.framer.reset()
 	s.outcome.Terminal = true
 	s.outcome.Category = StreamSuccess
 	s.observe(StreamFinal)
@@ -615,7 +628,8 @@ func (s *StreamProcessor) fail(category StreamCategory, cause error, decision De
 	if decision.Disposition == DispositionNone {
 		decision.Disposition = DispositionSystemFault
 	}
-	s.pending = nil
+	s.pending.clear()
+	s.framer.reset()
 	s.outcome.Category = category
 	s.outcome.Decision = decision
 	s.outcome.Terminal = true
