@@ -4,7 +4,8 @@ import (
 	"context"
 )
 
-// WrapInput runs the pipeline on the request value before calling next.
+// WrapInput constructs current caller-owned facts through scopeFactory, then runs
+// the pipeline on the request value before calling next. Nil factories mean empty scope.
 // Deadlines and cancellation come from ctx (e.g. wrap with [context.WithTimeout] at the call site); no implicit timeout is applied.
 //
 // On ActionRedact, next receives the mutated Output from the pipeline.
@@ -14,7 +15,7 @@ import (
 // Composing WrapOutput(outPipeline, WrapInput(inPipeline, fn)) yields input and output guards around fn without net/http.
 func WrapInput[Req, Res any](
 	p *Pipeline[Req],
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next func(context.Context, Req) (Res, error),
 ) func(context.Context, Req) (Res, error) {
 	if p == nil {
@@ -24,6 +25,11 @@ func WrapInput[Req, Res any](
 		panic("guardy: WrapInput requires non-nil next")
 	}
 	return func(ctx context.Context, req Req) (Res, error) {
+		scope, err := scopeFactory.scope(ctx)
+		if err != nil {
+			var zero Res
+			return zero, err
+		}
 		result, err := p.Run(ctx, scope, req)
 		if err != nil {
 			var zero Res
@@ -38,7 +44,9 @@ func WrapInput[Req, Res any](
 	}
 }
 
-// WrapOutput runs next first, then validates the result with the pipeline.
+// WrapOutput runs next first, then constructs current caller-owned facts through
+// scopeFactory and validates the result. Facts are refreshed after handler execution,
+// including any host-controlled pause. Nil factories mean empty scope.
 // If next returns a non-nil error, the result is (res, err) with res as returned by next (possibly a zero value, e.g. nil for pointer types).
 // Deadlines for the output pipeline use the same ctx as for next.
 //
@@ -46,7 +54,7 @@ func WrapInput[Req, Res any](
 // Terminal deny and retryable correction follow the same disposition routing as [WrapInput].
 func WrapOutput[Req, Res any](
 	p *Pipeline[Res],
-	scope ExecutionScope,
+	scopeFactory ScopeFactory,
 	next func(context.Context, Req) (Res, error),
 ) func(context.Context, Req) (Res, error) {
 	if p == nil {
@@ -59,6 +67,11 @@ func WrapOutput[Req, Res any](
 		res, err := next(ctx, req)
 		if err != nil {
 			return res, err
+		}
+		scope, err := scopeFactory.scope(ctx)
+		if err != nil {
+			var zero Res
+			return zero, err
 		}
 		result, err := p.Run(ctx, scope, res)
 		if err != nil {

@@ -34,13 +34,14 @@ func PlainTextInjector() func(*http.Request, string) error {
 type GuardOption func(*guardConfig)
 
 type guardConfig struct {
-	scope ExecutionScope
+	scopeFactory ScopeFactory
 }
 
-// WithGuardScope sets the execution scope for pipeline runs.
-func WithGuardScope(scope ExecutionScope) GuardOption {
+// WithGuardScopeFactory constructs current caller-owned facts for every request,
+// after extraction and immediately before validation. A nil factory means empty scope.
+func WithGuardScopeFactory(scopeFactory ScopeFactory) GuardOption {
 	return func(c *guardConfig) {
-		c.scope = scope
+		c.scopeFactory = scopeFactory
 	}
 }
 
@@ -65,17 +66,13 @@ func Guard[T any](
 	if injector == nil {
 		panic("guardy: Guard requires non-nil injector")
 	}
-	cfg := guardConfig{scope: nil}
+	cfg := guardConfig{scopeFactory: nil}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
-			if err := checkScopeRequirements(cfg.scope, p.RequiredScope()); err != nil {
-				writeJSONScopeError(w, http.StatusBadRequest, err)
-				return
-			}
 			limitedBody := http.MaxBytesReader(w, r.Body, DefaultMaxBodyBytes)
 			bodyBytes, err := io.ReadAll(limitedBody)
 			if err != nil {
@@ -88,7 +85,12 @@ func Guard[T any](
 				writeJSONError(w, http.StatusBadRequest, "invalid_input", "extraction failed")
 				return
 			}
-			result, err := p.Run(ctx, cfg.scope, text)
+			scope, err := cfg.scopeFactory.scope(ctx)
+			if err != nil {
+				writeJSONError(w, http.StatusInternalServerError, CodeValidatorFailed, "validation failed")
+				return
+			}
+			result, err := p.Run(ctx, scope, text)
 			if err != nil {
 				if errors.Is(err, ErrScopeIncomplete) {
 					writeJSONScopeError(w, http.StatusBadRequest, err)

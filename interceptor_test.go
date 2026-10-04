@@ -414,11 +414,89 @@ func TestWrapInput_ScopeIncomplete(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
-	wrapped := WrapInput(p, MapScope{}, func(_ context.Context, s string) (string, error) {
-		return s, nil
-	})
+	wrapped := WrapInput(
+		p,
+		func(context.Context) (ExecutionScope, error) { return MapScope{}, nil },
+		func(_ context.Context, s string) (string, error) {
+			return s, nil
+		},
+	)
 	_, err := wrapped(context.Background(), "x")
 	if !errors.Is(err, ErrScopeIncomplete) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestWrapInputRefreshesFactsForEveryCall(t *testing.T) {
+	// Arrange.
+	key := NewScopeKey[bool]("allowed")
+	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	allowed, factories, calls := true, 0, 0
+	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
+		factories++
+		return NewScope(ScopeValue(key, allowed)), nil
+	})
+	wrapped := WrapInput(p, factory, func(_ context.Context, value string) (string, error) {
+		calls++
+		return value, nil
+	})
+	// Act.
+	first, firstErr := wrapped(context.Background(), "first")
+	allowed = false
+	second, secondErr := wrapped(context.Background(), "second")
+	// Assert.
+	if firstErr != nil || first != "first" || !errors.Is(secondErr, ErrBlocked) || second != "" || calls != 1 ||
+		factories != 2 {
+		t.Fatalf("first=%q/%v second=%q/%v calls=%d factories=%d", first, firstErr, second, secondErr, calls, factories)
+	}
+}
+
+func TestWrapOutputRefreshesFactsAfterHandler(t *testing.T) {
+	// Arrange.
+	key := NewScopeKey[bool]("allowed")
+	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	allowed, factories, calls := true, 0, 0
+	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
+		factories++
+		return NewScope(ScopeValue(key, allowed)), nil
+	})
+	wrapped := WrapOutput(p, factory, func(_ context.Context, _ string) (string, error) {
+		calls++
+		allowed = false // Host permission changes while execution is paused.
+		return "secret", nil
+	})
+	// Act.
+	result, err := wrapped(context.Background(), "request")
+	// Assert.
+	if result != "" || !errors.Is(err, ErrBlocked) || calls != 1 || factories != 1 {
+		t.Fatalf("result=%q err=%v calls=%d factories=%d", result, err, calls, factories)
+	}
+}
+
+func TestWrappersScopeFactoryFaultsSuppressValues(t *testing.T) {
+	for _, output := range []bool{false, true} {
+		t.Run(map[bool]string{false: "input", true: "output"}[output], func(t *testing.T) {
+			// Arrange.
+			cause := errors.New("host facts unavailable")
+			factory := ScopeFactory(func(context.Context) (ExecutionScope, error) { return nil, cause })
+			calls := 0
+			handler := func(context.Context, string) (string, error) { calls++; return "secret", nil }
+			p := NewPipeline[string]()
+			wrapped := WrapInput(p, factory, handler)
+			wantCalls := 0
+			if output {
+				wrapped = WrapOutput(p, factory, handler)
+				wantCalls = 1
+			}
+			// Act.
+			value, err := wrapped(context.Background(), "request")
+			// Assert.
+			var failure *PolicyFailure
+			if value != "" || !errors.Is(err, cause) || !errors.As(err, &failure) ||
+				!failure.Decision.IsSystemFault() ||
+				calls != wantCalls {
+				t.Fatalf("value=%q err=%v calls=%d", value, err, calls)
+			}
+		})
 	}
 }

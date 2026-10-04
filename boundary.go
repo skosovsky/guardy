@@ -6,7 +6,9 @@ import (
 )
 
 // ScopeFactory constructs current request-local policy facts at every invocation,
-// including host-controlled resume. Nil means an empty scope, not a cached verdict.
+// including host-controlled resume. Output wrappers call it after the handler succeeds;
+// input/argument wrappers call it before validation. The host owns a coherent snapshot
+// and revalidation at execution time. Nil means an empty scope, not a cached verdict.
 type ScopeFactory func(context.Context) (ExecutionScope, error)
 
 func (f ScopeFactory) scope(ctx context.Context) (ExecutionScope, error) {
@@ -18,6 +20,9 @@ func (f ScopeFactory) scope(ctx context.Context) (ExecutionScope, error) {
 	}
 	scope, err := f(ctx)
 	if err != nil {
+		return nil, validatorFaultError(err)
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, validatorFaultError(err)
 	}
 	return scope, nil

@@ -15,9 +15,11 @@ import (
 
 // Config controls telemetry behavior.
 type Config struct {
-	Tracer          trace.Tracer
-	Meter           metric.Meter
-	IncludePayloads bool
+	Tracer            trace.Tracer
+	Meter             metric.Meter
+	IncludePayloads   bool
+	AllowedValidators map[string]struct{}
+	AllowedCodes      map[string]struct{}
 }
 
 // Option configures guardyotel middleware.
@@ -37,11 +39,34 @@ func WithMeter(meter metric.Meter) Option {
 	}
 }
 
-// WithIncludePayloads enables raw payload capture in slow-path spans.
+// WithIncludePayloads enables raw string payload capture in slow-path spans.
+// Disabled payload capture does not authorize raw validator errors or report text;
+// neither is exported. This middleware is not an audit ledger of all decisions.
 func WithIncludePayloads(include bool) Option {
 	return func(c *Config) {
 		c.IncludePayloads = include
 	}
+}
+
+// WithAllowedMetadata permits exact, caller-approved validator and code labels.
+// Unlisted labels are omitted. Values must be static non-sensitive identifiers;
+// identifiers longer than 128 bytes are ignored to bound exported dimensions.
+func WithAllowedMetadata(validators, codes []string) Option {
+	return func(c *Config) {
+		c.AllowedValidators = allowedLabels(validators)
+		c.AllowedCodes = allowedLabels(codes)
+	}
+}
+
+func allowedLabels(labels []string) map[string]struct{} {
+	const maxLabelBytes = 128
+	out := make(map[string]struct{}, len(labels))
+	for _, label := range labels {
+		if label != "" && len(label) <= maxLabelBytes {
+			out[label] = struct{}{}
+		}
+	}
+	return out
 }
 
 type recorder[T any] struct {
@@ -53,9 +78,11 @@ type recorder[T any] struct {
 // NewMiddleware builds ValidatorMiddleware with fast-path metrics and slow-path tracing.
 func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
 	cfg := Config{
-		Tracer:          otel.Tracer("guardy/ext/guardyotel"),
-		Meter:           otel.Meter("guardy/ext/guardyotel"),
-		IncludePayloads: false,
+		Tracer:            otel.Tracer("guardy/ext/guardyotel"),
+		Meter:             otel.Meter("guardy/ext/guardyotel"),
+		IncludePayloads:   false,
+		AllowedValidators: nil,
+		AllowedCodes:      nil,
 	}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -101,8 +128,7 @@ func (r *recorder[T]) validate(ctx context.Context, next guardy.Validator[T], in
 		attrs := r.reportAttrs(phase, rep, err)
 		span.SetAttributes(attrs...)
 		if err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			span.SetStatus(codes.Error, "validator error")
 		} else {
 			span.SetStatus(codes.Ok, "ok")
 		}
@@ -126,12 +152,16 @@ func (r *recorder[T]) reportAttrs(phase guardy.ValidationPhase, rep *guardy.Repo
 	if rep != nil {
 		attrs = append(attrs,
 			attribute.String("guardy.action", rep.Action.String()),
-			attribute.String("guardy.validator", rep.Validator),
 		)
-		if rep.Code != "" {
+		if _, approved := r.cfg.AllowedValidators[rep.Validator]; approved {
+			attrs = append(attrs, attribute.String("guardy.validator", rep.Validator))
+		}
+		if _, approved := r.cfg.AllowedCodes[rep.Code]; approved {
 			attrs = append(attrs, attribute.String("guardy.code", rep.Code))
 		}
-		if rep.Severity != "" {
+		if rep.Severity == guardy.SeverityLow || rep.Severity == guardy.SeverityMedium ||
+			rep.Severity == guardy.SeverityHigh ||
+			rep.Severity == guardy.SeverityCritical {
 			attrs = append(attrs, attribute.String("guardy.severity", string(rep.Severity)))
 		}
 	}

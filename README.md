@@ -321,7 +321,7 @@ See `examples/declarative_guard`.
 
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take an `ExecutionScope` argument (use `nil` when no policy keys are required). Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take a `ScopeFactory` (use `nil` when no policy keys are required). Input facts are resolved before validation; output facts are resolved after a successful handler. The host owns coherent snapshots and execution authorization. Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
@@ -502,6 +502,9 @@ pipeline = pipeline.Use(guardyotel.NewMiddleware[string](
 ```
 
 Fast path exports counters/histograms; slow path emits spans. Raw payload capture is opt-in.
+Arbitrary validator/code labels are omitted by default; `WithAllowedMetadata` permits
+explicit static identifiers of at most 128 bytes. Raw validator errors and report
+text are never exported. This middleware does not observe every policy decision.
 
 ### Map (Lens adapter)
 
@@ -590,8 +593,8 @@ See [CONTRACTS.md](CONTRACTS.md) for boundary and release invariants.
   `StreamError`. Use `CompileStream`, an explicit profile, bounds and
   `ReleaseError`. Replace successful `Close` flushes with `Complete(ctx)`;
   disconnects use `Abort`. Whole-response PII guarding no longer exposes a prefix.
-- `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, `WrapGuardedOutput`
-  take `ScopeFactory`, called on every invocation/resume. Use
+- `WrapInput`, `WrapOutput`, `WrapArgs`, `WrapGuardedArgs`,
+  `WrapGuardedJSONArgs`, `WrapGuardedOutput` take `ScopeFactory`, called on every invocation/resume. Use
   `func(ctx context.Context) (guardy.ExecutionScope, error)` to project current
   policy facts. Low-level `Run` still accepts an explicit scope.
 - Typed args are canonically encoded after post-bind hooks, including pointer
@@ -642,10 +645,10 @@ not measure detector false positives/negatives or live-provider safety.
 - **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedOutput[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
 - **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
 - **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
-- **Observer telemetry:** `WithObserver` receives `GuardEvent` with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata.
+- **Observer telemetry:** `WithObserver` receives `GuardEvent` for non-fatal shadow blocks, with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata. It is not an all-events audit ledger.
 - **Decision routing:** use `Decision.Route(RemediationPolicy)` or `RouteDecision` for retry, terminal deny, system fault, and fallback projection.
 - **HTTP report context:** `ReportFromContext` was removed; report context side channels are replaced by explicit decisions, policy failures, guard events, and boundary values.
-- **WrapInput/WrapOutput:** add `scope` parameter (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
+- **WrapInput/WrapOutput:** take `ScopeFactory` (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
 - **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
 - **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
 
@@ -727,3 +730,43 @@ correction. Shadow observes only non-fatal policy blocks. The shadow observer's
 Decision describes the violation without suppression; its Report retains ShadowMode.
 ShouldStop/ShouldRetry, ApplyControlDefaults and ext.ValidatorOption were removed;
 use disposition methods, FinishReport and ext.Option.
+
+
+## Current host facts and context policies
+
+Long-lived adapters resolve `ScopeFactory` at each boundary. Input/argument checks
+obtain facts before validation; output checks obtain facts after a successful
+handler. HTTP uses `WithGuardScopeFactory` after extraction. Low-level `Run` accepts
+an explicit snapshot. Fact freshness and atomic authorization at execution remain
+host responsibilities. `WrapOutput` preserves a partial handler result on error;
+`WrapGuardedOutput` suppresses it. Neither can undo handler side effects.
+
+The host assigns authenticated identity, source references, trust/integrity,
+confidentiality, destination and policy identity. These are separate facts:
+authenticated content can still be confidential. Untrusted text claiming to be
+trusted does not change facts. Summaries, memory records and subagent results must
+retain host source restrictions; unknown provenance fails a configured mandatory
+policy. Each consumer checks its own destination and serializes only an approved
+`DeliveryProjection`. A host gate binds approval to exact canonical args, identity,
+destination and current policy/configuration; `ConfigurationID` is metadata.
+After pause/resume, rebuild facts and revalidate. The same contracts apply to a
+plain document/API workflow with no model or agent runtime.
+
+Telemetry must export bounded opaque references and explicitly permitted metadata.
+Do not serialize complete Scope/Report/raw data or feedback. Third-party validator
+errors may contain secrets even with payload capture disabled. OTel provides call
+metrics/spans, not a provenance ledger or complete decision audit.
+
+For external semantic evaluation fix detector/model/configuration and dataset IDs,
+threshold and train/evaluation split. Keep benign and adversarial sets separate;
+report false positives/negatives, task success, latency and fault rates. Deterministic
+mock conformance verifies integration only. Live-provider benchmarks are optional
+and are not required by CI.
+
+
+`context_policy_reference_test.go` contains the executable document/API reference
+harness and deterministic adversarial corpus. It validates typed and dynamic
+canonical arguments with JSON redaction and final schema/policy, binds a host
+approval, resumes against fresh facts, and observes real handler calls and bytes
+at independent context, persistence, export and delivery sinks. All harness types
+and approvals are caller-owned; no Agent/Message/Session type is required.

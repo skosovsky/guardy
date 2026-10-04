@@ -112,6 +112,8 @@ func WrapGuardedJSONArgs[Res any](
 }
 
 // WrapGuardedOutput validates next's output and returns a guarded output contract.
+// ScopeFactory obtains current facts after next succeeds, immediately before validation.
+// Handler errors suppress the partial value and do not call the scope factory.
 func WrapGuardedOutput[Req, Res any](
 	p *Pipeline[Res],
 	scopeFactory ScopeFactory,
@@ -124,16 +126,6 @@ func WrapGuardedOutput[Req, Res any](
 		panic("guardy: WrapGuardedOutput requires non-nil next")
 	}
 	return func(ctx context.Context, req Req) (GuardedOutput[Res], error) {
-		scope, scopeErr := scopeFactory.scope(ctx)
-		if scopeErr != nil {
-			decision := DecisionFromReport(nil)
-			if failure, ok := errors.AsType[*PolicyFailure](scopeErr); ok {
-				decision = failure.Decision
-			}
-			var output GuardedOutput[Res]
-			output.ConfigurationID, output.Decision = p.name, decision
-			return output, scopeErr
-		}
 		res, err := next(ctx, req)
 		if err != nil {
 			var zero Res
@@ -147,6 +139,16 @@ func WrapGuardedOutput[Req, Res any](
 				Channel:         "",
 				Fallback:        false,
 			}, err
+		}
+		scope, scopeErr := scopeFactory.scope(ctx)
+		if scopeErr != nil {
+			decision := DecisionFromReport(nil)
+			if failure, ok := errors.AsType[*PolicyFailure](scopeErr); ok {
+				decision = failure.Decision
+			}
+			var output GuardedOutput[Res]
+			output.ConfigurationID, output.Decision = p.name, decision
+			return output, scopeErr
 		}
 		return p.GuardOutput(ctx, scope, res)
 	}

@@ -267,7 +267,7 @@ func TestGuard_ExtractorError(t *testing.T) {
 	}
 }
 
-func TestGuard_ScopeIncompleteBeforeBody(t *testing.T) {
+func TestGuard_ScopeIncompleteBeforeHandler(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
 	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
@@ -276,7 +276,7 @@ func TestGuard_ScopeIncompleteBeforeBody(t *testing.T) {
 		p,
 		bodyExtractor,
 		PlainTextInjector(),
-		WithGuardScope(MapScope{}),
+		WithGuardScopeFactory(func(context.Context) (ExecutionScope, error) { return MapScope{}, nil }),
 	)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		nextCalled = true
 	}))
@@ -342,5 +342,65 @@ func TestGuard_TerminalRetry_Returns422WithTerminalDenyDisposition(t *testing.T)
 	}
 	if !strings.Contains(rec.Body.String(), "TERMINAL_RETRY") {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+func TestGuardCurrentFactsAfterExtractionAndPerRequest(t *testing.T) {
+	// Arrange.
+	key := NewScopeKey[bool]("allowed")
+	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	allowed, revokeDuringExtraction, factories, calls := true, false, 0, 0
+	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
+		factories++
+		return NewScope(ScopeValue(key, allowed)), nil
+	})
+	extractor := func(r *http.Request) (string, error) {
+		value, err := bodyExtractor(r)
+		if revokeDuringExtraction {
+			allowed = false
+		}
+		return value, err
+	}
+	handler := Guard(p, extractor, PlainTextInjector(), WithGuardScopeFactory(factory))(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; _, _ = io.Copy(w, r.Body) }),
+	)
+	// Act.
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("benign")))
+	revokeDuringExtraction = true
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("secret")))
+	// Assert.
+	if first.Code != http.StatusOK || first.Body.String() != "benign" ||
+		second.Code != http.StatusUnprocessableEntity ||
+		strings.Contains(second.Body.String(), "secret") ||
+		calls != 1 ||
+		factories != 2 {
+		t.Fatalf(
+			"first=%d/%q second=%d/%q calls=%d factories=%d",
+			first.Code,
+			first.Body.String(),
+			second.Code,
+			second.Body.String(),
+			calls,
+			factories,
+		)
+	}
+}
+
+func TestGuardScopeFactoryFaultDoesNotCallHandler(t *testing.T) {
+	// Arrange.
+	calls := 0
+	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) { return nil, io.ErrUnexpectedEOF })
+	handler := Guard(NewPipeline[string](), bodyExtractor, PlainTextInjector(), WithGuardScopeFactory(factory))(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),
+	)
+	// Act.
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", strings.NewReader("secret")))
+	// Assert.
+	if rec.Code != http.StatusInternalServerError || calls != 0 || strings.Contains(rec.Body.String(), "secret") ||
+		strings.Contains(rec.Body.String(), io.ErrUnexpectedEOF.Error()) {
+		t.Fatalf("status=%d body=%q calls=%d", rec.Code, rec.Body.String(), calls)
 	}
 }

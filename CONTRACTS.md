@@ -34,7 +34,15 @@ types; nil pointer arguments fail with a correction decision. Canonical encoding
 occurs after all mutations. An optional final guard validates canonical bytes and
 must not change them. Integrations requiring schema enforcement must supply it;
 shape metadata alone does not validate. Custom codecs own their representation
-invariant. ScopeFactory runs for every invocation and host-controlled resume.
+invariant. ScopeFactory runs at every input/argument boundary and host-controlled resume.
+All long-lived wrappers use ScopeFactory: input/argument wrappers resolve it before
+validation; output wrappers resolve it after a successful handler, immediately
+before result validation. HTTP resolves it after extraction on every request.
+Handler errors skip output validation; WrapOutput preserves the handler's partial
+result for host orchestration, whereas WrapGuardedOutput suppresses it. A factory
+error/cancellation is a fault. Low-level Run accepts an explicit caller snapshot.
+A fresh lookup is not atomic execution authorization: the host must bind and
+recheck approval and execute under its own consistency contract.
 Required scope contracts are checked before any raw validator, including the
 requirements of the final checker. Missing keys and incompatible typed facts
 have distinct typed causes; boundary decisions remain system faults.
@@ -97,8 +105,12 @@ original terminal stream outcome. Correction feedback is excluded from telemetry
 
 ## Policy facts and consumers
 
-Source references, trust, classification and destinations belong to host-owned
-scope types. Claims and confirmed facts are separate. Transformation does not
+Authenticated identity, source references, integrity/trust, confidentiality,
+destinations and policy identities belong to host-owned scope types. The host
+assigns these facts from authenticated transport, source adapters and its policy
+configuration; payload text, tool responses and subagent claims cannot assign them.
+Integrity and confidentiality are independent: a trusted source can contain secrets.
+Unknown origin is not public or trusted by default. Claims and confirmed facts are separate. Transformation does not
 elevate trust or remove references. Missing required facts fail closed. No-provenance
 mode and declassification are explicit caller policies. Evidence is bounded references,
 not raw secrets. Each consumer has its own policy; only DeliveryProjection is
@@ -106,7 +118,13 @@ serialized. Fallback/replacement values go through the destination's content che
 
 BoundaryProfile declares actual configured coverage, rejects unsupported mandatory
 boundaries, and does not automatically intercept hosted/remote execution. External
-approval binding and invocation remain the host's responsibility. Zero retry budget
+approval binding and invocation remain the host's responsibility. A reference host
+gate binds exact canonical arguments, authenticated identity, destination, current
+policy and configuration; ConfigurationID alone is metadata, not authorization.
+Pause/resume rebuilds facts and checks the final arguments and gate again. Each
+context, persistence, export and delivery consumer checks its own destination;
+transforms, summaries, subagent responses and restored secrets retain host source
+restrictions until an explicit host declassification policy changes them. Zero retry budget
 means no retries; counters and execution of routes remain host-owned.
 
 ## Standard matcher and classifier limits
@@ -129,3 +147,23 @@ classification or authorization. GuardSpec has only explicit rule fields.
 Vault tokens are lookup keys, never disclosure grants. Hosts authorize recipients
 before restoration, own vault isolation/lifetime and check the final restored
 payload at its destination. TokenVault contains no identity or ACL model.
+
+
+## Observation and semantic evaluation
+
+GuardEvent observers observe non-fatal shadow blocks; they do not receive every
+allowed/denied action and do not supply an audit ledger. OTel middleware supplies
+metrics/spans for validator calls, not authorization or provenance evidence.
+The host exports only bounded opaque references and approved metadata/projections,
+never entire Scope, Report, raw input or correction feedback by default. Third-party
+validator error text can itself contain private data even when payload capture is
+disabled; exporters must not attach arbitrary error messages. Explicit payload
+capture remains a deliberate caller disclosure decision.
+
+Deterministic adversarial conformance tests check exact canonical bytes, real
+handler/sink calls, category routing and configuration coverage. Mock scores verify
+wiring, not attack detection quality. External semantic evaluations fix detector,
+model/configuration and dataset IDs; separate benign/adversarial sets and report
+false positives/negatives, task success, latency and detector faults. Preserve
+split/version and threshold, compare the same workload, and record unknown or
+unlabelled cases separately. Live providers and paid benchmarks are outside CI.

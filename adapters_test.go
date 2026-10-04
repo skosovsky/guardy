@@ -133,3 +133,61 @@ func TestWrapGuardedOutput_NextErrorDoesNotExposeResult(t *testing.T) {
 		t.Fatalf("Value = %q, want zero value", output.Value)
 	}
 }
+
+func TestGuardedOutputUsesPostHandlerFacts(t *testing.T) {
+	// Arrange.
+	allowed := true
+	factoryCalls := 0
+	key := NewScopeKey[bool]("delivery.allowed")
+	pipeline := NewPipeline(
+		WithPolicyValidators(
+			NewPolicyFuncWithScope(
+				[]ScopeRequirement{key.Requirement()},
+				func(_ context.Context, value string, scope ExecutionScope) (string, *Report, error) {
+					current, _ := key.Lookup(scope)
+					action := ActionPass
+					if !current {
+						action = ActionBlock
+					}
+					return value, &Report{Action: action}, nil
+				},
+			),
+		),
+	)
+	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
+		factoryCalls++
+		return NewScope(ScopeValue(key, allowed)), nil
+	})
+	wrapped := WrapGuardedOutput(pipeline, factory, func(context.Context, string) (string, error) {
+		allowed = false
+		return "private result", nil
+	})
+	// Act.
+	output, err := wrapped(context.Background(), "request")
+	// Assert.
+	if !errors.Is(err, ErrBlocked) || output.Deliverable || factoryCalls != 1 {
+		t.Fatalf("deliverable=%v calls=%d err=%v", output.Deliverable, factoryCalls, err)
+	}
+}
+
+func TestScopeFactoryCancellationSuppressesHandler(t *testing.T) {
+	// Arrange.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	pipeline := MustCompileArgs[string](NewPipeline[string]())
+	wrapped := WrapArgs(pipeline, func(context.Context) (ExecutionScope, error) {
+		cancel()
+		return NewScope(), nil
+	}, func(context.Context, string) (string, error) {
+		calls++
+		return "executed", nil
+	})
+	// Act.
+	_, _, err := wrapped(ctx, `"request"`)
+	// Assert.
+	var failure *PolicyFailure
+	if !errors.Is(err, context.Canceled) || !errors.As(err, &failure) || calls != 0 {
+		t.Fatalf("calls=%d err=%v", calls, err)
+	}
+}
