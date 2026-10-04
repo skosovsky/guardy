@@ -7,6 +7,7 @@ import (
 )
 
 // PostBindValidator is optional domain validation after JSON unmarshal in [ArgsPipeline.Validate].
+// Domain errors request correction; cancellation/deadline errors are system faults.
 // Implement on a pointer receiver, for example:
 //
 //	func (u *User) ValidatePostBind(ctx context.Context) error

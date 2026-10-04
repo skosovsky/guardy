@@ -189,6 +189,11 @@ decision := result.PolicyDecision()
 
 Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
 
+`NewTypedAttributeEquals` uses Go equality. Interface values that contain slices,
+maps or other incomparable operands fail with `ErrAttributeIncomparable` and
+`AttributeComparisonError`, projected as a system fault by the pipeline. Use a custom
+policy for domain-specific comparison. The untyped `NewAttributeEquals` API was removed.
+
 ### Canonical boundary contracts
 
 Use `Decision` and `PolicyFailure` at host boundaries. Guardy errors from decode, interceptors, stream, and guarded output expose `*PolicyFailure` through `errors.As`, while sentinel checks still work through `errors.Is`.
@@ -667,7 +672,8 @@ Use `ArgsPipeline`, `Map` and `MapJSONRawMessage` for type-safe argument validat
 
 - **Stream migration:** use explicit `CompileStream` profiles and trusted `Complete`; `Close` aborts.
 - **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
-- **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`.
+- **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`;
+  cancellation/deadline errors are system faults with their cause preserved through `errors.Is`.
 - **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).
 
 ## Migration: `MapJSONRawMessage`

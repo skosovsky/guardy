@@ -1,6 +1,20 @@
 package guardy
 
-import "context"
+import (
+	"context"
+	"errors"
+	"reflect"
+)
+
+// ErrAttributeIncomparable identifies equality operands that cannot safely use Go ==.
+var ErrAttributeIncomparable = errors.New("guardy: attribute equality requires comparable values")
+
+// AttributeComparisonError identifies the scope key of an invalid equality check.
+// It contains no operand values and is a system fault when returned through Pipeline.
+type AttributeComparisonError struct{ Key string }
+
+func (e *AttributeComparisonError) Error() string { return ErrAttributeIncomparable.Error() }
+func (e *AttributeComparisonError) Unwrap() error { return ErrAttributeIncomparable }
 
 // PolicyValidator runs context-aware rules using [ExecutionScope].
 type PolicyValidator[T any] interface {
@@ -125,41 +139,6 @@ func policyViolationReport(cfg PolicyConfig, reason string) *Report {
 	})
 }
 
-type attributeEqualsValidator[T any] struct {
-	key  string
-	want any
-	cfg  PolicyConfig
-}
-
-func (v attributeEqualsValidator[T]) RequiredScope() []ScopeRequirement {
-	return scopeRequirementsFromKeys([]string{v.key})
-}
-
-func (v attributeEqualsValidator[T]) Validate(_ context.Context, input T, scope ExecutionScope) (T, *Report, error) {
-	got, ok := scope.Lookup(v.key)
-	if !ok {
-		missingCfg := v.cfg
-		missingCfg.Code = CodeAttributeMissing
-		return input, policyViolationReport(missingCfg, "attribute "+v.key+" missing"), nil
-	}
-	if got != v.want {
-		return input, policyViolationReport(v.cfg, "attribute "+v.key+" mismatch"), nil
-	}
-	return input, nil, nil
-}
-
-// NewAttributeEquals blocks when scope[key] != want (deep equality via == for comparable values).
-//
-// Deprecated: use [NewTypedAttributeEquals] with [ScopeKey].
-func NewAttributeEquals[T any](key string, want any, opts ...PolicyOption) PolicyValidator[T] {
-	cfg := applyPolicyConfig(PolicyConfig{
-		Name:     "attribute_equals",
-		Code:     CodeAttributeMismatch,
-		Severity: SeverityHigh,
-	}, opts...)
-	return attributeEqualsValidator[T]{key: key, want: want, cfg: cfg}
-}
-
 type typedAttributeEqualsValidator[T any, V comparable] struct {
 	key  ScopeKey[V]
 	want V
@@ -188,13 +167,18 @@ func (v typedAttributeEqualsValidator[T, V]) Validate(
 		missingCfg.Code = CodeAttributeMissing
 		return input, policyViolationReport(missingCfg, "attribute "+v.key.Name()+" missing"), nil
 	}
+	if !reflect.ValueOf(&got).Elem().Comparable() || !reflect.ValueOf(&v.want).Elem().Comparable() {
+		return input, nil, &AttributeComparisonError{Key: v.key.Name()}
+	}
 	if got != v.want {
 		return input, policyViolationReport(v.cfg, "attribute "+v.key.Name()+" mismatch"), nil
 	}
 	return input, nil, nil
 }
 
-// NewTypedAttributeEquals blocks when typed scope[key] != want.
+// NewTypedAttributeEquals blocks when typed scope[key] != want using Go == semantics.
+// Dynamically incomparable operands (including interface fields containing slices
+// or maps) return [ErrAttributeIncomparable], rather than panic or a policy mismatch.
 func NewTypedAttributeEquals[T any, V comparable](key ScopeKey[V], want V, opts ...PolicyOption) PolicyValidator[T] {
 	cfg := applyPolicyConfig(PolicyConfig{
 		Name:     "typed_attribute_equals",

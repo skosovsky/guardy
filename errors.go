@@ -1,9 +1,47 @@
 package guardy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 )
+
+// callbackCancellation checks context before interpreting a synchronous callback's result.
+// A wrapped cancellation from a child operation remains a fault even with a live parent.
+func callbackCancellation(ctx context.Context, callbackErr error) error {
+	if err := ctx.Err(); err != nil {
+		if callbackErr != nil {
+			return errors.Join(err, callbackErr)
+		}
+		return err
+	}
+	if errors.Is(callbackErr, context.Canceled) || errors.Is(callbackErr, context.DeadlineExceeded) {
+		return callbackErr
+	}
+	return nil
+}
+
+// cancellationOnly prevents sibling cancellation from hiding an independently failed check.
+func cancellationOnly(err error) bool {
+	// A nested pipeline marks its cancellation as a fault for its own caller.
+	// The category marker is not an independent failure of this sibling check.
+	//nolint:errorlint // Inspect this node only; errors.As could skip other independently failed joined causes.
+	if fault, ok := err.(*ValidatorFaultError); ok {
+		return cancellationOnly(fault.Failure.Cause)
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, cause := range joined.Unwrap() {
+			if !cancellationOnly(cause) {
+				return false
+			}
+		}
+		return len(joined.Unwrap()) > 0
+	}
+	if wrapped, ok := err.(interface{ Unwrap() error }); ok {
+		return cancellationOnly(wrapped.Unwrap())
+	}
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
 
 var (
 	// ErrBlocked is returned when the pipeline result is Block (e.g. by StreamProcessor, WrapInput, WrapOutput).
@@ -193,10 +231,15 @@ func validatorFaultReport(cause error) Report {
 
 func validatorFaultError(cause error) error {
 	report := validatorFaultReport(cause)
+	return validatorFaultErrorFromReport(&report, cause)
+}
+
+func validatorFaultErrorFromReport(report *Report, cause error) error {
+	normalized := normalizeReport(report)
 	return &ValidatorFaultError{
 		Cause:   cause,
-		Failure: *policyFailureFromReport(&report, causeOrDefault(cause, ErrValidatorFailed)),
-		report:  report,
+		Failure: *policyFailureFromReport(&normalized, causeOrDefault(cause, ErrValidatorFailed)),
+		report:  normalized,
 	}
 }
 

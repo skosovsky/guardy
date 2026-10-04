@@ -35,6 +35,17 @@ occurs after all mutations. An optional final guard validates canonical bytes an
 must not change them. Integrations requiring schema enforcement must supply it;
 shape metadata alone does not validate. Custom codecs own their representation
 invariant. ScopeFactory runs at every input/argument boundary and host-controlled resume.
+Argument adapters check cancellation before and immediately after caller decode,
+post-bind, encode and schema callbacks, before interpreting their result or invoking
+the next stage. Cancellation/deadline errors, including wrapped callback errors with
+a live parent context, are system faults with their causes retained through errors.Is.
+Ordinary post-bind domain errors remain corrections. SemanticValidator and LLMJudge
+also check context before/after their synchronous callback when called directly;
+Pipeline projects their errors into canonical faults. Cancellation is cooperative:
+these checks cannot terminate a callback or undo its side effects.
+Fault projections retain aggregate payload classification from checks completed
+before the fault. Pipeline/boundary decisions and PolicyFailure describe the same
+canonical result, including after canonical final checking fails.
 All long-lived wrappers use ScopeFactory: input/argument wrappers resolve it before
 validation; output wrappers resolve it after a successful handler, immediately
 before result validation. HTTP resolves it after extraction on every request.
@@ -46,6 +57,10 @@ recheck approval and execute under its own consistency contract.
 Required scope contracts are checked before any raw validator, including the
 requirements of the final checker. Missing keys and incompatible typed facts
 have distinct typed causes; boundary decisions remain system faults.
+Typed attribute equality uses Go == semantics. Dynamically incomparable operands,
+including interface fields holding slices/maps, fail with ErrAttributeIncomparable
+and AttributeComparisonError metadata rather than panicking or becoming mismatch.
+Caller-defined comparison belongs in a custom policy; equality does not imply DeepEqual.
 
 ## Stream release
 

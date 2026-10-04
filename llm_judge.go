@@ -26,11 +26,19 @@ func NewLLMJudge(j Judge, shadow bool) *LLMJudge {
 }
 
 // Validate runs the judge and returns its result.
+// Context is checked before/after the synchronous judge. Cancellation prevents a
+// late report; it cannot terminate a non-cooperative judge or undo its side effects.
 func (l *LLMJudge) Validate(ctx context.Context, input string) (string, *Report, error) {
+	if err := ctx.Err(); err != nil {
+		return input, nil, err
+	}
 	if l.judge == nil {
 		return "", nil, errLLMJudgeNil
 	}
 	rep, err := l.judge.Evaluate(ctx, input)
+	if ctxErr := callbackCancellation(ctx, err); ctxErr != nil {
+		return input, nil, ctxErr
+	}
 	if err != nil {
 		return input, nil, err
 	}

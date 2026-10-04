@@ -138,6 +138,7 @@ func (p *JSONArgsPipeline) RequiredScopeKeys() []string {
 }
 
 // Validate runs raw validation before decoding into a dynamic JSON object.
+// Context cancellation before/after the schema callback outranks its policy report.
 func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, raw string) (GuardedJSONArgs, error) {
 	if p == nil || p.raw == nil {
 		return GuardedJSONArgs{
@@ -186,14 +187,15 @@ func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, r
 	}
 	args.SanitizedRaw = string(canonical)
 
-	if p.schema != nil {
-		if rep := p.schema.ValidateJSONArgs(ctx, copyStringAnyMap(object)); rep != nil {
-			finished := normalizeReport(rep)
-			args.Reports = append(args.Reports, finished)
-			decisionReport := refreshGuardedJSONArgsDecision(&args)
-			if decErr := errorFromDecision(decisionReport); decErr != nil {
-				return args, decErr
-			}
+	rep, schemaErr := p.validateSchema(ctx, object)
+	if schemaErr != nil {
+		return jsonArgsFault(args, schemaErr)
+	}
+	if rep != nil {
+		args.Reports = append(args.Reports, normalizeReport(rep))
+		decisionReport := refreshGuardedJSONArgsDecision(&args)
+		if decErr := errorFromDecision(decisionReport); decErr != nil {
+			return args, decErr
 		}
 	}
 	if p.final != nil {
@@ -201,7 +203,7 @@ func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, r
 		args.Reports = append(args.Reports, checked.Reports...)
 		rep := refreshGuardedJSONArgsDecision(&args)
 		if finalErr != nil {
-			return args, finalErr
+			return jsonArgsFault(args, finalErr)
 		}
 		if e := errorFromDecision(rep); e != nil {
 			return args, e
@@ -216,14 +218,24 @@ func (p *JSONArgsPipeline) Validate(ctx context.Context, scope ExecutionScope, r
 	return args, nil
 }
 
+func (p *JSONArgsPipeline) validateSchema(ctx context.Context, object map[string]any) (*Report, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	var rep *Report
+	if p.schema != nil {
+		rep = p.schema.ValidateJSONArgs(ctx, copyStringAnyMap(object))
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return rep, nil
+}
+
 func jsonArgsFault(args GuardedJSONArgs, cause error) (GuardedJSONArgs, error) {
 	args.Reports = append(args.Reports, validatorFaultReport(cause))
-	refreshGuardedJSONArgsDecision(&args)
-	err := validatorFaultError(cause)
-	if failure, ok := errors.AsType[*PolicyFailure](err); ok {
-		args.Decision = failure.Decision
-	}
-	return args, err
+	rep := refreshGuardedJSONArgsDecision(&args)
+	return args, validatorFaultErrorFromReport(rep, cause)
 }
 
 func refreshGuardedJSONArgsDecision(args *GuardedJSONArgs) *Report {

@@ -145,6 +145,8 @@ func (p *ArgsPipeline[T]) RequiredScopeKeys() []string {
 }
 
 // Validate runs raw validation before decoding into T.
+// Cancellation is checked before/after each codec and post-bind callback and outranks
+// correction. Wrapped cancellation causes remain accessible through [errors.Is].
 func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, raw string) (GuardedArgs[T], error) {
 	if p == nil || p.raw == nil {
 		var zero T
@@ -173,30 +175,22 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 		return payload, decErr
 	}
 
-	var value T
-	if unmarshalErr := p.decode(result.Output, &value); unmarshalErr != nil {
-		rep := FinishReport(&Report{
-			Action:   ActionRetry,
-			Code:     CodeJSONInvalid,
-			Reason:   "invalid JSON for decode",
-			Feedback: unmarshalErr.Error(),
-		}, ControlSpec{Action: ActionRetry})
-		payload.Reports = append(payload.Reports, *rep)
+	value, bindReport, bindErr := p.bind(ctx, result.Output)
+	if bindReport != nil {
+		payload.Reports = append(payload.Reports, *bindReport)
 		decisionReport := refreshGuardedArgsDecision(&payload)
 		return payload, retryErrorFromReport(decisionReport)
 	}
-	if bindErr := invokePostBind(ctx, &value); bindErr != nil {
-		rep := FinishReport(&Report{
-			Action:   ActionRetry,
-			Code:     CodePostBindViolation,
-			Reason:   bindErr.Error(),
-			Feedback: bindErr.Error(),
-		}, ControlSpec{Action: ActionRetry})
-		payload.Reports = append(payload.Reports, *rep)
-		decisionReport := refreshGuardedArgsDecision(&payload)
-		return payload, retryErrorFromReport(decisionReport)
+	if bindErr != nil {
+		return argsFault(payload, bindErr)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return argsFault(payload, ctxErr)
 	}
 	canonical, encodeErr := p.encode(value)
+	if ctxErr := callbackCancellation(ctx, encodeErr); ctxErr != nil {
+		return argsFault(payload, ctxErr)
+	}
 	if encodeErr != nil {
 		return argsFault(payload, encodeErr)
 	}
@@ -206,7 +200,7 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 		payload.Reports = append(payload.Reports, checked.Reports...)
 		rep := refreshGuardedArgsDecision(&payload)
 		if checkErr != nil {
-			return payload, checkErr
+			return argsFault(payload, checkErr)
 		}
 		if decErr := errorFromDecision(rep); decErr != nil {
 			return payload, decErr
@@ -222,14 +216,48 @@ func (p *ArgsPipeline[T]) Validate(ctx context.Context, scope ExecutionScope, ra
 	return payload, nil
 }
 
+// bind separates domain corrections from execution faults before canonical encoding.
+func (p *ArgsPipeline[T]) bind(ctx context.Context, raw string) (T, *Report, error) {
+	var value T
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return value, nil, ctxErr
+	}
+	unmarshalErr := p.decode(raw, &value)
+	if ctxErr := callbackCancellation(ctx, unmarshalErr); ctxErr != nil {
+		return value, nil, ctxErr
+	}
+	if unmarshalErr != nil {
+		rep := FinishReport(&Report{
+			Action:   ActionRetry,
+			Code:     CodeJSONInvalid,
+			Reason:   "invalid JSON for decode",
+			Feedback: unmarshalErr.Error(),
+		}, ControlSpec{Action: ActionRetry})
+		return value, rep, unmarshalErr
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return value, nil, ctxErr
+	}
+	bindErr := invokePostBind(ctx, &value)
+	if ctxErr := callbackCancellation(ctx, bindErr); ctxErr != nil {
+		return value, nil, ctxErr
+	}
+	if bindErr != nil {
+		rep := FinishReport(&Report{
+			Action:   ActionRetry,
+			Code:     CodePostBindViolation,
+			Reason:   bindErr.Error(),
+			Feedback: bindErr.Error(),
+		}, ControlSpec{Action: ActionRetry})
+		return value, rep, bindErr
+	}
+	return value, nil, nil
+}
+
 func argsFault[T any](payload GuardedArgs[T], cause error) (GuardedArgs[T], error) {
 	payload.Reports = append(payload.Reports, validatorFaultReport(cause))
-	refreshGuardedArgsDecision(&payload)
-	err := validatorFaultError(cause)
-	if failure, ok := errors.AsType[*PolicyFailure](err); ok {
-		payload.Decision = failure.Decision
-	}
-	return payload, err
+	rep := refreshGuardedArgsDecision(&payload)
+	return payload, validatorFaultErrorFromReport(rep, cause)
 }
 
 func refreshGuardedArgsDecision[T any](args *GuardedArgs[T]) *Report {

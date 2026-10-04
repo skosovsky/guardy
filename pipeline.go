@@ -314,11 +314,12 @@ func (p *Pipeline[T]) finalizeResult(output T, reports []Report) RunResult[T] {
 func (p *Pipeline[T]) validatorFaultResult(output T, reports []Report, cause error) (RunResult[T], error) {
 	faultRep := validatorFaultReport(cause)
 	reports = append(reports, faultRep)
-	return RunResult[T]{
+	result := RunResult[T]{
 		Output:     output,
 		Reports:    reports,
 		OutputKind: AggregatePayloadKind(reports),
-	}, validatorFaultError(cause)
+	}
+	return result, validatorFaultErrorFromReport(policyDecisionReport(reports, result.OutputKind), cause)
 }
 
 // Run executes the pipeline. Block and Retry short-circuit immediately.
@@ -425,7 +426,7 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			if validateErr != nil {
 				// A sibling deny cancels cooperative checks; genuine detector faults
 				// still outrank deny/retry in the canonical result.
-				if errors.Is(validateErr, context.Canceled) && ctx.Err() == nil {
+				if errors.Is(validateErr, context.Canceled) && cancellationOnly(validateErr) && ctx.Err() == nil {
 					mu.Lock()
 					stopped := block != nil || retry != nil
 					mu.Unlock()
