@@ -1,5 +1,5 @@
 // Custom validator: call an external moderation API and plug into the pipeline.
-// This example uses a mock HTTP server that returns a simple "toxic" flag.
+// This example uses a mock HTTP server matching one word; it supplies no trained detector.
 package main
 
 import (

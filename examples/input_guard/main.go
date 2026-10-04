@@ -1,5 +1,5 @@
 // Prompt guard: validate user prompt before sending to LLM.
-// Uses Regex (prompt injection pattern) + Length (max length).
+// Uses a literal phrase regex + Length. This demonstrates wiring, not injection coverage.
 package main
 
 import (
@@ -20,7 +20,7 @@ const (
 )
 
 func main() {
-	regexV, err := ext.NewRegexValidator(regexPrompt, ext.WithCode("PROMPT_INJECTION"))
+	regexV, err := ext.NewRegexValidator(regexPrompt, ext.WithCode("PHRASE_MATCH"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "regex:", err)
 		os.Exit(1)

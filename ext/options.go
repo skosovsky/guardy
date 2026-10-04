@@ -64,7 +64,8 @@ func WithRedactionReplacement(replacement string) Option {
 	}
 }
 
-// WithLowercase enables lowercase normalization in validators that support it.
+// WithLowercase enables case mapping for matching in validators that support it.
+// It does not normalize Unicode or rewrite unmatched text.
 func WithLowercase(lower bool) Option {
 	return func(c *RuleConfig) {
 		c.Lowercase = lower

@@ -1,13 +1,17 @@
-// Reversible redaction: validators emit guardy tokens, then UnredactText restores originals.
+// Reversible redaction: the host authorizes a recipient before restoring vault mappings.
+// A separate final output guard checks the restored payload before delivery.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/ext"
 )
+
+const maxRecipientOutputLength = 500
 
 func main() {
 	vault := ext.NewInMemoryTokenVault()
@@ -37,8 +41,42 @@ func main() {
 
 	redacted := result.Output
 	llmAnswer := "Approved summary: " + redacted
-	restored := ext.UnredactText(llmAnswer, vault)
+	// Caller-owned facts/decision: a token never grants permission to disclose.
+	const ownerID = "customer-42"
+	final := guardy.NewPipeline(guardy.WithFastPath(ext.NewLengthValidator(0, maxRecipientOutputLength)))
+
+	for _, recipientID := range []string{"external-reader", ownerID} {
+		checked, err := restoreForRecipient(context.Background(), recipientID, ownerID, llmAnswer, vault, final)
+		if err != nil {
+			fmt.Println("recipient output rejected:", recipientID, err)
+			continue
+		}
+		if deliverable, ok := checked.DeliverableValue(); ok {
+			fmt.Println("authorized recipient:", recipientID)
+			fmt.Println("delivered:", deliverable)
+		}
+	}
 
 	fmt.Println("redacted:", redacted)
-	fmt.Println("restored:", restored)
+}
+
+// restoreForRecipient is example host code. The authenticated IDs must come from
+// trusted host facts; guardy tokens and model output cannot supply them.
+func restoreForRecipient(
+	ctx context.Context,
+	recipientID, ownerID, answer string,
+	vault ext.TokenVault,
+	final *guardy.Pipeline[string],
+) (guardy.GuardedOutput[string], error) {
+	if err := ctx.Err(); err != nil {
+		return guardy.GuardedOutput[string]{}, err
+	}
+	if ownerID == "" || recipientID != ownerID {
+		return guardy.GuardedOutput[string]{}, errors.New("recipient not authorized")
+	}
+	if final == nil {
+		return guardy.GuardedOutput[string]{}, errors.New("final output guard required")
+	}
+	restored := ext.UnredactText(answer, vault)
+	return final.GuardOutput(ctx, nil, restored)
 }

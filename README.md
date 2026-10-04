@@ -4,7 +4,10 @@
 [![Build](https://img.shields.io/badge/build-go%20build-blue)](https://github.com/skosovsky/guardy)
 [![Coverage](https://img.shields.io/badge/coverage-go%20test-green)](https://github.com/skosovsky/guardy)
 
-**TL;DR** — guardy is a lightweight guardrails library for LLM applications in Go. It provides a two-phase pipeline for validating prompts and model responses: a sequential **fast path** (WAF, PII redaction, wordlist) and a parallel **slow path** (semantic/LLM checks), with easy extension via custom validators.
+Guardy validates, transforms and controls delivery of caller-owned data through
+`Pipeline[T]`. It supports sequential fast checks, caller policies and parallel
+read-only slow checks. Optional matchers and detector adapters can be used in LLM
+applications; the library supplies no trained model or agent runtime.
 
 ---
 
@@ -107,7 +110,7 @@ Validators that may **redact** or **block** run one after another. The text is p
 **Phase 2 — Slow path (parallel)**
 Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
 
-**Recommended order in fast path:** WAF (TagSanitizerValidator) → PII (PIIValidator) → WordlistValidator → RegexValidator/LengthValidator.
+**Example fast-path order:** tag pattern matcher → PII matcher → wordlist → regex/length. Choose and test order for your rules; this ordering is not a measured protection level.
 
 ### Report
 
@@ -314,7 +317,7 @@ outPipeline, err := build.CompileStringGuard(build.GuardSpec{},
 
 See `examples/declarative_guard`.
 
-**Sensitivity levels** (`build.SensitivityStrict`, `SensitivityNormal`, `SensitivityPermissive`): Strict enables PII redaction and tightens `LengthMax` when set; Permissive keeps only explicit wordlist/policy rules; Normal uses spec fields as-is.
+`GuardSpec` selects rules explicitly: `PIIRedact`, `WordlistBlock`, `LengthMax`, and `PolicyRules`. There are no sensitivity/security presets or implicit rule changes. Fast rules run in the documented order; their composition does not establish detector accuracy.
 
 ### Generic decorators (`interceptor.go`)
 
@@ -324,14 +327,60 @@ See `examples/declarative_guard`.
 
 | Validator                   | Description                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TagSanitizerValidator**   | Blocks on system-tag injection (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
+| **TagSanitizerValidator**   | Matches XML-like system tags (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
 | **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
 | **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
 | **RegexValidator**          | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
 | **LengthValidator**         | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
-| **TechnicalJSONClassifier** | Classifies tool-call JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
+| **TechnicalJSONClassifier** | Heuristically marks tool-like JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
 | **JSON Schema**             | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
 | **JSON Redact**             | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
+
+### Matcher and detector contracts
+
+Wordlist tokens are maximal runs of Unicode letters, numbers, combining marks
+and underscore. Punctuation/whitespace delimit tokens. Every listed entry must be
+one non-empty token (invalid entry/mode panics). `WithLowercase` applies Go
+`strings.ToLower` to both entries and matched tokens; it is not full Unicode case
+folding. There is no Unicode normalization, transliteration or confusable matching.
+Detection and replacement use the same original spans. Wordlist, regex and PII
+replacement strings are literal, including `$` and backslash.
+
+PII matching has a finite format contract:
+
+- ASCII unquoted email shapes with a dotted alphabetic TLD; no internationalized
+  local parts, quoted mailboxes or address literals.
+- NANP 10-digit numbers with optional `1`/`+1`; `+7` numbers with 3-3-2-2 grouping.
+  Spaces, dots and hyphens are supported, with optional area-code parentheses.
+  Other country codes and extensions are outside the matched span contract.
+- Visa contiguous 13/16/19 digits and MasterCard 51–55 with 16 digits. A 16-digit
+  card may use four groups with consistent spaces or hyphens. Other prefixes,
+  families, lengths, mixed separators and grouped 13/19-digit forms are unsupported.
+
+Matches require non-word boundaries (Unicode letters/numbers/marks/underscore
+are word characters). These are shape checks, not issuance, Luhn, mailbox or
+telephone validity checks. IDs that look like supported numbers can be false
+positives. All spans are detected on original text; overlaps merge before
+replacement or vault storage, and generated replacements/tokens are not rescanned
+by that validator. An unsupported format can still contain a supported substring
+which is replaced, leaving other parts unchanged (for example, a 16-digit group
+inside a longer grouped number, or a base phone before an extension). Unsupported
+formats have no whole-value redaction guarantee. This is not global PII coverage
+or a DLP product.
+
+`TextClassifier.Classify(context.Context, string)` is synchronous and caller
+supplied. Cancellation is cooperative; the adapter starts no background workers
+and cannot stop a callback that ignores context. It checks cancellation before
+and after the call, so a late success cannot be delivered. `IsViolation` determines
+the verdict; `Score` may use any finite detector-defined scale. Error, cancellation,
+NaN or infinity yields a pipeline fault, even for an alleged pass. No model SDK
+or classifier accuracy claim is supplied by the adapter.
+
+The tag matcher recognizes configured text patterns, not arbitrary instruction
+attacks. Tool-key JSON classification is a heuristic with false positives and
+negatives. Host adapters must supply trusted `PayloadKind` independently of text
+when a delivery boundary requires provenance; a heuristic cannot establish trust
+or authorize execution.
 
 ### Structured Output / JSON Schema
 
@@ -414,10 +463,14 @@ piiV := ext.NewPIIValidator(
 	ext.WithTokenVault(vault),
 )
 result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, nil, "email: a@b.com")
-restored := ext.UnredactText("model: "+result.Output, vault)
+// After host recipient authorization: restore, then validate final output.
+// See examples/reversible_redaction for the complete delivery flow.
 ```
 
 Built-in validators write namespaced canonical tokens such as `[GUARDY_TOKEN_PII_1]` and `[GUARDY_TOKEN_WORDLIST_1]` through `TokenVault.Store(namespace, original)`.
+A token is a lookup key, not permission to disclose. The host owns recipient
+authorization, vault isolation/lifetime and a separate final delivery check after
+restoration. Do not share a request vault across recipients by default.
 
 ### Multi-turn Adapter (MapSlice)
 
@@ -433,7 +486,7 @@ multi := ext.MapSlice(
 )
 ```
 
-If any item returns `ActionBlock` or `ActionRetry`, `MapSlice` blocks the whole collection by default.
+Mandatory deny/retry/fault from an item prevents release of partial transformations. `MapSlice` checks each item independently and aggregates reports; it does not analyze relationships or instructions across messages.
 
 ### Telemetry (Optional `ext/guardyotel`)
 

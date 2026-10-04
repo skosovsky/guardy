@@ -1,4 +1,5 @@
-// Output guard: validate and redact PII in LLM response; block technical JSON on user channel.
+// Output guard: redact documented PII formats and demonstrate a tool-key heuristic.
+// The heuristic is not a trusted host classification and can miss other payloads.
 package main
 
 import (
@@ -22,14 +23,14 @@ func main() {
 
 	ctx := context.Background()
 
-	// Scenario 1: PII redact on safe user text.
+	// Scenario 1: redact matched PII patterns on example prose.
 	piiOutput := `The user can be reached at john@example.com or 555-123-4567.`
 	if len(os.Args) > 1 {
 		piiOutput = os.Args[1]
 	}
 	runPipeline(ctx, pipeline, piiOutput, "PII demo")
 
-	// Scenario 2: user channel blocks technical JSON without CLI args.
+	// Scenario 2: a known tool-like shape triggers the heuristic and user-channel block.
 	technicalJSON := `{"tool":"search","arguments":{"query":"secret"}}`
 	runPipeline(ctx, pipeline, technicalJSON, "technical JSON demo")
 }

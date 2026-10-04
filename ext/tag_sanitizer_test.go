@@ -55,7 +55,7 @@ func TestTagSanitizer_SystemTag_Block(t *testing.T) {
 	if rep.Action != guardy.ActionBlock {
 		t.Errorf("got Action=%v", rep.Action)
 	}
-	if rep.Validator != defaultTagSanitizerName || rep.Reason != "system tag injection attempt" {
+	if rep.Validator != defaultTagSanitizerName || rep.Reason != "system tag pattern matched" {
 		t.Errorf("got Validator=%s Reason=%v", rep.Validator, rep.Reason)
 	}
 	if rep.Code != "TAG_INJECTION" {

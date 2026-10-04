@@ -108,3 +108,24 @@ BoundaryProfile declares actual configured coverage, rejects unsupported mandato
 boundaries, and does not automatically intercept hosted/remote execution. External
 approval binding and invocation remain the host's responsibility. Zero retry budget
 means no retries; counters and execution of routes remain host-owned.
+
+## Standard matcher and classifier limits
+
+Wordlists use maximal Unicode letter/number/mark/underscore runs consistently for
+matching and redaction, with optional strings.ToLower and no normalization. Listed
+entries must be single non-empty tokens. Replacement is literal. PII matches the
+finite email/+1/+7/Visa/MasterCard formats documented in README; spans are detected
+on original text and overlaps merge before mutation/token storage. No generated
+replacement is rescanned by the same matcher. Neither component promises global
+PII or instruction-attack detection.
+
+TextClassifier.Classify receives the execution context synchronously. Cancellation
+must be cooperative; no background workers or callback termination are supplied.
+The adapter checks context before/after calling it and requires finite scores on
+a caller-defined scale. A late success, detector error or non-finite score cannot
+be delivered. Tool-like JSON and XML-like tag matching are heuristics, not trusted
+classification or authorization. GuardSpec has only explicit rule fields.
+
+Vault tokens are lookup keys, never disclosure grants. Hosts authorize recipients
+before restoration, own vault isolation/lifetime and check the final restored
+payload at its destination. TokenVault contains no identity or ACL model.

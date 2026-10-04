@@ -3,6 +3,7 @@ package build_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -143,11 +144,11 @@ func TestCompileStringGuard_PolicyAttributeEquals(t *testing.T) {
 	}
 }
 
-func TestCompileStringGuard_SensitivityStrict(t *testing.T) {
+func TestCompileStringGuard_ExplicitPIIAndLength(t *testing.T) {
 	t.Parallel()
 	p, err := build.CompileStringGuard(build.GuardSpec{
-		LengthMax:   100,
-		Sensitivity: build.SensitivityStrict,
+		LengthMax: 75,
+		PIIRedact: true,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -162,12 +163,11 @@ func TestCompileStringGuard_SensitivityStrict(t *testing.T) {
 	}
 }
 
-func TestCompileStringGuard_SensitivityPermissive(t *testing.T) {
+func TestCompileStringGuard_ExplicitRulesOnly(t *testing.T) {
 	t.Parallel()
 	p, err := build.CompileStringGuard(build.GuardSpec{
-		PIIRedact:   true,
-		LengthMax:   5,
-		Sensitivity: build.SensitivityPermissive,
+		PIIRedact: false,
+		LengthMax: 0,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -177,16 +177,15 @@ func TestCompileStringGuard_SensitivityPermissive(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Decision().Action != guardy.ActionPass {
-		t.Fatalf("permissive should skip PII/length, action = %v", result.Decision().Action)
+		t.Fatalf("explicit disabled PII/length should pass, action = %v", result.Decision().Action)
 	}
 }
 
-func TestCompileStringGuard_SensitivityNormal(t *testing.T) {
+func TestCompileStringGuard_ExplicitPIIRedaction(t *testing.T) {
 	t.Parallel()
 	p, err := build.CompileStringGuard(build.GuardSpec{
-		PIIRedact:   true,
-		LengthMax:   100,
-		Sensitivity: build.SensitivityNormal,
+		PIIRedact: true,
+		LengthMax: 100,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,7 +195,7 @@ func TestCompileStringGuard_SensitivityNormal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if result.Decision().Action != guardy.ActionRedact {
-		t.Fatalf("normal should keep PIIRedact, action = %v", result.Decision().Action)
+		t.Fatalf("explicit PIIRedact should redact, action = %v", result.Decision().Action)
 	}
 }
 
@@ -218,5 +217,115 @@ func TestCompileStringGuard_UnknownPolicyRuleKind(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for unknown policy rule kind")
+	}
+}
+
+func TestCompileStringGuardExplicitRuleComposition(t *testing.T) {
+	tests := []struct {
+		name         string
+		spec         build.GuardSpec
+		options      []build.CompileOption
+		input        string
+		scope        guardy.ExecutionScope
+		names, codes []string
+	}{
+		{name: "empty", input: "hello"},
+		{
+			name:  "PII only",
+			spec:  build.GuardSpec{PIIRedact: true},
+			input: "hello",
+			names: []string{"pii_validator"},
+			codes: []string{"PII_DETECTED"},
+		},
+		{
+			name:  "wordlist only",
+			spec:  build.GuardSpec{WordlistBlock: []string{"forbidden"}},
+			input: "hello",
+			names: []string{"wordlist_validator"},
+			codes: []string{"WORDLIST_BLOCK"},
+		},
+		{
+			name:  "length only",
+			spec:  build.GuardSpec{LengthMax: 100},
+			input: "hello",
+			names: []string{"length_validator"},
+			codes: []string{"LENGTH_EXCEEDED"},
+		},
+		{
+			name:  "combined",
+			spec:  build.GuardSpec{PIIRedact: true, WordlistBlock: []string{"forbidden"}, LengthMax: 100},
+			input: "hello",
+			names: []string{"pii_validator", "wordlist_validator", "length_validator"},
+			codes: []string{"PII_DETECTED", "WORDLIST_BLOCK", "LENGTH_EXCEEDED"},
+		},
+		{
+			name:  "redaction composition",
+			spec:  build.GuardSpec{PIIRedact: true, WordlistBlock: []string{"forbidden"}, LengthMax: 100},
+			input: "user@example.com",
+			names: []string{"pii_validator", "wordlist_validator", "length_validator"},
+			codes: []string{"PII_DETECTED", "WORDLIST_BLOCK", "LENGTH_EXCEEDED"},
+		},
+		{
+			name: "policy only",
+			spec: build.GuardSpec{
+				PolicyRules: []build.PolicyRuleSpec{
+					{Kind: build.PolicyAttributeEquals, Key: "tenant", Value: "allowed"},
+				},
+			},
+			input: "hello",
+			scope: guardy.MapScope{"tenant": "other"},
+			names: []string{"typed_attribute_equals"},
+			codes: []string{guardy.CodeAttributeMismatch},
+		},
+		{
+			name: "all fast rules",
+			spec: build.GuardSpec{PIIRedact: true, WordlistBlock: []string{"forbidden"}, LengthMax: 100},
+			options: []build.CompileOption{
+				build.WithJSONSchema([]byte(`{"type":"object","required":["message"]}`)),
+				build.WithOutputClassifier(),
+			},
+			input: `{"message":"hello"}`,
+			names: []string{
+				"pii_validator",
+				"wordlist_validator",
+				"length_validator",
+				"jsonschema",
+				"technical_json_classifier",
+			},
+			codes: []string{
+				"PII_DETECTED",
+				"WORDLIST_BLOCK",
+				"LENGTH_EXCEEDED",
+				"JSON_SCHEMA_INVALID",
+				"TECHNICAL_JSON",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange.
+			pipeline, err := build.CompileStringGuard(tc.spec, tc.options...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Act.
+			result, err := pipeline.Run(context.Background(), tc.scope, tc.input)
+			// Assert: actual reports prove the selected composition and execution order.
+			if err != nil {
+				t.Fatal(err)
+			}
+			names := make([]string, 0, len(result.Reports))
+			codes := make([]string, 0, len(result.Reports))
+			for _, report := range result.Reports {
+				names = append(names, report.Validator)
+				codes = append(codes, report.Code)
+			}
+			if !slices.Equal(names, tc.names) || !slices.Equal(codes, tc.codes) {
+				t.Fatalf("names=%v codes=%v expected=%v/%v", names, codes, tc.names, tc.codes)
+			}
+			if tc.name == "redaction composition" && result.Output != "[REDACTED]" {
+				t.Fatalf("output=%q", result.Output)
+			}
+		})
 	}
 }

@@ -46,7 +46,7 @@ func MustRegexValidator(pattern string, opts ...Option) guardy.Validator[string]
 
 func (r *regexValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
 	if r.cfg.Action == guardy.ActionRedact {
-		clean := r.re.ReplaceAllString(input, r.cfg.RedactionReplacement)
+		clean := r.re.ReplaceAllLiteralString(input, r.cfg.RedactionReplacement)
 		if clean == input {
 			return input, passReport(r.cfg), nil
 		}

@@ -18,8 +18,10 @@ type technicalJSONClassifier struct {
 // Ensure technicalJSONClassifier implements guardy.Validator[string] at compile time.
 var _ guardy.Validator[string] = (*technicalJSONClassifier)(nil)
 
-// NewTechnicalJSONClassifier classifies JSON tool-call payloads as [guardy.PayloadTechnicalPayload].
-// It returns ActionPass and sets PayloadKind so [guardy.WithUserChannel] can block without host-side heuristics.
+// NewTechnicalJSONClassifier heuristically matches tool-like JSON keys and sets
+// [guardy.PayloadTechnicalPayload] for [guardy.WithUserChannel]. This signal may
+// have false positives/negatives; it is not trusted provenance or authorization.
+// Trusted classification must be supplied by a host adapter independently of text.
 func NewTechnicalJSONClassifier(opts ...Option) guardy.Validator[string] {
 	cfg := applyOptions(RuleConfig{
 		Name:     defaultTechnicalJSONClassifierName,

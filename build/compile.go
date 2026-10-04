@@ -27,47 +27,12 @@ type PolicyRuleSpec struct {
 	Value any // used for PolicyAttributeEquals
 }
 
-// GuardSpec describes intent for a string guard pipeline (MVP).
+// GuardSpec explicitly selects the rules of a string guard pipeline.
 type GuardSpec struct {
 	WordlistBlock []string
 	PIIRedact     bool
 	LengthMax     int
 	PolicyRules   []PolicyRuleSpec
-	Sensitivity   SensitivityLevel
-}
-
-// SensitivityLevel adjusts default guard strictness when compiling a pipeline.
-type SensitivityLevel int
-
-const (
-	// SensitivityNormal uses GuardSpec fields as-is (default).
-	SensitivityNormal SensitivityLevel = iota
-	// SensitivityStrict enables PII redaction and tightens LengthMax when set.
-	SensitivityStrict
-	// SensitivityPermissive keeps only explicit wordlist and policy rules.
-	SensitivityPermissive
-)
-
-const (
-	strictLengthNumerator   = 3
-	strictLengthDenominator = 4
-)
-
-func applySensitivity(spec GuardSpec) GuardSpec {
-	s := spec
-	switch spec.Sensitivity {
-	case SensitivityNormal:
-		// use spec fields as-is
-	case SensitivityStrict:
-		s.PIIRedact = true
-		if s.LengthMax > 0 {
-			s.LengthMax = max(1, s.LengthMax*strictLengthNumerator/strictLengthDenominator)
-		}
-	case SensitivityPermissive:
-		s.PIIRedact = false
-		s.LengthMax = 0
-	}
-	return s
 }
 
 // CompileOption configures [CompileStringGuard].
@@ -112,7 +77,6 @@ func WithOutputClassifier() CompileOption {
 // CompileStringGuard builds a string pipeline from spec.
 // Fast-path order: PII (optional) → wordlist → length → JSON schema (optional) → output classifier (optional).
 func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline[string], error) {
-	spec = applySensitivity(spec)
 	cfg := compileConfig{
 		jsonSchema:          nil,
 		userChannel:         false,

@@ -15,12 +15,13 @@ type tagSanitizerValidator struct {
 // Ensure tag sanitizer implements guardy.Validator[string] at compile time.
 var _ guardy.Validator[string] = (*tagSanitizerValidator)(nil)
 
-// DefaultTagPattern matches common system/prompt injection tags.
+// DefaultTagPattern matches opening/closing XML-like system tags.
 const DefaultTagPattern = `(?i)<\s*system\b[^>]*>|<\s*/\s*system\s*>`
 
 const defaultTagSanitizerName = "tag_sanitizer_validator"
 
 // NewTagSanitizerValidator creates a validator that blocks on tag pattern match.
+// It is a text matcher, not an XML parser, WAF or general instruction detector.
 func NewTagSanitizerValidator(pattern string, opts ...Option) (guardy.Validator[string], error) {
 	if pattern == "" {
 		pattern = DefaultTagPattern
@@ -49,7 +50,7 @@ func MustTagSanitizerValidator(pattern string, opts ...Option) guardy.Validator[
 
 func (t *tagSanitizerValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
 	if t.re.MatchString(input) {
-		return input, violationReport(t.cfg, guardy.ActionBlock, "system tag injection attempt"), nil
+		return input, violationReport(t.cfg, guardy.ActionBlock, "system tag pattern matched"), nil
 	}
 	return input, passReport(t.cfg), nil
 }

@@ -13,7 +13,7 @@ type stubClassifier struct {
 	err    error
 }
 
-func (s stubClassifier) Classify(_ string) (ClassifierResult, error) {
+func (s stubClassifier) Classify(_ context.Context, _ string) (ClassifierResult, error) {
 	return s.result, s.err
 }
 

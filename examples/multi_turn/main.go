@@ -1,4 +1,5 @@
-// Multi-turn BYOT: adapt []ChatMessage to Validator[string] with MapSlice.
+// BYOT slice validation: apply one independent string validator per message.
+// MapSlice does not infer instructions or relationships across messages.
 package main
 
 import (

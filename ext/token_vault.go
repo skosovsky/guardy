@@ -13,7 +13,8 @@ const (
 	TokenNamespaceWordlist = "WORDLIST"
 )
 
-// TokenVault stores reversible redaction mappings.
+// TokenVault stores reversible redaction mappings, not disclosure permissions.
+// The host owns lifetime/isolation, recipient authorization and final output checks.
 type TokenVault interface {
 	Store(namespace, original string) (token string)
 	Restore(token string) (original string, ok bool)
@@ -72,6 +73,8 @@ func (v *InMemoryTokenVault) Restore(token string) (string, bool) {
 var guardyTokenRE = regexp.MustCompile(`\[GUARDY_TOKEN_[A-Z0-9_]+_[A-Z0-9_]+\]`)
 
 // UnredactText restores known guardy tokens using vault.
+// Possession of a token does not authorize disclosure. The host must authorize the
+// recipient before restoration and validate the final destination payload.
 func UnredactText(text string, vault TokenVault) string {
 	if vault == nil {
 		return text

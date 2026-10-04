@@ -16,7 +16,8 @@ type mapSliceValidator[T any] struct {
 	validator guardy.Validator[string]
 }
 
-// MapSlice adapts Validator[string] to Validator[[]T] for BYOT multi-turn workflows.
+// MapSlice applies an independent Validator[string] to each element of a BYOT slice.
+// It aggregates decisions; it does not analyze relationships between messages.
 func MapSlice[T any](
 	extract func(T) string,
 	inject func(T, string) T,
