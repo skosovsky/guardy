@@ -71,3 +71,20 @@ func TestSemanticValidator_PropagatesMatcherError(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestSemanticFiniteScoresPreservedOnCallerScale(t *testing.T) {
+	for _, score := range []float64{-2, 0, 0.5, 0.75, 7} {
+		// Arrange: caller scores need not be probabilities.
+		v := NewSemanticValidator(
+			fakeMatcher{match: func(context.Context, string) (float64, error) { return score, nil }},
+			0.5,
+			false,
+		)
+		// Act.
+		_, report, err := v.Validate(t.Context(), "payload")
+		// Assert.
+		if err != nil || report.Score != score || (report.Action == ActionBlock) != (score > 0.5) {
+			t.Fatalf("score=%v report=%+v err=%v", score, report, err)
+		}
+	}
+}

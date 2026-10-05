@@ -78,12 +78,22 @@ type StreamCategory string
 const (
 	StreamSuccess     StreamCategory = "success"
 	StreamIncomplete  StreamCategory = "incomplete_unit"
+	StreamMalformed   StreamCategory = "malformed_unit"
 	StreamLimit       StreamCategory = "buffer_limit"
 	StreamTimeout     StreamCategory = "validation_timeout"
 	StreamFault       StreamCategory = "validator_fault"
 	StreamUnsupported StreamCategory = "unsupported_release_profile"
 	StreamBlocked     StreamCategory = "blocked_delivery"
 	StreamTransport   StreamCategory = "delivery_failure"
+)
+
+var (
+	// ErrInvalidStreamUnit indicates malformed or incompatible framed input.
+	ErrInvalidStreamUnit = errors.New("guardy: invalid stream unit")
+	// ErrIncompleteStreamUnit indicates input ended before a complete unit.
+	ErrIncompleteStreamUnit = errors.New("guardy: incomplete stream unit")
+	// ErrStreamUnitLimit indicates framing exceeded the configured unit budget.
+	ErrStreamUnitLimit = errors.New("guardy: stream unit exceeds limit")
 )
 
 // StreamOutcome is a snapshot. ReleasedBytes measures actual transport writes;
@@ -314,7 +324,7 @@ func (s *StreamProcessor) releasePending(ctx context.Context, final bool) error 
 			return nil
 		}
 		if n > s.cfg.MaxUnitBytes {
-			return s.fail(StreamLimit, errors.New("guardy: unit limit"), DecisionFromReport(nil))
+			return s.fail(StreamLimit, ErrStreamUnitLimit, DecisionFromReport(nil))
 		}
 		if err := s.validateAndRelease(ctx, s.pending.prefix(n), stage); err != nil {
 			return err
@@ -334,7 +344,7 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 		if n == 0 && s.pending.size >= s.cfg.MaxUnitBytes {
 			return 0, StreamUnit, s.fail(
 				StreamLimit,
-				errors.New("guardy: incomplete unit exceeds limit"),
+				ErrStreamUnitLimit,
 				DecisionFromReport(nil),
 			)
 		}
@@ -377,13 +387,28 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 	return n, StreamPartial, nil
 }
 
+func framingCategory(err error) StreamCategory {
+	switch {
+	case errors.Is(err, ErrStreamUnitLimit):
+		return StreamLimit
+	case errors.Is(err, ErrIncompleteStreamUnit):
+		return StreamIncomplete
+	default:
+		return StreamMalformed
+	}
+}
+
 func (s *StreamProcessor) nextJSONUnit(final bool) (int, StreamStage, error) {
 	n, err := s.framer.json(&s.pending, s.cfg.MaxUnitBytes, final)
 	if err != nil {
-		return 0, StreamUnit, s.fail(StreamLimit, err, DecisionFromReport(nil))
+		return 0, StreamUnit, s.fail(framingCategory(err), err, DecisionFromReport(nil))
 	}
 	if n == 0 && final {
-		return 0, StreamUnit, s.fail(StreamIncomplete, io.ErrUnexpectedEOF, DecisionFromReport(nil))
+		return 0, StreamUnit, s.fail(
+			StreamIncomplete,
+			errors.Join(ErrIncompleteStreamUnit, io.ErrUnexpectedEOF),
+			DecisionFromReport(nil),
+		)
 	}
 	return n, StreamUnit, nil
 }
@@ -413,7 +438,7 @@ func (s *StreamProcessor) Complete(ctx context.Context) (StreamOutcome, error) {
 	}
 	if s.cfg.Profile == ReleaseWholeResponse {
 		if s.pending.size > s.cfg.MaxUnitBytes {
-			return s.outcome, s.fail(StreamLimit, errors.New("guardy: final unit limit"), DecisionFromReport(nil))
+			return s.outcome, s.fail(StreamLimit, ErrStreamUnitLimit, DecisionFromReport(nil))
 		}
 		if err := s.validateAndRelease(ctx, s.pending.prefix(s.pending.size), StreamFinal); err != nil {
 			return s.outcome, err
@@ -474,7 +499,7 @@ func (s *StreamProcessor) DeliverFallback(ctx context.Context) (StreamOutcome, e
 		return s.fallbackFailure(outcome, StreamLimit, errors.New("guardy: fallback input limit"))
 	}
 	if !utf8.ValidString(candidate) || (s.cfg.JSONValues && !json.Valid([]byte(candidate))) {
-		return s.fallbackFailure(outcome, StreamIncomplete, errors.New("guardy: invalid fallback input"))
+		return s.fallbackFailure(outcome, StreamMalformed, ErrInvalidStreamUnit)
 	}
 	if s.cfg.Profile == ReleaseValidatedUnits && !s.cfg.JSONValues &&
 		newlineUnitBoundary([]byte(candidate), true) != len(candidate) {
@@ -569,7 +594,7 @@ func (s *StreamProcessor) validateAndRelease(parent context.Context, value strin
 		return s.fail(StreamIncomplete, errors.New("guardy: invalid UTF-8"), DecisionFromReport(nil))
 	}
 	if s.cfg.JSONValues && !json.Valid([]byte(value)) {
-		return s.fail(StreamIncomplete, errors.New("guardy: invalid JSON value"), DecisionFromReport(nil))
+		return s.fail(StreamMalformed, ErrInvalidStreamUnit, DecisionFromReport(nil))
 	}
 	ctx, cancel := context.WithTimeout(context.WithValue(parent, streamStageKey{}, stage), s.cfg.ValidationTimeout)
 	defer cancel()

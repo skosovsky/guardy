@@ -218,3 +218,24 @@ validation checks canonical bytes after post-bind mutation. For exact names, the
 caller schema explicitly uses required/properties/additionalProperties. Core does
 not impose JSON Schema or strict decoding on typed DTOs or custom codecs. Both
 validation stages use the same generic string pipeline for documents and arguments.
+
+## Validator telemetry and framing diagnostics
+
+OTel exports the canonical per-call disposition/outcome and execution fault,
+including invalid or explicit fault reports with nil Go error. Shadow observations
+export both observed and enforced dispositions; fatal/invalid results remain enforced.
+Policy denial/correction is not an infrastructure span error. Middleware observes
+individual rule calls, not final delivery, orchestration failures after return or
+an authorization audit ledger. Labels contain bounded enums and allowlisted static
+metadata; score, raw errors, scope, reason and feedback are excluded. Payload span
+attributes remain explicit opt-in. All span status descriptions are static.
+The OTel wrapper supports partial/unit/final calls itself; core still checks the
+base rule and every wrapper separately and never upgrades delegate capabilities.
+
+Malformed/unsupported JSON units use StreamMalformed/ErrInvalidStreamUnit,
+incomplete units use StreamIncomplete/ErrIncompleteStreamUnit and budget exhaustion
+uses StreamLimit/ErrStreamUnitLimit. Causes are typed categories, not parsed text.
+Actual released bytes and terminal state remain sticky across transport partitions.
+Finite matcher scores survive both semantic pass and block reports on the caller
+scale; they are not probabilities and are not exported automatically. Caller
+reports can support external calibration under the existing evaluation protocol.

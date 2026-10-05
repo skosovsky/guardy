@@ -76,6 +76,8 @@ type recorder[T any] struct {
 }
 
 // NewMiddleware builds ValidatorMiddleware with fast-path metrics and slow-path tracing.
+// It exports canonical per-call decisions, not final delivery or an authorization ledger.
+// Its own partial/unit/final support never upgrades delegate or inner middleware capabilities.
 func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
 	cfg := Config{
 		Tracer:            otel.Tracer("guardy/ext/guardyotel"),
@@ -89,10 +91,23 @@ func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
 	}
 	rec := newRecorder[T](cfg)
 	return func(next guardy.Validator[T]) guardy.Validator[T] {
-		return guardy.ValidatorFunc[T](func(ctx context.Context, input T) (T, *guardy.Report, error) {
-			return rec.validate(ctx, next, input)
-		})
+		return telemetryValidator[T]{next: next, recorder: rec}
 	}
+}
+
+// telemetryValidator declares this wrapper's own stage support. Core independently
+// checks its delegate and all other middleware layers before compiling a stream.
+type telemetryValidator[T any] struct {
+	next     guardy.Validator[T]
+	recorder *recorder[T]
+}
+
+func (v telemetryValidator[T]) Validate(ctx context.Context, input T) (T, *guardy.Report, error) {
+	return v.recorder.validate(ctx, v.next, input)
+}
+
+func (telemetryValidator[T]) StreamCapabilities() guardy.StreamCapabilities {
+	return guardy.StreamCapabilities{Partial: true, Unit: true, Final: true, Lookbehind: 0, Lookahead: 0}
 }
 
 func newRecorder[T any](cfg Config) *recorder[T] {
@@ -127,7 +142,7 @@ func (r *recorder[T]) validate(ctx context.Context, next guardy.Validator[T], in
 		out, rep, err := next.Validate(ctx, input)
 		attrs := r.reportAttrs(phase, rep, err)
 		span.SetAttributes(attrs...)
-		if err != nil {
+		if callDecision(rep, err).IsSystemFault() {
 			span.SetStatus(codes.Error, "validator error")
 		} else {
 			span.SetStatus(codes.Ok, "ok")
@@ -145,9 +160,24 @@ func (r *recorder[T]) validate(ctx context.Context, next guardy.Validator[T], in
 }
 
 func (r *recorder[T]) reportAttrs(phase guardy.ValidationPhase, rep *guardy.Report, err error) []attribute.KeyValue {
+	decision := callDecision(rep, err)
+	observed := decision
+	if rep != nil && err == nil {
+		copyReport := *rep
+		copyReport.ShadowMode = false
+		observed = guardy.DecisionFromReport(&copyReport)
+	}
+	outcome := decision.Disposition.String()
+	if decision.Disposition == guardy.DispositionNone {
+		outcome = decision.Action.String()
+	}
 	attrs := []attribute.KeyValue{
 		attribute.String("guardy.phase", string(phase)),
-		attribute.Bool("guardy.error", err != nil),
+		attribute.Bool("guardy.error", decision.IsSystemFault()),
+		attribute.String("guardy.disposition", decision.Disposition.String()),
+		attribute.String("guardy.outcome", outcome),
+		attribute.String("guardy.observed_disposition", observed.Disposition.String()),
+		attribute.Bool("guardy.observation", err == nil && rep.IsObservation()),
 	}
 	if rep != nil {
 		attrs = append(attrs,
@@ -166,6 +196,16 @@ func (r *recorder[T]) reportAttrs(phase guardy.ValidationPhase, rep *guardy.Repo
 		}
 	}
 	return attrs
+}
+
+// callDecision delegates report validity, escalation and shadow semantics to core.
+func callDecision(rep *guardy.Report, err error) guardy.Decision {
+	if err != nil {
+		return guardy.DecisionFromReport(
+			&guardy.Report{Action: guardy.ActionPass, Disposition: guardy.DispositionSystemFault},
+		)
+	}
+	return guardy.DecisionFromReport(rep)
 }
 
 func (r *recorder[T]) recordMetrics(

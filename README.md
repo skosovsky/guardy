@@ -531,7 +531,20 @@ pipeline = pipeline.Use(guardyotel.NewMiddleware[string](
 Fast path exports counters/histograms; slow path emits spans. Raw payload capture is opt-in.
 Arbitrary validator/code labels are omitted by default; `WithAllowedMetadata` permits
 explicit static identifiers of at most 128 bytes. Raw validator errors and report
-text are never exported. This middleware does not observe every policy decision.
+text are never exported. `guardy.disposition` and `guardy.outcome` describe the
+canonical per-call result; `guardy.error` and span error status indicate execution
+faults, including invalid reports or explicit fault with nil Go error. Denial and
+correction use successful execution span status. `guardy.observed_disposition` and
+`guardy.observation` distinguish a shadow block from the enforced pass; fatal or
+invalid shadow reports remain enforced. Raw action is additional diagnostics.
+Scores are not labels or automatically exported. This middleware sees rule calls,
+not final delivery or orchestration faults after return, and is not an authorization
+audit ledger.
+
+The OTel wrapper declares its own partial/unit/final support. Core still requires
+compatible declarations from the base rule and every middleware layer; OTel does
+not make an unknown or final-only rule unit-safe. See `examples/otel_integration`
+for executable whole/unit/best-effort delivery.
 
 ### Map (Lens adapter)
 
@@ -564,7 +577,7 @@ Use `T` as a struct value (`Validator[AgentCall]`). For nested keys inside JSON,
 
 ## Core validators (guardy)
 
-- **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (slow path).
+- **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (slow path). Pass and block reports retain finite `Score` on the caller’s scale for external calibration; it is not necessarily a probability.
 - **LLMJudge** — wraps a `Judge`; use for LLM-as-judge (slow path). Both support **shadow mode** (block is logged but does not short-circuit).
 
 ## Testing with guardytest
@@ -811,3 +824,9 @@ again on each Write; consuming a unit does not repeatedly shift the live tail.
 `MaxPendingBytes`. Fixed scanner state and caller-owned validation/output allocations
 are separate. Deterministic operation tests check framing/buffer work; local
 before/after benchmarks in `STREAM_MEASUREMENTS.md` do not promise callback latency.
+
+JSON stream framing distinguishes `StreamMalformed` (malformed/incompatible unit,
+`ErrInvalidStreamUnit`), `StreamIncomplete` (trusted completion before a full unit,
+`ErrIncompleteStreamUnit`) and `StreamLimit` (framing budget, `ErrStreamUnitLimit`).
+Use categories and `errors.Is`, not error strings. Earlier released bytes remain
+accounted for and terminal outcomes stay sticky.

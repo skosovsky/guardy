@@ -30,7 +30,8 @@ type SemanticValidator struct {
 // NewSemanticValidator builds a validator that blocks when m.Match returns score > threshold.
 // If shadow is true, block reports are marked ShadowMode so the pipeline does not short-circuit.
 // Validate rejects non-finite thresholds/scores as faults; the matcher defines
-// its own finite score range. This does not estimate detector accuracy.
+// its own finite score range. Pass/block reports preserve the score for caller
+// calibration; it is not a probability or an estimate of detector accuracy.
 func NewSemanticValidator(m Matcher, threshold float64, shadow bool) *SemanticValidator {
 	return &SemanticValidator{matcher: m, threshold: threshold, shadow: shadow, name: "semantic"}
 }
@@ -68,6 +69,6 @@ func (s *SemanticValidator) Validate(ctx context.Context, input string) (string,
 		}, ControlSpec{Action: ActionBlock}), nil
 	}
 	return input, FinishReport(&Report{
-		Action: ActionPass, Validator: s.name,
+		Action: ActionPass, Validator: s.name, Score: score,
 	}, ControlSpec{Action: ActionPass}), nil
 }

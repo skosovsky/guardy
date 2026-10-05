@@ -1,7 +1,5 @@
 package guardy
 
-import "errors"
-
 // frameScanner stores only fixed-size framing state. JSON syntax is checked
 // separately before release; depth counts need no attacker-sized nesting stack.
 type frameScanner struct {
@@ -48,23 +46,35 @@ func (f *frameScanner) json(b *streamBuffer, maxBytes int, final bool) (int, err
 			return f.offset, nil
 		}
 		f.offset++
+		if f.offset > maxBytes {
+			return 0, ErrStreamUnitLimit
+		}
 		if f.complete {
 			continue
 		}
 		if !f.started {
 			if isJSONSpace(c) {
+				if f.offset >= maxBytes {
+					return 0, ErrStreamUnitLimit
+				}
 				continue
 			}
 			if c != '{' && c != '[' {
-				return 0, errors.New("guardy: JSON unit must be object or array")
+				return 0, ErrInvalidStreamUnit
 			}
 			f.started = true
 		}
 		f.scanJSONByte(c)
+		if f.invalid {
+			return 0, ErrInvalidStreamUnit
+		}
+		if !f.complete && f.offset >= maxBytes {
+			return 0, ErrStreamUnitLimit
+		}
 	}
 	if f.complete {
 		if f.offset > maxBytes {
-			return 0, errors.New("guardy: JSON unit exceeds limit")
+			return 0, ErrStreamUnitLimit
 		}
 		if final {
 			return f.offset, nil
@@ -72,7 +82,7 @@ func (f *frameScanner) json(b *streamBuffer, maxBytes int, final bool) (int, err
 		return 0, nil
 	}
 	if b.size >= maxBytes {
-		return 0, errors.New("guardy: incomplete JSON exceeds unit limit")
+		return 0, ErrStreamUnitLimit
 	}
 	return 0, nil
 }

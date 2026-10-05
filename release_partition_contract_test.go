@@ -55,7 +55,7 @@ func TestReleasePartitionFramingAndUnitLimits(t *testing.T) {
 		{"json_exact_with_lookahead", "{\"x\":1}[]", []string{`{"x":1}`, "[]"}, true, 7, StreamSuccess},
 		{"json_exact_with_trailing", "{\"x\":1} ", nil, true, 7, StreamLimit},
 		{"json_incomplete", `{"x":`, nil, true, 16, StreamIncomplete},
-		{"json_invalid_syntax", `{"x":}`, nil, true, 16, StreamIncomplete},
+		{"json_invalid_syntax", `{"x":}`, nil, true, 16, StreamMalformed},
 		{"json_whitespace_over", strings.Repeat(" ", 17), nil, true, 16, StreamLimit},
 	} {
 		t.Run(test.name, func(t *testing.T) {
