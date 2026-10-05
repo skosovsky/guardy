@@ -1,4 +1,4 @@
-package guardy_test
+package integration_test
 
 import (
 	"context"
@@ -234,7 +234,7 @@ func TestCallerOptionPanicsAreNotConfigurationErrors(t *testing.T) {
 	)
 }
 
-func ExampleCompileArgs_documentAPI() {
+func Example_documentAPI() {
 	// The same schema pipeline checks plain documents and typed API arguments.
 	schema, err := jsonschema.NewJSONSchemaValidator(argsConfigSchema)
 	if err != nil {

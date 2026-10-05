@@ -2,7 +2,7 @@ GO      := go
 GOLANGCI_LINT ?= golangci-lint
 MODULES := $(shell find . -type d \( -name ".*" -not -name "." -o -name "vendor" \) -prune -o -type f -name "go.mod" -exec dirname {} \;)
 
-.PHONY: lint fix test bench bench-hotpath fuzz cover release-patch release-break
+.PHONY: lint fix test bench bench-hotpath fuzz cover release-prepare release-verify release-publish release-test
 
 lint:
 	@for dir in $(MODULES); do \
@@ -18,7 +18,7 @@ fix:
 		(cd "$$dir" && $(GOLANGCI_LINT) run --fix ./...) || exit 1; \
 	done
 
-test:
+test: release-test
 	@for dir in $(MODULES); do \
 		echo "test - $$dir"; \
 		(cd "$$dir" && $(GO) test -v -race ./...) || exit 1; \
@@ -48,10 +48,18 @@ cover:
 		(cd "$$dir" && $(GO) test -coverprofile=coverage.out ./... && $(GO) tool cover -func=coverage.out) || exit 1; \
 	done
 
-release-patch: lint test ## v0.5.0 -> v0.5.1
-	@chmod +x ./scripts/release.sh
-	@./scripts/release.sh patch "$(MODULES)"
+# Explicit phases: no target performs an automatic push.
+release-prepare:
+	@test -n "$(VERSION)" && test -n "$(CANDIDATE)"
+	@python3 scripts/release.py prepare --version "$(VERSION)" --output "$(CANDIDATE)"
 
-release-break: lint test ## v0.5.1 -> v0.6.0
-	@chmod +x ./scripts/release.sh
-	@./scripts/release.sh break "$(MODULES)"
+release-verify:
+	@test -n "$(CANDIDATE)"
+	@python3 scripts/release.py verify "$(CANDIDATE)" --linter "$(GOLANGCI_LINT)"
+
+release-publish:
+	@test -n "$(CANDIDATE)" && test -n "$(REMOTE)"
+	@python3 scripts/release.py publish "$(CANDIDATE)" --remote "$(REMOTE)"
+
+release-test:
+	@python3 -m unittest discover -s scripts -p '*_test.py'

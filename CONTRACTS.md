@@ -239,3 +239,24 @@ Actual released bytes and terminal state remain sticky across transport partitio
 Finite matcher scores survive both semantic pass and block reports on the caller
 scale; they are not probabilities and are not exported automatically. Caller
 reports can support external calibration under the existing evaluation protocol.
+
+## Release artifacts and independent modules
+
+Release preparation snapshots caller-selected source files into an isolated candidate;
+it never changes the source branch, index, refs or files. Candidate modules use a
+single explicit version and exact internal module paths; similar external prefixes
+are not internal dependencies. Local replacements and workspace overrides are absent.
+Go tooling parses/edits manifests; external requirement versions are preserved.
+Unsupported v2+ path transitions are rejected before candidate generation.
+
+Prepare writes deterministic module archives, manifests and planned tags. Verify
+loads the unpublished modules from the candidate's local module proxy with GOWORK=off
+and readonly manifests, tests every module with race, checks lint and an independent
+smoke consumer. It does not publish artifacts or tags. Integration tests have their
+own module; optional engines are not dependencies of core unit tests.
+
+Publish is a separate explicit command after successful verification of the same
+candidate bytes. It creates release refs only in the isolated candidate and pushes
+an explicit atomic set of tag refspecs to a supplied remote. Source refs and unrelated
+tags stay unchanged. Failure/interrupt cleanup removes transient candidate refs; no
+push --tags or hidden origin default is used. Publication is outside this task.

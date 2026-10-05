@@ -1,4 +1,4 @@
-package guardy_test
+package integration_test
 
 import (
 	"context"
@@ -487,7 +487,7 @@ func (h *documentAPIHost) configure() error {
 	return err
 }
 
-func ExampleScopeFactory_documentAPIReference() {
+func Example_documentAPIReference() {
 	host, err := makeDocumentAPIHost()
 	if err != nil {
 		panic(err)

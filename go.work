@@ -3,6 +3,7 @@ go 1.27.1
 use (
 	.
 	./build
+	./integration
 	./examples/agent_tool_args
 	./examples/custom_validator
 	./examples/declarative_guard

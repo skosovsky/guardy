@@ -54,3 +54,31 @@ jobs:
       - name: Run tests
         working-directory: ${{ matrix.module }}
         run: go test -v -race ./...
+
+  release-candidate:
+    name: Independent candidate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.9'
+      - name: Install release verifier linter
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+      - name: Test release isolation and failure cleanup
+        run: make release-test
+      - name: Verify independent core
+        env:
+          GOWORK: 'off'
+        run: go test -mod=readonly -race ./...
+      - name: Prepare unpublished candidate
+        run: make release-prepare VERSION=v0.12.0 CANDIDATE="$RUNNER_TEMP/guardy-candidate"
+      - name: Verify every module and artifact consumer
+        run: make release-verify CANDIDATE="$RUNNER_TEMP/guardy-candidate"

@@ -46,3 +46,7 @@ coverage.xml
 # OS
 .DS_Store
 Thumbs.db
+
+# Python release tooling
+__pycache__/
+*.pyc

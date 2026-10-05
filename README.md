@@ -13,7 +13,7 @@ applications; the library supplies no trained model or agent runtime.
 
 ## Requirements
 
-- Go 1.26+
+- Go 1.27.1+
 
 ## Installation
 
@@ -472,8 +472,8 @@ To reject unknown properties and wrong-case names, enforce an explicit schema
 with `required`, `properties` and `additionalProperties: false` in the raw guard
 before binding. The final guard checks post-bind mutations; it cannot recover
 fields that standard `encoding/json` discarded. Both are ordinary `Pipeline[string]`
-checks. See executable `ExampleCompileArgs_documentAPI` and
-`ExampleScopeFactory_documentAPIReference` for document/API composition.
+checks. See executable `integration/Example_documentAPI` and
+`integration/Example_documentAPIReference` for document/API composition.
 Providing a final guard option with nil fails compilation; omit the option for
 flows intentionally without final checks. The library cannot prove the adequacy
 of rules inside an arbitrary caller pipeline.
@@ -809,7 +809,7 @@ mock conformance verifies integration only. Live-provider benchmarks are optiona
 and are not required by CI.
 
 
-`context_policy_reference_test.go` contains the executable document/API reference
+`integration/context_policy_reference_test.go` contains the executable document/API reference
 harness and deterministic adversarial corpus. It validates typed and dynamic
 canonical arguments with JSON redaction and final schema/policy, binds a host
 approval, resumes against fresh facts, and observes real handler calls and bytes
@@ -830,3 +830,35 @@ JSON stream framing distinguishes `StreamMalformed` (malformed/incompatible unit
 `ErrIncompleteStreamUnit`) and `StreamLimit` (framing budget, `ErrStreamUnitLimit`).
 Use categories and `errors.Is`, not error strings. Earlier released bytes remain
 accounted for and terminal outcomes stay sticky.
+
+Release preparation uses Python 3.9+, Git and the same Go 1.27.1+ toolchain.
+Cross-module tests live in `integration`; core tests have no optional engine
+requirements. `make test` discovers integration and every nested module and runs
+release tooling fixtures as well. No legacy patch/break publishing target remains.
+
+```sh
+make release-prepare VERSION=v0.12.0 CANDIDATE=/tmp/guardy-candidate
+make release-verify CANDIDATE=/tmp/guardy-candidate
+# Separate explicit publication, only when the verified release is intended:
+# make release-publish CANDIDATE=/tmp/guardy-candidate REMOTE=<explicit-remote-url>
+```
+
+Prepare snapshots the current tracked and non-ignored source files, including
+uncommitted work, into an isolated Git candidate. It leaves the source checkout,
+index and refs unchanged. Candidate modules have exact internal requirements at
+the chosen version; similar external module prefixes are preserved. Module paths
+must match repository directories; v2+ transitions are rejected before generation.
+No workspace or local replacement remains in the candidate. ZIP/info/mod artifacts
+and planned tags are deterministic for the same source/version. Cyclic internal
+release requirements are rejected before staging (this repository has none).
+
+Verify uses a private module cache and local proxy: exact internal module paths
+never fall back to a public version. External modules resolve from the public proxy;
+existing go.sum hashes are checked, and staged unpublished modules do not use SumDB.
+Every module runs readonly graph/test/race/lint checks, including executable examples;
+a separate smoke consumer imports core, build and available optional extensions.
+Verification does not publish tags or module artifacts. Publish requires the same
+verified candidate bytes and uses an atomic explicit tag set, with candidate ref
+cleanup. It has no implicit `origin`, never pushes unrelated tags and does not
+change the user's checkout. The integration/release conformance checks are local;
+they do not imply a production release was published.
