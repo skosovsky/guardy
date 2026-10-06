@@ -35,20 +35,6 @@ func (v policyFuncValidator[T]) Validate(ctx context.Context, input T, scope Exe
 	return v.fn(ctx, input, scope)
 }
 
-// NewPolicyFunc builds a [PolicyValidator] from a function and explicit required scope keys.
-// Pass nil or an empty slice when the validator does not require scope keys.
-//
-// Deprecated: use [NewPolicyFuncWithScope] with typed [ScopeRequirement] values.
-func NewPolicyFunc[T any](
-	keys []string,
-	fn func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error),
-) PolicyValidator[T] {
-	return policyFuncValidator[T]{
-		requirements: scopeRequirementsFromKeys(keys),
-		fn:           fn,
-	}
-}
-
 // NewPolicyFuncWithScope builds a [PolicyValidator] from typed scope requirements.
 func NewPolicyFuncWithScope[T any](
 	requirements []ScopeRequirement,
@@ -186,34 +172,6 @@ func NewTypedAttributeEquals[T any, V comparable](key ScopeKey[V], want V, opts 
 		Severity: SeverityHigh,
 	}, opts...)
 	return typedAttributeEqualsValidator[T, V]{key: key, want: want, cfg: cfg}
-}
-
-type attributePresentValidator[T any] struct {
-	key string
-	cfg PolicyConfig
-}
-
-func (v attributePresentValidator[T]) RequiredScope() []ScopeRequirement {
-	return scopeRequirementsFromKeys([]string{v.key})
-}
-
-func (v attributePresentValidator[T]) Validate(_ context.Context, input T, scope ExecutionScope) (T, *Report, error) {
-	if _, ok := scope.Lookup(v.key); !ok {
-		return input, policyViolationReport(v.cfg, "attribute "+v.key+" not present"), nil
-	}
-	return input, nil, nil
-}
-
-// NewAttributePresent blocks when scope does not contain key.
-//
-// Deprecated: use [NewTypedAttributePresent] with [ScopeKey].
-func NewAttributePresent[T any](key string, opts ...PolicyOption) PolicyValidator[T] {
-	cfg := applyPolicyConfig(PolicyConfig{
-		Name:     "attribute_present",
-		Code:     CodeAttributeMissing,
-		Severity: SeverityHigh,
-	}, opts...)
-	return attributePresentValidator[T]{key: key, cfg: cfg}
 }
 
 type typedAttributePresentValidator[T any, V any] struct {

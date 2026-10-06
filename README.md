@@ -187,7 +187,7 @@ result, err := pipeline.Run(ctx, scope, "hello")
 decision := result.PolicyDecision()
 ```
 
-Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
+Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; incompatible dynamic types return `ErrScopeIncompatible` and a system-fault decision. Concrete keys require the exact type; interface keys accept implementations, matching `ScopeKey.Lookup`. Use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
 
 `NewTypedAttributeEquals` uses Go equality. Interface values that contain slices,
 maps or other incomparable operands fail with `ErrAttributeIncomparable` and

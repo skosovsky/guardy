@@ -306,7 +306,7 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	shadowPolicy := NewPolicyFunc[string](nil, func(
+	shadowPolicy := NewPolicyFuncWithScope[string](nil, func(
 		_ context.Context,
 		input string,
 		_ ExecutionScope,
@@ -670,7 +670,7 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
 		},
 	}
-	policyPV := NewPolicyFunc[string](nil, func(
+	policyPV := NewPolicyFuncWithScope[string](nil, func(
 		_ context.Context,
 		text string,
 		_ ExecutionScope,

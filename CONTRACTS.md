@@ -57,6 +57,12 @@ recheck approval and execute under its own consistency contract.
 Required scope contracts are checked before any raw validator, including the
 requirements of the final checker. Missing keys and incompatible typed facts
 have distinct typed causes; boundary decisions remain system faults.
+Typed prerequisites use the same dynamic type assertion contract as ScopeKey.Lookup:
+concrete types must match exactly (named map/slice/struct/function values do not
+implicitly convert to unnamed types); interface keys accept concrete implementations.
+A typed nil retains its dynamic type and may satisfy a key; a nil interface cannot.
+These checks happen before any validator callback. Low-level ExecutionScope.Lookup
+remains caller-owned; custom rules declare requirements with NewPolicyFuncWithScope.
 Typed attribute equality uses Go == semantics. Dynamically incomparable operands,
 including interface fields holding slices/maps, fail with ErrAttributeIncomparable
 and AttributeComparisonError metadata rather than panicking or becoming mismatch.

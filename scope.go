@@ -100,6 +100,8 @@ func (k ScopeKey[T]) Name() string {
 }
 
 // Requirement returns the typed requirement declared by this key.
+// Prechecks use the same type assertion contract as Lookup: concrete types must
+// match exactly, while concrete implementations satisfy interface keys.
 func (k ScopeKey[T]) Requirement() ScopeRequirement {
 	return ScopeRequirement{Key: k.name, Type: k.typeName, expected: reflect.TypeFor[T]()}
 }
@@ -166,17 +168,6 @@ func MissingScopeRequirements(err error) []ScopeRequirement {
 	}
 	out := make([]ScopeRequirement, len(scopeErr.MissingRequirements))
 	copy(out, scopeErr.MissingRequirements)
-	return out
-}
-
-func scopeRequirementsFromKeys(keys []string) []ScopeRequirement {
-	if len(keys) == 0 {
-		return nil
-	}
-	out := make([]ScopeRequirement, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, ScopeRequirement{Key: key, Type: "", expected: nil})
-	}
 	return out
 }
 
@@ -251,10 +242,6 @@ func mergeRequiredKeys(existing []string, keys []string) []string {
 	return out
 }
 
-func checkScopeComplete(scope ExecutionScope, requiredKeys []string) error {
-	return checkScopeRequirements(scope, scopeRequirementsFromKeys(requiredKeys))
-}
-
 func checkScopeRequirements(scope ExecutionScope, requirements []ScopeRequirement) error {
 	if len(requirements) == 0 {
 		return nil
@@ -274,9 +261,7 @@ func checkScopeRequirements(scope ExecutionScope, requirements []ScopeRequiremen
 			missingReqs = append(missingReqs, req)
 			continue
 		}
-		actual := reflect.TypeOf(value)
-		if req.Type != "" &&
-			(actual == nil || (req.expected != nil && !actual.AssignableTo(req.expected)) || (req.expected == nil && actual.String() != req.Type)) {
+		if !req.accepts(value) {
 			return &ScopeTypeError{Requirement: req}
 		}
 	}
@@ -287,6 +272,26 @@ func checkScopeRequirements(scope ExecutionScope, requirements []ScopeRequiremen
 		}
 	}
 	return nil
+}
+
+// accepts mirrors the dynamic type assertion used by ScopeKey.Lookup.
+// Go assignability also permits named/unnamed concrete conversions that a type
+// assertion does not perform.
+func (r ScopeRequirement) accepts(value any) bool {
+	if r.Type == "" {
+		return true
+	}
+	actual := reflect.TypeOf(value)
+	if actual == nil {
+		return false
+	}
+	if r.expected == nil {
+		return actual.String() == r.Type
+	}
+	if r.expected.Kind() == reflect.Interface {
+		return actual.Implements(r.expected)
+	}
+	return actual == r.expected
 }
 
 // ErrScopeIncompatible distinguishes incompatible facts from absent facts.

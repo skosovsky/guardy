@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00 принят; T01 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00/T01 приняты; T02 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -267,7 +267,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 2. Последовательность зависимостей, acceptance gates, evidence и commit workflow зафиксированы.
 3. План покрывает исходные docs checklist, DoD, benchmarks и isolated candidate/consumer verification.
 
-**T01 — typed scope** (ожидает T00; commit `fix: scope types`; R01, D07).
+**T01 — typed scope** (принят; commit `fix: scope types`; R01, D07).
 1. Concrete named map/slice/struct/function reject до callback с ErrScopeIncompatible/SystemFault; exact types/interface implementation/typed nil корректны.
 2. Run, guarded boundary и PolicyFailure сохраняют fault category; AAA regressions доказывают baseline defect.
 3. Deprecated untyped constructors/helpers удалены; tests/examples/build/docs используют typed APIs; low-level Lookup сохранён.
@@ -342,4 +342,5 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 
 | Этап | Полнота | Корректность | Evidence | Commit |
 |---|---|---|---|---|
-| T00 | PASS 100% (3/3) | PASS, подтверждённых ошибок нет | [полнота](task27-evidence/t00-completeness.md), [корректность](task27-evidence/t00-correctness.md) | `docs: remediation plan` (hash в следующем этапе) |
+| T00 | PASS 100% (3/3) | PASS, подтверждённых ошибок нет | [полнота](task27-evidence/t00-completeness.md), [корректность](task27-evidence/t00-correctness.md) | `a581a1c` — `docs: remediation plan` |
+| T01 | PASS 100% (4/4) | PASS, подтверждённых ошибок нет | [проверки](task27-evidence/t01-implementation.md), [полнота](task27-evidence/t01-completeness.md), [корректность](task27-evidence/t01-correctness.md) | `fix: scope types` (hash в следующем этапе) |

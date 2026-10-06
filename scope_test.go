@@ -22,15 +22,18 @@ func TestMapScope_Lookup(t *testing.T) {
 	}
 }
 
-func TestCheckScopeComplete(t *testing.T) {
+func TestCheckScopeRequirements(t *testing.T) {
 	t.Parallel()
-	if err := checkScopeComplete(MapScope{"k": "v"}, []string{"k"}); err != nil {
+	// Arrange.
+	requirements := []ScopeRequirement{NewScopeKey[string]("k").Requirement()}
+	// Act / Assert.
+	if err := checkScopeRequirements(MapScope{"k": "v"}, requirements); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkScopeComplete(MapScope{}, []string{"k"}); !errors.Is(err, ErrScopeIncomplete) {
+	if err := checkScopeRequirements(MapScope{}, requirements); !errors.Is(err, ErrScopeIncomplete) {
 		t.Fatalf("err = %v", err)
 	}
-	if err := checkScopeComplete(MapScope{}, nil); err != nil {
+	if err := checkScopeRequirements(MapScope{}, nil); err != nil {
 		t.Fatal("empty required keys should pass")
 	}
 }
