@@ -123,7 +123,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredSafeText(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		`{"internal":true}`,
 	)
 
@@ -156,7 +156,7 @@ func TestPipeline_GuardDeliveryBlocksDefinedStringJSON(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		reply(`{"internal":true}`),
 	)
 
@@ -181,7 +181,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredMap(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		map[string]any{"internal": true},
 	)
 
@@ -206,7 +206,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredSlice(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		[]string{"internal"},
 	)
 
@@ -234,7 +234,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredStruct(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		deliveryEnvelope{Internal: true},
 	)
 
@@ -262,7 +262,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredPointer(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		&deliveryEnvelope{Internal: true},
 	)
 
@@ -291,7 +291,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointer(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external"),
+		NewUserTextPolicy("external"),
 		outputValue,
 	)
 
@@ -330,7 +330,7 @@ func TestPipeline_GuardDeliveryUsesTypedFallback(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external", WithDeliveryFallback("safe fallback")),
+		NewUserTextPolicy("external", WithDeliveryFallback("safe fallback")),
 		`{"internal":true}`,
 	)
 
@@ -371,7 +371,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointerFallback(t *testing.T) 
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external", WithDeliveryFallback(fallback)),
+		NewUserTextPolicy("external", WithDeliveryFallback(fallback)),
 		&deliveryEnvelope{Internal: true},
 	)
 
@@ -404,7 +404,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredFallback(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external", WithDeliveryFallback(map[string]any{"safe": false})),
+		NewUserTextPolicy("external", WithDeliveryFallback(map[string]any{"safe": false})),
 		map[string]any{"internal": true},
 	)
 
@@ -437,7 +437,7 @@ func TestPipeline_GuardDeliveryBlocksJSONFallback(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external", WithDeliveryFallback(`{"fallback":true}`)),
+		NewUserTextPolicy("external", WithDeliveryFallback(`{"fallback":true}`)),
 		`{"internal":true}`,
 	)
 
@@ -465,7 +465,7 @@ func TestPipeline_GuardDeliveryRunErrorIsNotDeliverable(t *testing.T) {
 	output, err := pipeline.GuardDelivery(
 		context.Background(),
 		MapScope{},
-		NewDeliveryPolicy("external", WithDeliveryFallback("safe fallback")),
+		NewUserTextPolicy("external", WithDeliveryFallback("safe fallback")),
 		"hello",
 	)
 

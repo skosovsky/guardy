@@ -92,7 +92,7 @@ func TestScopePrecheckMatchesTypedAssertion(t *testing.T) {
 			calls = 0
 			// Act.
 			delivery, boundaryErr := pipeline.GuardDelivery(
-				context.Background(), scope, g.NewDeliveryPolicy("user"), "payload",
+				context.Background(), scope, g.NewUserTextPolicy("user"), "payload",
 			)
 			value, deliverable := delivery.DeliverableValue()
 			// Assert.

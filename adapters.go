@@ -118,18 +118,18 @@ func WrapGuardedOutput[Req, Res any](
 	p *Pipeline[Res],
 	scopeFactory ScopeFactory,
 	next Handler[Req, Res],
-) func(context.Context, Req) (GuardedOutput[Res], error) {
+) func(context.Context, Req) (GuardedDelivery[Res], error) {
 	if p == nil {
 		panic("guardy: WrapGuardedOutput requires non-nil Pipeline")
 	}
 	if next == nil {
 		panic("guardy: WrapGuardedOutput requires non-nil next")
 	}
-	return func(ctx context.Context, req Req) (GuardedOutput[Res], error) {
+	return func(ctx context.Context, req Req) (GuardedDelivery[Res], error) {
 		res, err := next(ctx, req)
 		if err != nil {
 			var zero Res
-			return GuardedOutput[Res]{
+			return GuardedDelivery[Res]{
 				ConfigurationID: p.name,
 				Value:           zero,
 				Kind:            PayloadSafeUserText,
@@ -146,7 +146,7 @@ func WrapGuardedOutput[Req, Res any](
 			if failure, ok := errors.AsType[*PolicyFailure](scopeErr); ok {
 				decision = failure.Decision
 			}
-			var output GuardedOutput[Res]
+			var output GuardedDelivery[Res]
 			output.ConfigurationID, output.Decision = p.name, decision
 			return output, scopeErr
 		}

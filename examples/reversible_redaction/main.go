@@ -67,15 +67,15 @@ func restoreForRecipient(
 	recipientID, ownerID, answer string,
 	vault ext.TokenVault,
 	final *guardy.Pipeline[string],
-) (guardy.GuardedOutput[string], error) {
+) (guardy.GuardedDelivery[string], error) {
 	if err := ctx.Err(); err != nil {
-		return guardy.GuardedOutput[string]{}, err
+		return guardy.GuardedDelivery[string]{}, err
 	}
 	if ownerID == "" || recipientID != ownerID {
-		return guardy.GuardedOutput[string]{}, errors.New("recipient not authorized")
+		return guardy.GuardedDelivery[string]{}, errors.New("recipient not authorized")
 	}
 	if final == nil {
-		return guardy.GuardedOutput[string]{}, errors.New("final output guard required")
+		return guardy.GuardedDelivery[string]{}, errors.New("final output guard required")
 	}
 	restored := ext.UnredactText(answer, vault)
 	return final.GuardOutput(ctx, nil, restored)

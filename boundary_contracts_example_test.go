@@ -101,7 +101,7 @@ func ExamplePipeline_GuardDelivery() {
 	guarded, _ := outputPipeline.GuardDelivery(
 		context.Background(),
 		nil,
-		guardy.NewDeliveryPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
+		guardy.NewUserTextPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
 		`{"internal":true}`,
 	)
 	value, ok := guarded.DeliverableValue()

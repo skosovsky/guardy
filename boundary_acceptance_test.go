@@ -146,7 +146,7 @@ func TestIndependentConsumerPoliciesAndSerialization(t *testing.T) {
 			)
 			var sink bytes.Buffer
 			// Act: only the projection is serialized into an actual consumer sink.
-			delivery, err := p.GuardDelivery(context.Background(), nil, NewDeliveryPolicy(channel), value)
+			delivery, err := p.GuardDelivery(context.Background(), nil, NewUserTextPolicy(channel), value)
 			if projection, allowed := delivery.Projection(); allowed {
 				if encodeErr := json.NewEncoder(&sink).Encode(projection); encodeErr != nil {
 					t.Fatal(encodeErr)
@@ -367,7 +367,7 @@ func TestTechnicalCallbackReplacementAndFallbackDestinationChecks(t *testing.T) 
 			fallback, fallbackErr := p.GuardDelivery(
 				context.Background(),
 				nil,
-				NewDeliveryPolicy("external", WithDeliveryFallback(candidate)),
+				NewUserTextPolicy("external", WithDeliveryFallback(candidate)),
 				`{"tool_calls":[{"name":"internal"}]}`,
 			)
 			if projection, ok := fallback.Projection(); ok {

@@ -108,7 +108,7 @@ func ExampleCompileStream() {
 	var out strings.Builder
 	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{
 		Identity: "response", Profile: guardy.ReleaseWholeResponse, Pipeline: pipeline,
-		Delivery: guardy.NewDeliveryPolicy("external"), MaxInputBytes: 4096,
+		Delivery: guardy.NewUserTextPolicy("external"), MaxInputBytes: 4096,
 		MaxPendingBytes: 4096, MaxUnitBytes: 4096, MaxOutputBytes: 4096, ValidationTimeout: time.Second,
 	})
 	if err != nil {

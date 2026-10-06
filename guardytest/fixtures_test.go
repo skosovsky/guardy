@@ -39,7 +39,7 @@ func TestReferenceBoundaryFixturesActualHandlerAndSink(t *testing.T) {
 			// Act: actual pre-handler enforcement followed by the downstream content boundary.
 			value, err := handler(ctx, fixture.Input)
 			if err == nil {
-				delivery, deliveryErr := pipeline.GuardDelivery(ctx, nil, g.NewDeliveryPolicy("external"), value)
+				delivery, deliveryErr := pipeline.GuardDelivery(ctx, nil, g.NewUserTextPolicy("external"), value)
 				err, observed.Decision = deliveryErr, delivery.Decision
 				if projection, ok := delivery.Projection(); ok {
 					observed.Delivered = projection.Value
@@ -112,7 +112,7 @@ func TestReferenceChunkFixturesStrictProducerConsumer(t *testing.T) {
 				Profile:           g.ReleaseWholeResponse,
 				Pipeline:          p,
 				ScopeFactory:      nil,
-				Delivery:          g.NewDeliveryPolicy("external"),
+				Delivery:          g.NewUserTextPolicy("external"),
 				Observer:          nil,
 				MaxInputBytes:     1024,
 				MaxPendingBytes:   1024,

@@ -101,7 +101,7 @@ func TestCompositionControlBoundaries(t *testing.T) {
 					// Act.
 					_, _, err := wrapped(context.Background(), `{"value":"secret"}`)
 					delivery, deliveryErr := p.GuardDelivery(context.Background(), nil,
-						g.NewDeliveryPolicy("external", g.WithDeliveryFallback("fallback")), "secret")
+						g.NewUserTextPolicy("external", g.WithDeliveryFallback("fallback")), "secret")
 					var sink bytes.Buffer
 					s, compileErr := g.CompileStream(&sink, streamConfig(p))
 					if compileErr != nil {

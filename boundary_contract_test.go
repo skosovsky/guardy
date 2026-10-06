@@ -83,7 +83,7 @@ func TestFallbackMustPassContentPolicy(t *testing.T) {
 	result, err := p.GuardDelivery(
 		context.Background(),
 		nil,
-		NewDeliveryPolicy("external", WithDeliveryFallback("secret fallback")),
+		NewUserTextPolicy("external", WithDeliveryFallback("secret fallback")),
 		"secret original",
 	)
 	// Assert.

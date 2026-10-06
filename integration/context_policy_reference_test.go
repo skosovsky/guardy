@@ -224,13 +224,13 @@ func (h *documentAPIHost) consume(ctx context.Context, destination, value string
 			return &g.BoundaryConfigurationError{Boundary: boundary, Code: "unsupported_mandatory_boundary"}
 		}
 	default:
-		// Unknown destinations reach the mandatory facts policy and receive no default.
+		// Empty delivery destinations fail configuration; other unknown facts reach the mandatory policy.
 	}
 	scope, err := h.scope(destination)(ctx)
 	if err != nil {
 		return err
 	}
-	delivery, err := h.consumers.GuardDelivery(ctx, scope, g.NewDeliveryPolicy(destination), value)
+	delivery, err := h.consumers.GuardDelivery(ctx, scope, g.NewUserTextPolicy(destination), value)
 	if err != nil {
 		return err
 	}
@@ -386,8 +386,15 @@ func TestDocumentAPIReferenceUnknownFactsAndReplacementBytes(t *testing.T) {
 			err := host.consume(context.Background(), destination, value)
 			// Assert: trust/integrity does not declassify a secret.
 			var failure *g.PolicyFailure
-			if !errors.As(err, &failure) || !failure.Decision.IsTerminal() || len(host.sinks) != 0 {
+			if !errors.As(err, &failure) || len(host.sinks) != 0 {
 				t.Fatalf("host=%+v err=%v", host, err)
+			}
+			if scenario == "destination" {
+				if !failure.Decision.IsSystemFault() || !errors.Is(err, g.ErrConfiguration) {
+					t.Fatalf("missing delivery destination must fail configuration: %v", err)
+				}
+			} else if !failure.Decision.IsTerminal() {
+				t.Fatalf("host policy rejection must deny: %v", err)
 			}
 		})
 	}

@@ -16,7 +16,7 @@ func streamConfig(p *g.Pipeline[string]) g.StreamConfig {
 		MaxUnitBytes:      4096,
 		MaxOutputBytes:    4096,
 		ValidationTimeout: time.Second,
-		Delivery:          g.NewDeliveryPolicy("external"),
+		Delivery:          g.NewUserTextPolicy("external"),
 	}
 }
 

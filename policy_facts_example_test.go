@@ -66,7 +66,7 @@ func ExampleScopeFactory_policyFacts() {
 		func(context.Context) (g.ExecutionScope, error) { return g.NewScope(g.ScopeValue(factsKey, facts)), nil },
 	)
 	scope, _ := factory(ctx)
-	delivery, err := p.GuardDelivery(ctx, scope, g.NewDeliveryPolicy("external"), claims.Content)
+	delivery, err := p.GuardDelivery(ctx, scope, g.NewUserTextPolicy("external"), claims.Content)
 	projection, allowed := delivery.Projection()
 	fmt.Println(projection.Value, allowed, err == nil)
 	fmt.Println(facts.Sources[0], facts.ConfirmedTrust)
@@ -74,7 +74,7 @@ func ExampleScopeFactory_policyFacts() {
 	// Each additional consumer needs its own destination facts and policy check.
 	facts.Destination = ""
 	scope, _ = factory(ctx)
-	blocked, err := p.GuardDelivery(ctx, scope, g.NewDeliveryPolicy("external"), claims.Content)
+	blocked, err := p.GuardDelivery(ctx, scope, g.NewUserTextPolicy("external"), claims.Content)
 	fmt.Println(blocked.Deliverable, err != nil)
 	// Output:
 	// summary: [redacted] true true

@@ -35,7 +35,7 @@ func TestJSONFramingCategoriesAndStickyPrefixAcrossPartitions(t *testing.T) {
 				// Arrange.
 				var sink bytes.Buffer
 				cfg := testStreamConfig(NewPipeline[string]())
-				cfg.Delivery = NewDeliveryPolicy(
+				cfg.Delivery = NewUserTextPolicy(
 					"internal",
 					WithDeliveryAllowedKinds(PayloadTechnicalPayload, PayloadSafeUserText),
 				)

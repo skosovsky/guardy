@@ -27,7 +27,7 @@ func main() {
 		Profile:    guardy.ReleaseWholeResponse,
 		Pipeline:   pipeline,
 		JSONValues: true,
-		Delivery: guardy.NewDeliveryPolicy(
+		Delivery: guardy.NewUserTextPolicy(
 			"internal",
 			guardy.WithDeliveryAllowedKinds(guardy.PayloadTechnicalPayload),
 		),

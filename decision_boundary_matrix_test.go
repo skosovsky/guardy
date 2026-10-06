@@ -100,7 +100,7 @@ func checkAllEnforcementBoundaries(t *testing.T, p *Pipeline[string], expected F
 	)
 	_, object, objectErr := dynamicHandler(ctx, raw)
 	assertBoundaryFailure(t, object.Decision, objectErr, expected)
-	policy := NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadSafeUserText, PayloadTechnicalPayload))
+	policy := NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadSafeUserText, PayloadTechnicalPayload))
 	delivery, deliveryErr := p.GuardDelivery(ctx, nil, policy, raw)
 	assertBoundaryFailure(t, delivery.Decision, deliveryErr, expected)
 	var sink bytes.Buffer

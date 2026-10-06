@@ -1,0 +1,8 @@
+--- FAIL: TestUserTextDereferenceLimit (0.00s)
+    --- FAIL: TestUserTextDereferenceLimit/exact (0.00s)
+        delivery_policy_contract_test.go:215: depth=64 fault=false deliverable=false error=guardy: validator failed
+    --- FAIL: TestUserTextDereferenceLimit/nil_exact (0.00s)
+        delivery_policy_contract_test.go:215: depth=64 fault=false deliverable=false error=guardy: validator failed
+FAIL
+FAIL	github.com/skosovsky/guardy	0.404s
+FAIL

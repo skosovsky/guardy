@@ -52,6 +52,7 @@ func streamExample(profile guardy.ReleaseProfile) (string, error) {
 	)
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(rule)).Use(guardyotel.NewMiddleware[string]())
 	cfg := guardy.StreamConfig{
+		Delivery:          guardy.NewUserTextPolicy("external"),
 		Identity:          "otel-example",
 		Profile:           profile,
 		Pipeline:          pipeline,

@@ -14,6 +14,7 @@ func otelStreamConfig(p *guardy.Pipeline[string], profile guardy.ReleaseProfile)
 		Identity:          "otel-stream",
 		Profile:           profile,
 		Pipeline:          p,
+		Delivery:          guardy.NewUserTextPolicy("external"),
 		MaxInputBytes:     64,
 		MaxPendingBytes:   64,
 		MaxUnitBytes:      4,

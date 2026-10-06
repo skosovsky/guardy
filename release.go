@@ -184,6 +184,9 @@ func CompileStream(writer io.Writer, cfg StreamConfig) (*StreamProcessor, error)
 		return nil, streamConfigurationError(err)
 	}
 	cfg.Delivery = normalizeDeliveryPolicy(cfg.Delivery)
+	if err := validateDeliveryPolicy[string](cfg.Delivery); err != nil {
+		return nil, streamConfigurationError(err)
+	}
 	var outcome StreamOutcome
 	outcome.Identity = cfg.Identity
 	outcome.Decision = DecisionFromReport(nil)

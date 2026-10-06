@@ -25,7 +25,7 @@ func main() {
 		Identity:          "response",
 		Profile:           guardy.ReleaseWholeResponse,
 		Pipeline:          pipeline,
-		Delivery:          guardy.NewDeliveryPolicy("external"),
+		Delivery:          guardy.NewUserTextPolicy("external"),
 		MaxInputBytes:     streamLimitBytes,
 		MaxPendingBytes:   streamLimitBytes,
 		MaxUnitBytes:      streamLimitBytes,

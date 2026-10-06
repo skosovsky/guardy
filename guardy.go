@@ -4,7 +4,7 @@
 //
 // Boundary contracts: typed [ScopeKey] / [ScopeRequirement],
 // canonical [Decision] / [PolicyFailure], [ArgsPipeline] / [GuardedArgs],
-// [JSONArgsPipeline] / [GuardedJSONArgs], [GuardedOutput],
+// [JSONArgsPipeline] / [GuardedJSONArgs], [GuardedDelivery],
 // [DeliveryPolicy], [GuardEvent], and [GuardRoute].
 //
 // See CONTRACTS.md for boundary and release invariants.

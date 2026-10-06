@@ -15,7 +15,7 @@ import (
 // Close now aborts: every successful producer must explicitly call Complete.
 func testStreamConfig(p *Pipeline[string]) StreamConfig {
 	return StreamConfig{Identity: "contract", Profile: ReleaseWholeResponse, Pipeline: p,
-		Delivery: NewDeliveryPolicy("external"), MaxInputBytes: 32768, MaxPendingBytes: 32768,
+		Delivery: NewUserTextPolicy("external"), MaxInputBytes: 32768, MaxPendingBytes: 32768,
 		MaxUnitBytes: 32768, MaxOutputBytes: 65536, ValidationTimeout: time.Second}
 }
 
@@ -197,7 +197,7 @@ func TestJSONUnitFramingAcrossEverySplit(t *testing.T) {
 			cfg.Profile = ReleaseValidatedUnits
 			cfg.JSONValues = true
 			cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
-			cfg.Delivery = NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
+			cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
 			var sink bytes.Buffer
 			s, err := CompileStream(&sink, cfg)
 			if err != nil {

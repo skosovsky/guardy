@@ -146,7 +146,7 @@ func executeRecipe(ctx context.Context, claims documentClaims, facts recipeFacts
 	transformed, err := pipeline.GuardDelivery(
 		ctx,
 		contextScope,
-		g.NewDeliveryPolicy("context"),
+		g.NewUserTextPolicy("context"),
 		"summary: "+strings.TrimSpace(claims.Content),
 	)
 	if err != nil {
@@ -176,7 +176,7 @@ func executeRecipe(ctx context.Context, claims documentClaims, facts recipeFacts
 	if err != nil {
 		return result, err
 	}
-	delivery, err := pipeline.GuardDelivery(ctx, deliveryScope, g.NewDeliveryPolicy(facts.Destination), value)
+	delivery, err := pipeline.GuardDelivery(ctx, deliveryScope, g.NewUserTextPolicy(facts.Destination), value)
 	if err != nil {
 		return result, err
 	}

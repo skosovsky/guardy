@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00/T01 приняты; T02 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T02 приняты; T03 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -273,7 +273,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Deprecated untyped constructors/helpers удалены; tests/examples/build/docs используют typed APIs; low-level Lookup сохранён.
 4. Godoc/CONTRACTS и migration актуальны; релевантные core/build/example tests проходят.
 
-**T02 — delivery** (ожидает T01; commit `refactor: delivery`; R02, D01–D03).
+**T02 — delivery** (принят; commit `refactor: delivery`; R02, D01–D03).
 1. Один GuardedDelivery и migrated consumers, explicit generic destination contract + UserText recipe, supported representation docs.
 2. Value cycle и nil pointer type cycle завершаются typed fault, no delivery; finite subprocess watchdog и ordinary pointer/nil/struct/bytes matrix, включая technical policy.
 3. Configuration validation до callbacks, mismatch fallback/typed nil documented и tested; separately checked fallback, no fault masking, kind/cause/Projection согласованы.
@@ -343,4 +343,5 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 | Этап | Полнота | Корректность | Evidence | Commit |
 |---|---|---|---|---|
 | T00 | PASS 100% (3/3) | PASS, подтверждённых ошибок нет | [полнота](task27-evidence/t00-completeness.md), [корректность](task27-evidence/t00-correctness.md) | `a581a1c` — `docs: remediation plan` |
-| T01 | PASS 100% (4/4) | PASS, подтверждённых ошибок нет | [проверки](task27-evidence/t01-implementation.md), [полнота](task27-evidence/t01-completeness.md), [корректность](task27-evidence/t01-correctness.md) | `fix: scope types` (hash в следующем этапе) |
+| T01 | PASS 100% (4/4) | PASS, подтверждённых ошибок нет | [проверки](task27-evidence/t01-implementation.md), [полнота](task27-evidence/t01-completeness.md), [корректность](task27-evidence/t01-correctness.md) | `0bd3903` — `fix: scope types` |
+| T02 | PASS 100% (4/4), повторная приёмка | PASS после исправления64-depth boundary | [проверки](task27-evidence/t02-implementation.md), [полнота](task27-evidence/t02-completeness.md), [корректность](task27-evidence/t02-correctness.md) | `refactor: delivery` (hash в следующем этапе) |

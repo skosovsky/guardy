@@ -68,6 +68,35 @@ including interface fields holding slices/maps, fail with ErrAttributeIncomparab
 and AttributeComparisonError metadata rather than panicking or becoming mismatch.
 Caller-defined comparison belongs in a custom policy; equality does not imply DeepEqual.
 
+## Delivery representation
+
+GuardedDelivery[T] is the single canonical output boundary, including Projection.
+GuardOutput and WrapGuardedOutput return that same type using the UserText recipe.
+Generic GuardDelivery requires an explicit channel, allowed kinds and caller classifier;
+zero/default policy is invalid. Classifiers describe the actual destination wire
+representation and must terminate, avoid mutation, and be safe for concurrent sharing.
+Core never invokes caller MarshalJSON/MarshalText to guess serialized safety.
+Validator observations can restrict the classified kind; a classifier cannot downgrade
+a previously observed more restrictive kind. Classification error, panic, invalid kind
+or cancellation is SystemFault and suppresses both original content and fallback.
+
+NewUserTextPolicy is an explicit opt-in shape recipe: text/bytes and named text
+without custom marshalers are inspected for JSON object/array syntax; composite Go
+shapes are technical. json.RawMessage is explicitly supported. This does not prove
+serialization safety or detector quality. Unsupported scalars, custom marshalers,
+nil interfaces, and pointer/interface dereference exceeding 64 steps produce
+DeliveryClassificationError (ErrDeliveryClassification). Typed nil pointers are
+classified by the bounded underlying type; nil byte slices remain text. Cyclic
+value and type dereference always terminates, even for technical allowed kinds.
+The host must send the checked representation unchanged; different canonicalization
+requires a classifier bound to that host contract.
+
+Fallback compatibility is checked before Run or any classifier/validator callback.
+nil without dynamic type means absent. Typed nil is present if its dynamic type
+asserts to T; otherwise configuration fails. A compatible fallback still traverses
+validation and classification independently, with recursive fallback disabled.
+No classification or mandatory validator fault activates fallback delivery.
+
 ## Stream release
 
 The caller explicitly selects whole-response, validated units, or best-effort.

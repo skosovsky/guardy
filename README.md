@@ -129,7 +129,7 @@ stream, err := guardy.CompileStream(w, guardy.StreamConfig{
     Identity: "response",
     Profile: guardy.ReleaseWholeResponse,
     Pipeline: pipeline,
-    Delivery: guardy.NewDeliveryPolicy("external"),
+    Delivery: guardy.NewUserTextPolicy("external"),
     MaxInputBytes: 1 << 20,
     MaxPendingBytes: 1 << 20,
     MaxUnitBytes: 1 << 20,
@@ -253,7 +253,7 @@ For guarded output, return a single authoritative delivery contract. `GuardOutpu
 guarded, err := outputPipeline.GuardDelivery(
     ctx,
     scope,
-    guardy.NewDeliveryPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
+    guardy.NewUserTextPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
     text,
 )
 if value, ok := guarded.DeliverableValue(); ok {
@@ -261,7 +261,7 @@ if value, ok := guarded.DeliverableValue(); ok {
 }
 ```
 
-Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, `WrapGuardedArgs` passes the full `GuardedArgs[T]` boundary to a handler, `WrapGuardedJSONArgs` does the same for dynamic JSON, and `WrapGuardedOutput` validates handler output before returning `GuardedOutput[T]`.
+Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, `WrapGuardedArgs` passes the full `GuardedArgs[T]` boundary to a handler, `WrapGuardedJSONArgs` does the same for dynamic JSON, and `WrapGuardedOutput` validates handler output before returning `GuardedDelivery[T]`.
 
 Observers receive typed guard events:
 
@@ -301,7 +301,25 @@ pipeline := guardy.NewPipeline(
 )
 ```
 
-Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardDelivery(ctx, scope, policy, value)` or `pipeline.GuardOutput(ctx, scope, value)`, which return guardy-owned delivery contracts and remove the need for host-side re-gating or JSON sniffing.
+Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardDelivery(ctx, scope, policy, value)` or `pipeline.GuardOutput(ctx, scope, value)`, which return the canonical `GuardedDelivery[T]` with `DeliverableValue` and `Projection`.
+
+`GuardDelivery` requires an explicit channel, allowed kinds and `WithDeliveryClassifier`.
+The caller classifier must describe the representation actually sent to that destination;
+core does not call `MarshalJSON` or infer serialization safety from Go shape. A zero
+policy or missing classifier/kinds is a configuration fault before any pipeline callback.
+`GuardOutput` selects `NewUserTextPolicy("user")`; text-oriented examples explicitly use
+`NewUserTextPolicy(channel)`. This opt-in recipe classifies text/bytes and named text
+without custom marshalers, treating valid JSON objects/arrays and composite Go shapes
+as technical. Its shape check is a routing recipe, not a proof of serialized safety.
+Custom marshalers and unsupported scalar representations require a caller classifier.
+Dereference is bounded to 64 steps; cycles, excessive depth and unknown representations
+produce typed `ErrDeliveryClassification` system faults with no delivery or fallback.
+Nil typed text pointers/byte slices are classified by their underlying type; nil
+interfaces are unsupported. The host must deliver the checked representation unchanged.
+
+Fallback is checked for compatibility with `T` before processing. `nil` means absent;
+a typed nil is configured content and is separately validated and classified like any
+other fallback. Mismatched fallback types produce `ErrConfiguration`, never silent omission.
 
 ### Declarative guards (`guardy/build`)
 
@@ -618,7 +636,7 @@ Production `ext` validators should always set **`ext.WithCode(...)`** so hosts n
 
 ## Packages
 
-- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedOutput, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, StreamProcessor, BoundaryProfile, Guard middleware, errors.
+- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, StreamProcessor, BoundaryProfile, Guard middleware, errors.
 - **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
 - **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
@@ -686,7 +704,7 @@ not measure detector false positives/negatives or live-provider safety.
 - **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
 - **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before fast-path.
 - **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
-- **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedOutput[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
+- **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedDelivery[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
 - **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
 - **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
 - **Observer telemetry:** `WithObserver` receives `GuardEvent` for non-fatal shadow blocks, with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata. It is not an all-events audit ledger.

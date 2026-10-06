@@ -19,7 +19,7 @@ go run .
 - **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default; raw validator errors are never exported. Code/name labels require a static caller allowlist. Metrics and slow-path spans are not a complete decision audit.
 - **custom_validator** — Custom validator that calls a mock word-matching HTTP API (no supplied model); integrates into a pipeline and runs two sample inputs.
 - **struct_validation** — Validates raw JSON through `ArgsPipeline`, returns `GuardedArgs[T]`, and prints canonical retry feedback.
-- **generic_decorator** — Scope-aware input policy + output user channel with technical JSON classifier; `PolicyFailure` + `GuardedOutput` demo. Separate viewer/admin flows reach policy, wordlist, and delivery checks; JSON shape detection supplies no authorization.
+- **generic_decorator** — Scope-aware input policy + output user channel with technical JSON classifier; `PolicyFailure` + `GuardedDelivery` demo. Separate viewer/admin flows reach policy, wordlist, and delivery checks; JSON shape detection supplies no authorization.
 - **declarative_guard** — Compiles a `GuardSpec` via `guardy/build` (policy rules, user channel + output classifier); optional `build.WithJSONSchema` for schema validation. Independent scenarios continue after the expected policy denial.
 - **policy_attributes** — Policy phase with typed `ScopeKey[T]`; demonstrates `PolicyDecision` and `ScopeIncompleteError` metadata.
 - **agent_tool_args** — Redacts PII inside opaque `json.RawMessage` tool args via `MapJSONRawMessage` (not scope-aware policy).

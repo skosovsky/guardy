@@ -74,7 +74,7 @@ func TestReleasePartitionFramingAndUnitLimits(t *testing.T) {
 				)
 				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
 				cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, test.json
-				cfg.Delivery = NewDeliveryPolicy(
+				cfg.Delivery = NewUserTextPolicy(
 					"internal",
 					WithDeliveryAllowedKinds(PayloadTechnicalPayload, PayloadSafeUserText),
 				)

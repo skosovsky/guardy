@@ -39,7 +39,7 @@ func TestJSONFramingWhitespaceEverySplit(t *testing.T) {
 		cfg := testStreamConfig(NewPipeline[string]())
 		cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 		cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
-		cfg.Delivery = NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
+		cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
 		var sink bytes.Buffer
 		s, err := CompileStream(&sink, cfg)
 		if err != nil {
@@ -91,7 +91,7 @@ func TestJSONExactUnitLimitIndependentOfTransport(t *testing.T) {
 			cfg := testStreamConfig(NewPipeline[string]())
 			cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 			cfg.MaxUnitBytes, cfg.MaxPendingBytes = 2, 3
-			cfg.Delivery = NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
+			cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
 			var sink bytes.Buffer
 			s, err := CompileStream(&sink, cfg)
 			if err != nil {

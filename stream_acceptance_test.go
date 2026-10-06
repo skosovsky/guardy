@@ -256,7 +256,7 @@ func TestJSONRedactionLengthChangesEverySplit(t *testing.T) {
 				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
 				cfg.Profile, cfg.JSONValues = profile, true
 				cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
-				cfg.Delivery = NewDeliveryPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
+				cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
 				var sink bytes.Buffer
 				stream, err := CompileStream(&sink, cfg)
 				if err != nil {
