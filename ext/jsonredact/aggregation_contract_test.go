@@ -121,7 +121,7 @@ func TestJSONPriorKindSurvivesDenyThenGoFault(t *testing.T) {
 		t.Fatalf("output=%s report=%+v visited=%v error=%v", output, report, visited, err)
 	}
 	// Act: the completed deny remains evidence, while the late Go fault determines enforcement.
-	pipeline := g.NewPipeline(g.WithFastPath[string](adapter))
+	pipeline := g.MustNewPipeline(g.WithSequential[string](adapter))
 	result, runErr := pipeline.Run(t.Context(), nil, input)
 	policy := g.NewUserTextPolicy("internal", g.WithDeliveryAllowedKinds(g.PayloadTechnicalPayload))
 	delivery, boundaryErr := pipeline.GuardDelivery(t.Context(), nil, policy, input)
@@ -166,7 +166,7 @@ func TestJSONShadowCannotHideFaultAndFaultStopsTraversal(t *testing.T) {
 	})
 	adapter := NewJSONRedactValidator(leaf, "")
 	input := `{"z":"unvisited","b":"fault","a":"shadow"}`
-	pipeline := g.NewPipeline(g.WithFastPath[string](adapter))
+	pipeline := g.MustNewPipeline(g.WithSequential[string](adapter))
 	policy := g.NewUserTextPolicy(
 		"internal",
 		g.WithDeliveryAllowedKinds(g.PayloadTechnicalPayload),

@@ -17,7 +17,7 @@ func TestFinalOnlyRuleRejectedForBoundedUnits(t *testing.T) {
 		),
 		StreamCapabilities{Final: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = ReleaseValidatedUnits
 	var sink bytes.Buffer
 	// Act.
@@ -45,7 +45,7 @@ func TestTrustedFinalJSONRequiredFieldFailure(t *testing.T) {
 		}),
 		StreamCapabilities{Final: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.JSONValues = true
 	var sink bytes.Buffer
 	stream, err := CompileStream(&sink, cfg)
@@ -84,23 +84,23 @@ func streamFaultPipeline(phase, mode string, cancel context.CancelFunc) *Pipelin
 	}
 	rule := ValidatorFunc[string](callback)
 	switch phase {
-	case "fast":
-		return NewPipeline(WithFastPath(rule))
-	case "slow":
-		return NewPipeline(WithSlowPath(rule))
+	case "sequential":
+		return MustNewPipeline(WithSequential(rule))
+	case "parallel":
+		return MustNewPipeline(WithParallel(rule))
 	default:
-		policy := NewPolicyFuncWithScope(
+		policy := MustPolicyFuncWithScope(
 			nil,
 			func(ctx context.Context, value string, _ ExecutionScope) (string, *Report, error) {
 				return callback(ctx, value)
 			},
 		)
-		return NewPipeline(WithPolicyValidators(policy))
+		return MustNewPipeline(WithPolicyValidators(policy))
 	}
 }
 
 func TestStreamFaultAndCancellationAcrossAllPhases(t *testing.T) {
-	for _, phase := range []string{"fast", "policy", "slow"} {
+	for _, phase := range []string{"sequential", "policy", "parallel"} {
 		for _, mode := range []string{"report", "error", "cancel"} {
 			t.Run(phase+"/"+mode, func(t *testing.T) {
 				// Arrange.
@@ -151,7 +151,7 @@ func TestStreamFallbackDistinctPositiveNegativeFaultOutcomes(t *testing.T) {
 				}
 				return value, nil, nil
 			})
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Delivery.Fallback = candidate
 			var events []StreamEvent
 			cfg.Observer = func(event StreamEvent) { events = append(events, event) }
@@ -211,7 +211,7 @@ func TestLengthChangingRedactionEverySplitWholeAndUnits(t *testing.T) {
 					}),
 					StreamCapabilities{Unit: true, Final: true},
 				)
-				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+				cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 				cfg.Profile = profile
 				var sink bytes.Buffer
 				stream, err := CompileStream(&sink, cfg)
@@ -253,7 +253,7 @@ func TestJSONRedactionLengthChangesEverySplit(t *testing.T) {
 					}),
 					StreamCapabilities{Unit: true, Final: true},
 				)
-				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+				cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 				cfg.Profile, cfg.JSONValues = profile, true
 				cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
 				cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
@@ -288,7 +288,7 @@ func TestStreamIndependentByteLimits(t *testing.T) {
 	for _, kind := range []string{"input", "pending", "unit", "json", "whitespace", "expansion"} {
 		t.Run(kind, func(t *testing.T) {
 			// Arrange: all other limits are large enough to isolate the named bound.
-			cfg := testStreamConfig(NewPipeline[string]())
+			cfg := testStreamConfig(MustNewPipeline[string]())
 			input := strings.Repeat("x", 9)
 			switch kind {
 			case "input":
@@ -306,8 +306,8 @@ func TestStreamIndependentByteLimits(t *testing.T) {
 				input = strings.Repeat(" ", 32)
 			case "expansion":
 				cfg.MaxOutputBytes = 8
-				cfg.Pipeline = NewPipeline(
-					WithFastPath(ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
+				cfg.Pipeline = MustNewPipeline(
+					WithSequential(ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
 						return strings.Repeat("😊", 3), &Report{Action: ActionRedact}, nil
 					})),
 				)

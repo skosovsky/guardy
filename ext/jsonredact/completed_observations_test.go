@@ -64,7 +64,7 @@ func assertJSONCompletedFault(t *testing.T, kind g.PayloadKind, wrappedCancel bo
 	})
 	adapter := NewJSONRedactValidator(leaf, "")
 	input := `["first",{"second":"fail"}]`
-	pipeline := g.NewPipeline(g.WithFastPath[string](adapter))
+	pipeline := g.MustNewPipeline(g.WithSequential[string](adapter))
 	policy := g.NewUserTextPolicy(
 		"internal",
 		g.WithDeliveryAllowedKinds(g.PayloadTechnicalPayload, g.PayloadInternalControlSignal),

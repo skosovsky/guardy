@@ -20,7 +20,7 @@ const (
 func main() { runExample(os.Stdout) }
 
 func runExample(writer io.Writer) {
-	// Scenario 1: policy scope mismatch only (no wordlist/PII — fast-path cannot mask policy outcome).
+	// Scenario 1: policy scope mismatch only (no wordlist/PII — sequential phase cannot mask policy outcome).
 	roleKey := guardy.NewScopeKey[string]("principal.role")
 	policyPipeline, err := build.CompileStringGuard(build.GuardSpec{
 		PolicyRules: []build.PolicyRuleSpec{{

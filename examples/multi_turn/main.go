@@ -35,7 +35,7 @@ func main() {
 		base,
 	)
 
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(multiTurnValidator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(multiTurnValidator))
 	messages := []ChatMessage{
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "password=super-secret"},

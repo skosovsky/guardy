@@ -12,7 +12,7 @@ type Judge interface {
 	Evaluate(ctx context.Context, text string) (Report, error)
 }
 
-// LLMJudge is a Slow-Path validator that delegates to a Judge.
+// LLMJudge is a Parallel validator that delegates to a Judge.
 type LLMJudge struct {
 	judge  Judge
 	shadow bool
@@ -21,8 +21,20 @@ type LLMJudge struct {
 
 // NewLLMJudge builds a validator that calls j.Evaluate.
 // If shadow is true and the judge returns block, the report is marked ShadowMode.
-func NewLLMJudge(j Judge, shadow bool) *LLMJudge {
-	return &LLMJudge{judge: j, shadow: shadow, name: "llm_judge"}
+func NewLLMJudge(j Judge, shadow bool) (*LLMJudge, error) {
+	if nilImplementation(j) {
+		return nil, configurationError("llm_judge", "judge", "nil")
+	}
+	return &LLMJudge{judge: j, shadow: shadow, name: "llm_judge"}, nil
+}
+
+// MustLLMJudge builds a judge validator or panics on NewLLMJudge's configuration error.
+func MustLLMJudge(j Judge, shadow bool) *LLMJudge {
+	v, err := NewLLMJudge(j, shadow)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // Validate runs the judge and returns its result.
@@ -32,7 +44,7 @@ func (l *LLMJudge) Validate(ctx context.Context, input string) (string, *Report,
 	if err := ctx.Err(); err != nil {
 		return input, nil, err
 	}
-	if l.judge == nil {
+	if nilImplementation(l.judge) {
 		return "", nil, errLLMJudgeNil
 	}
 	rep, err := l.judge.Evaluate(ctx, input)

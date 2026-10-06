@@ -23,7 +23,7 @@ go get github.com/skosovsky/guardy
 
 ## Quick Start
 
-Build a pipeline with fast-path validators and validate text:
+Build a pipeline with sequential phase validators and validate text:
 
 ```go
 package main
@@ -41,8 +41,8 @@ func main() {
 	wordlistV := ext.MustWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
 	piiV := ext.MustPIIValidator()
 
-	pipeline := guardy.NewPipeline(
-		guardy.WithFastPath(ext.MustTagPatternValidator(""), piiV, wordlistV, lengthV),
+	pipeline := guardy.MustNewPipeline(
+		guardy.WithSequential(ext.MustTagPatternValidator(""), piiV, wordlistV, lengthV),
 	)
 
 	ctx := context.Background()
@@ -53,6 +53,8 @@ func main() {
 	}
 	decision := result.PolicyDecision()
 	switch {
+	case decision.IsSystemFault():
+		fmt.Println("validation fault")
 	case decision.IsTerminal():
 		fmt.Println("blocked:", decision.SafeMessage)
 	case decision.IsRetryable():
@@ -77,12 +79,12 @@ type Validator[T any] interface {
 
 For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**, **Disposition** (typed control flow), **PayloadKind** (output classification). Route control flow with **IsTerminalDeny()** and **IsRetryableCorrection()** — not `strings.Contains` on **Reason** or raw **Action**. **Action** remains for telemetry and redact semantics. Helpers: `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
 
-### Pipeline (two-phase)
+### Pipeline (three-phase)
 
-- **Construction**: `NewPipeline[string](WithFastPath(...), WithPolicyValidators(...), WithSlowPath(...))`.
-- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. Pass `nil` or any `ExecutionScope` implementation. Use `result.PolicyDecision()` for low-level pipeline routing; use `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput` at host boundaries. `result.OutputKind`, `result.Decision()`, and `result.Reports` remain validator-level telemetry. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
+- **Construction**: `NewPipeline[string](WithSequential(...), WithPolicyValidators(...), WithParallel(...))`.
+- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. A completed report-only system fault has nil Go error; check `PolicyDecision().IsSystemFault()` before using output. Validate errors/panics return a safe typed `ValidatorFaultError`; high-level boundaries turn both fault channels into `PolicyFailure` and suppress delivery. Pass `nil` or any `ExecutionScope` implementation. Use `result.PolicyDecision()` for low-level pipeline routing; use `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput` at host boundaries. `result.OutputKind`, `result.Decision()`, and `result.Reports` remain validator-level telemetry. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
 
-`pipeline.Use()` is immutable in v2-style API: it returns a new pipeline instance and does not mutate the original.
+`NewPipeline` returns `(*Pipeline[T], error)` and rejects nil rules/options or unused channel fallback configuration. `MustNewPipeline` panics on the same error for static configuration. `pipeline.Use(...)` returns `(*Pipeline[T], error)` and preserves the original; `MustUse` is its static configuration wrapper. Nil middleware or wrapper layers are rejected. Optional `WithObserver(nil)` disables observation.
 
 ### Struct pipelines (`Pipeline[MyDTO]`)
 
@@ -97,20 +99,23 @@ rawV := guardy.MapJSONRawMessage(piiV,
     func(c *AgentCall) json.RawMessage { return c.ToolArgs },
     func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
 )
-pipeline := guardy.NewPipeline[AgentCall](guardy.WithFastPath(rawV))
+pipeline := guardy.MustNewPipeline[AgentCall](guardy.WithSequential(rawV))
 result, _ := pipeline.Run(ctx, nil, AgentCall{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)})
 // result.Output.ToolArgs — redacted when ActionRedact
 ```
 
 For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + explicit `ExecutionScope` in `Run`.
 
-**Phase 1 — Fast path (sequential)**
-Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
+**Phase 1 — Sequential**
+Validators run in registration order. Each callback’s returned T becomes the next input; `MutatedText` is only an optional diagnostic mirror. Correction, terminal deny and system fault stop this phase; a valid nonfatal shadow block remains an observation. Use for: TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
 
-**Phase 2 — Slow path (parallel)**
-Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
+**Phase 2 — Policy**
+Scope-aware validators run sequentially on the value from phase 1, after required scope checks. Each returned T becomes the next input. Correction, terminal deny and fault stop processing; only a valid nonfatal shadow block continues as an observation.
 
-**Example fast-path order:** tag pattern matcher → PII matcher → wordlist → regex/length. Choose and test order for your rules; this ordering is not a measured protection level.
+**Phase 3 — Parallel**
+Read-only validators run concurrently via `errgroup` on the final value from the sequential and policy phases. Returned values are ignored; ActionRedact is a system fault. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
+
+**Example sequential phase order:** tag pattern matcher → PII matcher → wordlist → regex/length. Choose and test order for your rules; this ordering is not a measured protection level.
 
 ### Report
 
@@ -176,9 +181,9 @@ Declare typed scope requirements with `ScopeKey[T]`, then pass any `ExecutionSco
 
 ```go
 roleKey := guardy.NewScopeKey[string]("principal.role")
-pipeline := guardy.NewPipeline(
+pipeline := guardy.MustNewPipeline(
     guardy.WithPolicyValidators(
-        guardy.NewTypedAttributeEquals[string, string](roleKey, "viewer"),
+        guardy.MustTypedAttributeEquals[string, string](roleKey, "viewer"),
     ),
 )
 
@@ -187,7 +192,7 @@ result, err := pipeline.Run(ctx, scope, "hello")
 decision := result.PolicyDecision()
 ```
 
-Register rules with `WithPolicyValidators` (runs after fast-path, before slow-path). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; incompatible dynamic types return `ErrScopeIncompatible` and a system-fault decision. Concrete keys require the exact type; interface keys accept implementations, matching `ScopeKey.Lookup`. Use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
+Register rules with `WithPolicyValidators` (runs after sequential phase, before parallel phase). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; incompatible dynamic types return `ErrScopeIncompatible` and a system-fault decision. Concrete keys require the exact type; interface keys accept implementations, matching `ScopeKey.Lookup`. Use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
 
 `NewTypedAttributeEquals` uses Go equality. Interface values that contain slices,
 maps or other incomparable operands fail with `ErrAttributeIncomparable` and
@@ -266,7 +271,7 @@ Generic adapters are available for host functions: `WrapArgs` validates raw argu
 Observers receive typed guard events:
 
 ```go
-pipeline := guardy.NewPipeline(
+pipeline := guardy.MustNewPipeline(
     guardy.WithPipelineName[string]("reply-output"),
     guardy.WithObserver[string](func(ctx context.Context, event guardy.GuardEvent) {
         log.Println(event.PipelineName, event.Phase, event.Decision.Code)
@@ -277,10 +282,11 @@ pipeline := guardy.NewPipeline(
 For routing, project canonical decisions through guardy instead of reinterpreting action/disposition combinations:
 
 ```go
-route := failure.Decision.Route(guardy.RemediationPolicy{
+route, routeErr := failure.Decision.Route(guardy.RemediationPolicy{
     RetryAttempt: 2,
     MaxRetries:   3,
 })
+if routeErr != nil { return routeErr } // invalid host retry counters
 switch route.Outcome {
 case guardy.GuardRouteRetryCorrection:
     retry(route.RetryFeedback)
@@ -294,10 +300,10 @@ case guardy.GuardRouteTerminalDeny, guardy.GuardRouteSystemFault:
 For output guards, enable terminal filtering so non-safe `PayloadKind` is blocked inside the library:
 
 ```go
-pipeline := guardy.NewPipeline(
+pipeline := guardy.MustNewPipeline(
     guardy.WithUserChannel[string](),
     guardy.WithUserChannelFallback[string]("Sorry, I can't show that."),
-    guardy.WithFastPath(classifier),
+    guardy.WithSequential(classifier),
 )
 ```
 
@@ -511,7 +517,7 @@ piiV := ext.MustPIIValidator(
 	ext.WithAction(guardy.ActionRedact),
 	ext.WithTokenVault(vault),
 )
-result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, nil, "email: a@b.com")
+result, _ := guardy.MustNewPipeline(guardy.WithSequential(piiV)).Run(ctx, nil, "email: a@b.com")
 // After host recipient authorization: restore, then validate final output.
 // See examples/reversible_redaction for the complete delivery flow.
 ```
@@ -544,13 +550,13 @@ For OpenTelemetry integration without adding heavy deps to root module, use `git
 ```go
 import "github.com/skosovsky/guardy/ext/guardyotel"
 
-pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
-pipeline = pipeline.Use(guardyotel.NewMiddleware[string](
+pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
+pipeline = pipeline.MustUse(guardyotel.NewMiddleware[string](
 	guardyotel.WithIncludePayloads(false), // default secure mode
 ))
 ```
 
-Fast path exports counters/histograms; slow path emits spans. Raw payload capture is opt-in.
+Sequential phase exports counters/histograms; parallel phase emits spans. Raw payload capture is opt-in.
 Arbitrary validator/code labels are omitted by default; `WithAllowedMetadata` permits
 explicit static identifiers of at most 128 bytes. Raw validator errors and report
 text are never exported. `guardy.disposition` and `guardy.outcome` describe the
@@ -592,15 +598,15 @@ v := guardy.MapJSONRawMessage(piiV,
     func(c *AgentCall) json.RawMessage { return c.ToolArgs },
     func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
 )
-pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
 ```
 
 Use `T` as a struct value (`Validator[AgentCall]`). For nested keys inside JSON, use `ext/jsonredact` instead. See `examples/agent_tool_args`.
 
 ## Core validators (guardy)
 
-- **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (slow path). Pass and block reports retain finite `Score` on the caller’s scale for external calibration; it is not necessarily a probability.
-- **LLMJudge** — wraps a `Judge`; use for LLM-as-judge (slow path). Both support **shadow mode** (block is logged but does not short-circuit).
+- **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (parallel phase). Pass and block reports retain finite `Score` on the caller’s scale for external calibration; it is not necessarily a probability.
+- **LLMJudge** — wraps a `Judge`; use for LLM-as-judge (parallel phase). Both support **shadow mode** (block is logged but does not short-circuit).
 
 ## Testing with guardytest
 
@@ -615,7 +621,7 @@ Use **guardy/guardytest** for unit tests:
 
 ```go
 v := guardytest.FakeValidator("mock", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
-pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
 result, _ := pipeline.Run(ctx, nil, "x")
 if !result.PolicyDecision().IsTerminal() {
     t.Fatal("expected terminal decision")
@@ -706,13 +712,13 @@ not measure detector false positives/negatives or live-provider safety.
 ## Migration: typed scope, boundary contracts and delivery routing
 
 - **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
-- **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before fast-path.
+- **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before sequential phase.
 - **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
 - **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedDelivery[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
 - **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
 - **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
 - **Observer telemetry:** `WithObserver` receives `GuardEvent` for non-fatal shadow blocks, with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata. It is not an all-events audit ledger.
-- **Decision routing:** use `Decision.Route(RemediationPolicy)` or `RouteDecision` for retry, terminal deny, system fault, and fallback projection.
+- **Decision routing:** `Decision.Route(RemediationPolicy)` and `RouteDecision` return `(GuardRoute, error)`; negative host counters are configuration errors. A fallback route is only a proposal: check its value with `GuardDelivery` before sending.
 - **HTTP report context:** `ReportFromContext` was removed; report context side channels are replaced by explicit decisions, policy failures, guard events, and boundary values.
 - **WrapInput/WrapOutput:** take `ScopeFactory` (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
 - **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
@@ -744,7 +750,7 @@ Use `ArgsPipeline`, `Map` and `MapJSONRawMessage` for type-safe argument validat
 
 ## v2 Migration Highlights
 
-- `Pipeline.Use(...)` is immutable and returns a new pipeline.
+- `Pipeline.Use(...)` returns a new pipeline and a configuration error; `MustUse` is the explicit panic wrapper.
 - `Report` includes `Code` and typed `Severity`.
 - Legacy streaming constructors/options are removed; use `StreamConfig`.
 - `PIIMasking` APIs were renamed to `PIIValidator` / `NewPIIValidator`.

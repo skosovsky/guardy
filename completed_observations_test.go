@@ -51,7 +51,7 @@ func TestCompletedObservationsSnapshotAndJoinedCauses(t *testing.T) {
 
 func TestFailedReportsAreNotCompletedObservations(t *testing.T) {
 	t.Parallel()
-	for _, phase := range []ValidationPhase{ValidationPhaseFast, ValidationPhasePolicy, ValidationPhaseSlow} {
+	for _, phase := range []ValidationPhase{ValidationPhaseSequential, ValidationPhasePolicy, ValidationPhaseParallel} {
 		for _, cancelOnReturn := range []bool{false, true} {
 			t.Run(fmt.Sprint(phase, cancelOnReturn), func(t *testing.T) {
 				t.Parallel()
@@ -69,13 +69,13 @@ func TestFailedReportsAreNotCompletedObservations(t *testing.T) {
 				}
 				var option PipelineOption[string]
 				switch phase {
-				case ValidationPhaseFast:
-					option = WithFastPath(ValidatorFunc[string](validate))
-				case ValidationPhaseSlow:
-					option = WithSlowPath(ValidatorFunc[string](validate))
+				case ValidationPhaseSequential:
+					option = WithSequential(ValidatorFunc[string](validate))
+				case ValidationPhaseParallel:
+					option = WithParallel(ValidatorFunc[string](validate))
 				case ValidationPhasePolicy:
 					option = WithPolicyValidators(
-						NewPolicyFuncWithScope(
+						MustPolicyFuncWithScope(
 							nil,
 							func(ctx context.Context, input string, _ ExecutionScope) (string, *Report, error) {
 								return validate(ctx, input)
@@ -83,7 +83,7 @@ func TestFailedReportsAreNotCompletedObservations(t *testing.T) {
 						),
 					)
 				}
-				pipeline := NewPipeline(option)
+				pipeline := MustNewPipeline(option)
 				// Act.
 				result, err := pipeline.Run(ctx, nil, "original")
 				// Assert: first fault has no successful evidence; late nil-error cancellation is still failure.
@@ -108,7 +108,7 @@ func TestNestedPipelineFaultCarriesOnlyCompletedHistory(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	cause := errors.New("late failure")
-	child := NewPipeline(WithFastPath(
+	child := MustNewPipeline(WithSequential(
 		ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, &Report{Action: ActionPass, PayloadKind: PayloadInternalControlSignal}, nil
 		}),
@@ -116,8 +116,8 @@ func TestNestedPipelineFaultCarriesOnlyCompletedHistory(t *testing.T) {
 			return "failed output", &Report{Action: ActionPass, PayloadKind: PayloadTechnicalPayload}, cause
 		}),
 	))
-	parent := NewPipeline(
-		WithFastPath(ValidatorFunc[string](func(ctx context.Context, input string) (string, *Report, error) {
+	parent := MustNewPipeline(
+		WithSequential(ValidatorFunc[string](func(ctx context.Context, input string) (string, *Report, error) {
 			result, err := child.Run(ctx, nil, input)
 			return result.Output, result.Decision(), err
 		})),
@@ -150,7 +150,7 @@ func TestSlowSiblingCancellationRetainsCompletedEvidence(t *testing.T) {
 		<-completed
 		return input, &Report{Action: ActionBlock}, nil
 	})
-	pipeline := NewPipeline(WithSlowPath(waiting, deny))
+	pipeline := MustNewPipeline(WithParallel(waiting, deny))
 	// Act.
 	result, err := pipeline.Run(t.Context(), nil, "original")
 	// Assert: sibling-only cancellation adds no fault, but its prior classification survives.

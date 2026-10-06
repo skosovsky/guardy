@@ -20,7 +20,7 @@ func main() {
 		panic(err)
 	}
 
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(validator))
 	var out bytes.Buffer
 	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{
 		Identity:   "json-response",

@@ -11,15 +11,15 @@ import (
 
 func main() {
 	roleKey := guardy.NewScopeKey[string]("principal.role")
-	pipeline := guardy.NewPipeline(
+	pipeline := guardy.MustNewPipeline(
 		guardy.WithPolicyValidators(
-			guardy.NewTypedAttributeEquals[string, string](
+			guardy.MustTypedAttributeEquals[string, string](
 				roleKey,
 				"admin",
 				guardy.WithPolicySafeUserMessage("You do not have permission to run this action."),
 			),
 		),
-		guardy.WithFastPath(noopPassValidator()),
+		guardy.WithSequential(noopPassValidator()),
 	)
 
 	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))

@@ -34,7 +34,7 @@ func TestGenericDeliveryRequiresExplicitContract(t *testing.T) {
 			t.Parallel()
 			// Arrange.
 			calls := 0
-			pipeline := g.NewPipeline(g.WithFastPath(g.ValidatorFunc[string](
+			pipeline := g.MustNewPipeline(g.WithSequential(g.ValidatorFunc[string](
 				func(_ context.Context, value string) (string, *g.Report, error) {
 					calls++
 					return value, nil, nil
@@ -64,7 +64,7 @@ func TestGenericDeliveryUsesCallerRepresentationClassifier(t *testing.T) {
 			}
 			return g.PayloadTechnicalPayload, nil
 		}))
-	pipeline := g.NewPipeline[customDeliveryString]()
+	pipeline := g.MustNewPipeline[customDeliveryString]()
 	// Act.
 	delivery, err := pipeline.GuardDelivery(context.Background(), nil, policy, "value")
 	projection, ok := delivery.Projection()
@@ -102,7 +102,7 @@ func TestUserTextRepresentationMatrix(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange.
-			pipeline := g.NewPipeline[any]()
+			pipeline := g.MustNewPipeline[any]()
 			// Act.
 			delivery, err := pipeline.GuardOutput(context.Background(), nil, tc.value)
 			_, projected := delivery.Projection()
@@ -127,7 +127,7 @@ func TestTypedNilFallbackIsChecked(t *testing.T) {
 	var fallback *string
 	calls := 0
 	input := "denied"
-	pipeline := g.NewPipeline(g.WithFastPath(g.ValidatorFunc[*string](
+	pipeline := g.MustNewPipeline(g.WithSequential(g.ValidatorFunc[*string](
 		func(_ context.Context, value *string) (*string, *g.Report, error) {
 			calls++
 			if value != nil {
@@ -172,7 +172,7 @@ func TestClassifierFailureNeverUsesFallback(t *testing.T) {
 					}
 				}))
 			// Act.
-			delivery, err := g.NewPipeline[string]().GuardDelivery(ctx, nil, policy, "value")
+			delivery, err := g.MustNewPipeline[string]().GuardDelivery(ctx, nil, policy, "value")
 			// Assert.
 			if calls != 1 || !errors.Is(err, g.ErrValidatorFailed) || !delivery.Decision.IsSystemFault() ||
 				delivery.Deliverable || delivery.Fallback || delivery.Value != "" {
@@ -209,7 +209,7 @@ func TestUserTextDereferenceLimit(t *testing.T) {
 				value = reflect.Zero(value.Type())
 			}
 			// Act.
-			delivery, err := g.NewPipeline[any]().GuardOutput(context.Background(), nil, value.Interface())
+			delivery, err := g.MustNewPipeline[any]().GuardOutput(context.Background(), nil, value.Interface())
 			// Assert.
 			if delivery.Decision.IsSystemFault() != tc.fault || delivery.Deliverable == tc.fault {
 				t.Fatalf("depth=%d fault=%v deliverable=%v error=%v", tc.depth, tc.fault, delivery.Deliverable, err)

@@ -24,7 +24,7 @@ func (v *piiArguments) ValidatePostBind(context.Context) error {
 func TestTypedAndDynamicPIICanonicalAuthoritativeArguments(t *testing.T) {
 	// Arrange.
 	raw := `{"name":"Ada","email":"alice@example.com"}`
-	guard := g.NewPipeline(g.WithFastPath(ext.MustPIIValidator()))
+	guard := g.MustNewPipeline(g.WithSequential(ext.MustPIIValidator()))
 	typed := g.MustCompileArgs[piiArguments](guard)
 	typedCalls, dynamicCalls := 0, 0
 	typedHandler := g.WrapArgs(
@@ -72,7 +72,7 @@ func TestTypedAndDynamicPIICanonicalAuthoritativeArguments(t *testing.T) {
 
 func TestDynamicJSONLargeIntegerCanonicalPrecision(t *testing.T) {
 	// Arrange / Act.
-	p := g.MustCompileJSONArgs(g.NewPipeline[string](), nil)
+	p := g.MustCompileJSONArgs(g.MustNewPipeline[string](), nil)
 	boundary, err := p.Validate(context.Background(), nil, ` { "id": 9007199254740993 } `)
 	// Assert: decode and re-encode cannot silently change the executable argument.
 	if err != nil || fmt.Sprint(boundary.Object["id"]) != "9007199254740993" ||

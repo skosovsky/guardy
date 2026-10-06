@@ -106,8 +106,8 @@ func TestMustScopeIncomplete(t *testing.T) {
 
 func TestMustScopeIncomplete_viaRun(t *testing.T) {
 	tenantKey := guardy.NewScopeKey[string]("tenant.id")
-	p := guardy.NewPipeline(
-		guardy.WithPolicyValidators(guardy.NewTypedAttributePresent[string, string](tenantKey)),
+	p := guardy.MustNewPipeline(
+		guardy.WithPolicyValidators(guardy.MustTypedAttributePresent[string, string](tenantKey)),
 	)
 	_, err := p.Run(context.Background(), guardy.MapScope{}, "x")
 	MustScopeIncomplete(t, err)
@@ -115,7 +115,7 @@ func TestMustScopeIncomplete_viaRun(t *testing.T) {
 
 func TestPipelineWithFakeValidator(t *testing.T) {
 	v := FakeValidator("block", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
-	p := guardy.NewPipeline(guardy.WithFastPath(v))
+	p := guardy.MustNewPipeline(guardy.WithSequential(v))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)

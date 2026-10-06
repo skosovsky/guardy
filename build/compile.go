@@ -74,7 +74,7 @@ func WithUserChannelFallback(msg string) CompileOption {
 	}
 }
 
-// WithOutputClassifier adds ext.NewTechnicalJSONClassifier to the fast-path (for output guards).
+// WithOutputClassifier adds ext.NewTechnicalJSONClassifier to the sequential phase (for output guards).
 func WithOutputClassifier() CompileOption {
 	return func(c *compileConfig) {
 		c.outputClassifier = true
@@ -82,7 +82,7 @@ func WithOutputClassifier() CompileOption {
 }
 
 // CompileStringGuard builds a string pipeline from spec.
-// Fast-path order: PII (optional) → wordlist → length → JSON schema (optional) → output classifier (optional).
+// Sequential validator order: PII (optional) → wordlist → length → JSON schema (optional) → output classifier (optional).
 func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline[string], error) {
 	cfg := compileConfig{
 		jsonSchema:          nil,
@@ -156,7 +156,7 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		}
 	}
 
-	options := []guardy.PipelineOption[string]{guardy.WithFastPath(fast...)}
+	options := []guardy.PipelineOption[string]{guardy.WithSequential(fast...)}
 	if len(policy) > 0 {
 		options = append(options, guardy.WithPolicyValidators(policy...))
 	}
@@ -166,7 +166,7 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 			options = append(options, guardy.WithUserChannelFallback[string](cfg.userChannelFallback))
 		}
 	}
-	return guardy.NewPipeline(options...), nil
+	return guardy.NewPipeline(options...)
 }
 
 func configError(field, code string, cause error) error {
@@ -196,7 +196,7 @@ func validateConfig(spec GuardSpec, cfg compileConfig) error {
 
 func newPresentPolicy(key string) guardy.PolicyValidator[string] {
 	scopeKey := guardy.NewScopeKey[any](key)
-	return guardy.NewPolicyFuncWithScope[string](
+	return guardy.MustPolicyFuncWithScope[string](
 		[]guardy.ScopeRequirement{scopeKey.Requirement()},
 		func(_ context.Context, input string, scope guardy.ExecutionScope) (string, *guardy.Report, error) {
 			if _, ok := scopeKey.Lookup(scope); !ok {
@@ -213,7 +213,7 @@ func newPresentPolicy(key string) guardy.PolicyValidator[string] {
 
 func newDeepEqualPolicy(key string, want any) guardy.PolicyValidator[string] {
 	scopeKey := guardy.NewScopeKey[any](key)
-	return guardy.NewPolicyFuncWithScope[string](
+	return guardy.MustPolicyFuncWithScope[string](
 		[]guardy.ScopeRequirement{scopeKey.Requirement()},
 		func(_ context.Context, input string, scope guardy.ExecutionScope) (string, *guardy.Report, error) {
 			got, ok := scopeKey.Lookup(scope)

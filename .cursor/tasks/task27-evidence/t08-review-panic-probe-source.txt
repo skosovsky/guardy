@@ -1,0 +1,10 @@
+package main
+import("context";"fmt";"errors";g "github.com/skosovsky/guardy")
+func main(){
+p:=g.MustNewPipeline(g.WithParallel[string](
+g.ValidatorFunc[string](func(ctx context.Context,s string)(string,*g.Report,error){return s,&g.Report{Action:g.ActionBlock},nil}),
+g.ValidatorFunc[string](func(ctx context.Context,s string)(string,*g.Report,error){<-ctx.Done();panic(context.Canceled)})))
+r,e:=p.Run(context.Background(),nil,"source")
+var pe *g.ValidatorPanicError
+fmt.Printf("fault=%v err=%v panic=%v decision=%+v\n",r.PolicyDecision().IsSystemFault(),e,errors.As(e,&pe),r.PolicyDecision())
+}

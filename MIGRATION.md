@@ -76,3 +76,42 @@ Equal-priority diagnostics select the last visited report; source key order no
 longer changes decisions. Any mandatory outcome returns the original document,
 with MutatedText cleared; success remains re-encoded JSON. Leaf checks must be
 independent and cooperative: later checks now run after earlier corrections/denies.
+
+### Pipeline phases and panic handling
+
+Replace `WithFastPath` with `WithSequential`, `WithSlowPath` with `WithParallel`,
+`ValidationPhaseFast` with `ValidationPhaseSequential`, and `ValidationPhaseSlow`
+with `ValidationPhaseParallel`. Execution order remains sequential → policy →
+parallel. Serialized phase labels change from `fast`/`slow` to
+`sequential`/`parallel`; update dashboard filters, telemetry queries and saved
+fixtures. OTel parallel spans are now named `guardy.validator.parallel` instead of
+`guardy.validator.slow`. Policy keeps its `policy` label. No compatibility aliases remain.
+
+Validate panics now become system faults in every phase, including middleware
+Validate wrappers. Public error text does not include the panic value. Inspect
+`ValidatorPanicError` through errors.As and call PanicValue only in trusted
+operator diagnostics. Error-valued panics retain their cause through errors.Is/As.
+Construction and observer/host callbacks have separate contracts in CONTRACTS.md.
+
+### Fallible core construction and host routing
+
+`NewPipeline` and `Pipeline.Use` now return a pipeline and configuration error.
+Use `MustNewPipeline`/`MustUse` only for static trusted configuration. Nil/typed-nil
+rules, nil options/middleware/wrapper layers and fallback without user-channel
+configuration are rejected before processing. `WithObserver(nil)` still disables
+observation. Middleware factories for policy adapters are checked by Use and
+reconstructed per invocation; deterministic construction and valid wrappers for
+all scopes remain caller obligations. Construction callback panics still escape.
+
+`NewPolicyFuncWithScope`, `NewTypedAttributeEquals`, `NewTypedAttributePresent`
+and `NewLLMJudge` are fallible. Their static counterparts are
+`MustPolicyFuncWithScope`, `MustTypedAttributeEquals`, `MustTypedAttributePresent`
+and `MustLLMJudge`. Reject nil callbacks/options/Judge, zero scope keys and malformed
+requirements during construction. Name-only scope declarations are presence checks;
+typed declarations must use ScopeKey.Requirement rather than fabricated type names.
+
+`RouteDecision` and `Decision.Route` return `(GuardRoute, error)` and reject negative
+retry counters for every decision. A zero retry budget remains exhausted. The host
+owns counter updates and scheduling. `GuardRouteFallbackDelivery` proposes a value;
+check the proposed value for its destination with GuardDelivery before sending it.
+System faults never use this fallback route.

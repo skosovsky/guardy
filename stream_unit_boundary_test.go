@@ -24,7 +24,7 @@ func TestStreamNewlineTailBudgetAcrossPartitions(t *testing.T) {
 			for _, pending := range []int{4, 32} {
 				for _, chunks := range boundaryPartitions(tc.input) {
 					// Arrange.
-					cfg := testStreamConfig(NewPipeline[string]())
+					cfg := testStreamConfig(MustNewPipeline[string]())
 					cfg.Profile = ReleaseValidatedUnits
 					cfg.MaxUnitBytes = 4
 					cfg.MaxPendingBytes = pending
@@ -67,7 +67,7 @@ func TestStreamOverBudgetPartitionsMayReleaseDifferentPrefixes(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			// Arrange.
-			cfg := testStreamConfig(NewPipeline[string]())
+			cfg := testStreamConfig(MustNewPipeline[string]())
 			cfg.Profile = ReleaseValidatedUnits
 			cfg.MaxInputBytes = 3
 			cfg.MaxUnitBytes = 2
@@ -119,7 +119,7 @@ func TestStreamExactTailWaitsForCompleteOnce(t *testing.T) {
 			),
 			StreamCapabilities{Unit: true},
 		)
-		cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+		cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 		cfg.Profile = ReleaseValidatedUnits
 		cfg.MaxUnitBytes = 4
 		cfg.MaxPendingBytes = 4

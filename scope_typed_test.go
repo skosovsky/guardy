@@ -10,8 +10,8 @@ func TestTypedScopeRequirement_Success(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	roleKey := NewScopeKey[string]("principal.role")
-	pipeline := NewPipeline(
-		WithPolicyValidators(NewTypedAttributeEquals[string, string](roleKey, "admin")),
+	pipeline := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributeEquals[string, string](roleKey, "admin")),
 	)
 
 	// Act.
@@ -37,8 +37,8 @@ func TestTypedScopeRequirement_MissingMetadata(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	tenantKey := NewScopeKey[int]("tenant.id")
-	pipeline := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, int](tenantKey)),
+	pipeline := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, int](tenantKey)),
 	)
 
 	// Act.
@@ -68,8 +68,8 @@ func TestTypedScopeRequirement_TypeMismatchPolicyDecision(t *testing.T) {
 	// Arrange.
 	tenantKey := NewScopeKey[int]("tenant.id")
 	wrongTypeKey := NewScopeKey[string]("tenant.id")
-	pipeline := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, int](tenantKey)),
+	pipeline := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, int](tenantKey)),
 	)
 
 	// Act.

@@ -39,11 +39,17 @@ func (v policyFuncValidator[T]) Validate(ctx context.Context, input T, scope Exe
 func NewPolicyFuncWithScope[T any](
 	requirements []ScopeRequirement,
 	fn func(ctx context.Context, input T, scope ExecutionScope) (T, *Report, error),
-) PolicyValidator[T] {
+) (PolicyValidator[T], error) {
+	if fn == nil {
+		return nil, configurationError("policy", "callback", "nil")
+	}
+	if err := validateScopeDeclarations(requirements); err != nil {
+		return nil, err
+	}
 	return policyFuncValidator[T]{
 		requirements: append([]ScopeRequirement(nil), requirements...),
 		fn:           fn,
-	}
+	}, nil
 }
 
 // PolicyConfig configures built-in policy validators.
@@ -98,12 +104,15 @@ func WithPolicySafeUserMessage(msg string) PolicyOption {
 	return func(c *PolicyConfig) { c.SafeUserMessage = msg }
 }
 
-func applyPolicyConfig(defaults PolicyConfig, opts ...PolicyOption) PolicyConfig {
+func applyPolicyConfig(defaults PolicyConfig, opts ...PolicyOption) (PolicyConfig, error) {
 	cfg := defaults
 	for _, opt := range opts {
+		if opt == nil {
+			return PolicyConfig{}, configurationError("policy", "options", "nil")
+		}
 		opt(&cfg)
 	}
-	return cfg
+	return cfg, nil
 }
 
 func policyViolationReport(cfg PolicyConfig, reason string) *Report {
@@ -165,13 +174,23 @@ func (v typedAttributeEqualsValidator[T, V]) Validate(
 // NewTypedAttributeEquals blocks when typed scope[key] != want using Go == semantics.
 // Dynamically incomparable operands (including interface fields containing slices
 // or maps) return [ErrAttributeIncomparable], rather than panic or a policy mismatch.
-func NewTypedAttributeEquals[T any, V comparable](key ScopeKey[V], want V, opts ...PolicyOption) PolicyValidator[T] {
-	cfg := applyPolicyConfig(PolicyConfig{
+func NewTypedAttributeEquals[T any, V comparable](
+	key ScopeKey[V],
+	want V,
+	opts ...PolicyOption,
+) (PolicyValidator[T], error) {
+	if key.Name() == "" {
+		return nil, configurationError("policy", "key", "empty")
+	}
+	cfg, err := applyPolicyConfig(PolicyConfig{
 		Name:     "typed_attribute_equals",
 		Code:     CodeAttributeMismatch,
 		Severity: SeverityHigh,
 	}, opts...)
-	return typedAttributeEqualsValidator[T, V]{key: key, want: want, cfg: cfg}
+	if err != nil {
+		return nil, err
+	}
+	return typedAttributeEqualsValidator[T, V]{key: key, want: want, cfg: cfg}, nil
 }
 
 type typedAttributePresentValidator[T any, V any] struct {
@@ -202,13 +221,19 @@ func (v typedAttributePresentValidator[T, V]) Validate(
 }
 
 // NewTypedAttributePresent blocks when a typed scope key is absent or has the wrong type.
-func NewTypedAttributePresent[T any, V any](key ScopeKey[V], opts ...PolicyOption) PolicyValidator[T] {
-	cfg := applyPolicyConfig(PolicyConfig{
+func NewTypedAttributePresent[T any, V any](key ScopeKey[V], opts ...PolicyOption) (PolicyValidator[T], error) {
+	if key.Name() == "" {
+		return nil, configurationError("policy", "key", "empty")
+	}
+	cfg, err := applyPolicyConfig(PolicyConfig{
 		Name:     "typed_attribute_present",
 		Code:     CodeAttributeMissing,
 		Severity: SeverityHigh,
 	}, opts...)
-	return typedAttributePresentValidator[T, V]{key: key, cfg: cfg}
+	if err != nil {
+		return nil, err
+	}
+	return typedAttributePresentValidator[T, V]{key: key, cfg: cfg}, nil
 }
 
 // policyValidatorAdapter wraps PolicyValidator as Validator[T] using scope from Run.
@@ -219,4 +244,34 @@ type policyValidatorAdapter[T any] struct {
 
 func (a policyValidatorAdapter[T]) Validate(ctx context.Context, input T) (T, *Report, error) {
 	return a.p.Validate(ctx, input, a.scope)
+}
+
+// MustPolicyFuncWithScope builds a policy or panics on its configuration error.
+func MustPolicyFuncWithScope[T any](
+	requirements []ScopeRequirement,
+	fn func(context.Context, T, ExecutionScope) (T, *Report, error),
+) PolicyValidator[T] {
+	v, err := NewPolicyFuncWithScope(requirements, fn)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// MustTypedAttributeEquals builds a policy or panics on its configuration error.
+func MustTypedAttributeEquals[T any, V comparable](key ScopeKey[V], want V, opts ...PolicyOption) PolicyValidator[T] {
+	v, err := NewTypedAttributeEquals[T](key, want, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// MustTypedAttributePresent builds a policy or panics on its configuration error.
+func MustTypedAttributePresent[T any, V any](key ScopeKey[V], opts ...PolicyOption) PolicyValidator[T] {
+	v, err := NewTypedAttributePresent[T](key, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }

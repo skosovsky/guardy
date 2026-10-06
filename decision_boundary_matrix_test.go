@@ -64,7 +64,8 @@ func assertBoundaryFailure(t *testing.T, decision Decision, err error, expected 
 	if expected == DispositionSystemFault {
 		wantRoute = GuardRouteSystemFault
 	}
-	if failure.Decision.Route(RemediationPolicy{MaxRetries: 1}).Outcome != wantRoute {
+	route, routeErr := failure.Decision.Route(RemediationPolicy{MaxRetries: 1})
+	if routeErr != nil || route.Outcome != wantRoute {
 		t.Fatal("boundary route disagrees")
 	}
 }
@@ -145,7 +146,7 @@ func TestFatalExplicitShadowAndErrorAllBoundariesAgree(t *testing.T) {
 			rule := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 				return value, fixture.report, fixture.err
 			})
-			p := NewPipeline(WithFastPath(redactor, rule))
+			p := MustNewPipeline(WithSequential(redactor, rule))
 			// Act / Assert.
 			checkAllEnforcementBoundaries(t, p, fixture.want)
 		})
@@ -171,7 +172,7 @@ func TestSlowFaultDenyRetryOrderCannotChangeSafety(t *testing.T) {
 				return value, nil, errors.New("real detector fault")
 			}),
 		)
-		p := NewPipeline(WithSlowPath(validators...))
+		p := MustNewPipeline(WithParallel(validators...))
 		// Act / Assert: all boundary invocations reschedule the parallel validators.
 		checkAllEnforcementBoundaries(t, p, DispositionSystemFault)
 	}

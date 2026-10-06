@@ -36,12 +36,19 @@ type GuardRoute struct {
 }
 
 // Route projects the decision into a host routing outcome.
-func (d Decision) Route(policy RemediationPolicy) GuardRoute {
+func (d Decision) Route(policy RemediationPolicy) (GuardRoute, error) {
 	return RouteDecision(d, policy)
 }
 
-// RouteDecision projects a canonical decision into a machine-readable route.
-func RouteDecision(decision Decision, policy RemediationPolicy) GuardRoute {
+// RouteDecision validates host counters and projects a decision without executing
+// retries or delivery. FallbackDelivery requires a separate GuardDelivery check.
+func RouteDecision(decision Decision, policy RemediationPolicy) (GuardRoute, error) {
+	if policy.RetryAttempt < 0 {
+		return GuardRoute{}, configurationError("route", "retry_attempt", "negative")
+	}
+	if policy.MaxRetries < 0 {
+		return GuardRoute{}, configurationError("route", "max_retries", "negative")
+	}
 	route := GuardRoute{
 		Outcome:        GuardRouteAllow,
 		Retryable:      false,
@@ -70,14 +77,14 @@ func RouteDecision(decision Decision, policy RemediationPolicy) GuardRoute {
 	default:
 		route.Outcome = GuardRouteAllow
 	}
-	return route
+	return route, nil
 }
 
 func routeRetryCorrection(route GuardRoute, policy RemediationPolicy) GuardRoute {
 	route.Outcome = GuardRouteRetryCorrection
 	route.Retryable = true
-	// A zero or negative budget permits no retries. Caller owns the counter.
-	if policy.MaxRetries <= 0 || policy.RetryAttempt >= policy.MaxRetries {
+	// A zero budget permits no retries. Caller owns the counter.
+	if policy.MaxRetries == 0 || policy.RetryAttempt >= policy.MaxRetries {
 		route.RetryExhausted = true
 		route.Retryable = false
 		if policy.AllowFallback {

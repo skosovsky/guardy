@@ -93,7 +93,7 @@ func TestValidatorFaultError_ExposesPolicyFailure(t *testing.T) {
 func TestWrapInput_ExposesPolicyFailure(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(blockingStringValidator("INPUT_DENIED")))
+	pipeline := MustNewPipeline(WithSequential(blockingStringValidator("INPUT_DENIED")))
 	wrapped := WrapInput(pipeline, nil, func(_ context.Context, value string) (string, error) {
 		return value, nil
 	})
@@ -108,7 +108,7 @@ func TestWrapInput_ExposesPolicyFailure(t *testing.T) {
 func TestWrapOutput_ExposesPolicyFailure(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(blockingStringValidator("OUTPUT_DENIED")))
+	pipeline := MustNewPipeline(WithSequential(blockingStringValidator("OUTPUT_DENIED")))
 	wrapped := WrapOutput(pipeline, nil, func(context.Context, string) (string, error) {
 		return "payload", nil
 	})
@@ -123,7 +123,7 @@ func TestWrapOutput_ExposesPolicyFailure(t *testing.T) {
 func TestStreamProcessor_ExposesPolicyFailure(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(blockingStringValidator("STREAM_DENIED")))
+	pipeline := MustNewPipeline(WithSequential(blockingStringValidator("STREAM_DENIED")))
 	var out bytes.Buffer
 	writer, err := CompileStream(&out, testStreamConfig(pipeline))
 	if err != nil {

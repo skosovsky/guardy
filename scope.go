@@ -304,3 +304,17 @@ func (e *ScopeTypeError) Error() string {
 	return ErrScopeIncompatible.Error() + ": " + e.Requirement.Key
 }
 func (e *ScopeTypeError) Unwrap() error { return ErrScopeIncompatible }
+
+// validateScopeDeclarations rejects malformed declarations instead of silently
+// dropping them during merging. Name-only declarations remain presence checks.
+func validateScopeDeclarations(requirements []ScopeRequirement) error {
+	for _, requirement := range requirements {
+		if requirement.Key == "" {
+			return configurationError("policy", "requirements.key", "empty")
+		}
+		if requirement.Type != "" && requirement.expected == nil {
+			return configurationError("policy", "requirements.type", "requires_scope_key")
+		}
+	}
+	return nil
+}

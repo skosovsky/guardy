@@ -30,7 +30,7 @@ func main() {
 		panic(err)
 	}
 
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(validator))
 	// Schema allows age 12; post-bind enforces business minimum 18.
 	const sampleJSON = `{"name":"Ivan","age":12}`
 

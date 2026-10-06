@@ -24,7 +24,7 @@ func (a *argsAgeCheck) ValidatePostBind(context.Context) error {
 func TestArgsPipeline_ValidateSuccess(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	rawPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	rawPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:    ActionPass,
@@ -63,7 +63,7 @@ func TestArgsPipeline_ValidateSuccess(t *testing.T) {
 func TestArgsPipeline_UsesSanitizedRaw(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	rawPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	rawPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, _ string) (string, *Report, error) {
 			return `{"name":"Redacted"}`, FinishReport(&Report{
 				Action:      ActionRedact,
@@ -95,7 +95,7 @@ func TestArgsPipeline_UsesSanitizedRaw(t *testing.T) {
 func TestArgsPipeline_InvalidJSONReturnsRetryableDecision(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	argsPipeline := MustCompileArgs[argsCommand](NewPipeline[string]())
+	argsPipeline := MustCompileArgs[argsCommand](MustNewPipeline[string]())
 
 	// Act.
 	payload, err := argsPipeline.Validate(context.Background(), nil, `not-json`)
@@ -122,7 +122,7 @@ func TestArgsPipeline_InvalidJSONReturnsRetryableDecision(t *testing.T) {
 func TestArgsPipeline_InvalidJSONKeepsAggregatedPayloadKind(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	rawPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	rawPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -155,7 +155,7 @@ func TestArgsPipeline_InvalidJSONKeepsAggregatedPayloadKind(t *testing.T) {
 func TestArgsPipeline_PostBindViolationReturnsRetryableDecision(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	argsPipeline := MustCompileArgs[argsAgeCheck](NewPipeline[string]())
+	argsPipeline := MustCompileArgs[argsAgeCheck](MustNewPipeline[string]())
 
 	// Act.
 	payload, err := argsPipeline.Validate(context.Background(), nil, `{"age":10}`)
@@ -175,7 +175,7 @@ func TestArgsPipeline_PostBindViolationReturnsRetryableDecision(t *testing.T) {
 func TestArgsPipeline_PostBindViolationKeepsAggregatedPayloadKind(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	rawPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	rawPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,

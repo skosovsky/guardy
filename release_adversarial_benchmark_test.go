@@ -43,7 +43,7 @@ func BenchmarkStreamAdversarial(b *testing.B) {
 					}
 					b.Run(fmt.Sprintf("%s/%s/size-%d/split-%d", layer, tc.name, size, split), func(b *testing.B) {
 						// Arrange.
-						cfg := testStreamConfig(NewPipeline[string]())
+						cfg := testStreamConfig(MustNewPipeline[string]())
 						cfg.Delivery = NewUserTextPolicy(
 							"internal",
 							WithDeliveryAllowedKinds(PayloadTechnicalPayload, PayloadSafeUserText),
@@ -120,7 +120,7 @@ func BenchmarkStreamAdversarial(b *testing.B) {
 func BenchmarkStreamComponents(b *testing.B) {
 	ctx := context.Background()
 	value := strings.Repeat("x", 1024)
-	pipeline := NewPipeline[string]()
+	pipeline := MustNewPipeline[string]()
 	b.Run("scope", func(b *testing.B) {
 		b.ReportAllocs()
 		for range b.N {

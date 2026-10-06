@@ -68,7 +68,7 @@ func assertStreamOutputBudget(t *testing.T, profile ReleaseProfile, fallback boo
 		}),
 		StreamCapabilities{Unit: true, Partial: true, Final: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = profile
 	cfg.MaxUnitBytes, cfg.MaxPendingBytes = 4, 4
 	cfg.MaxOutputBytes = 100
@@ -116,7 +116,7 @@ func TestStreamFaultCannotActivateFallback(t *testing.T) {
 				}),
 				StreamCapabilities{Unit: true},
 			)
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 			cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
 			cfg.Delivery = NewUserTextPolicy(
@@ -158,7 +158,7 @@ func TestStreamTransformedNewlineMustRemainOneUnit(t *testing.T) {
 	rule := WithStreamingCapabilities(ValidatorFunc[string](func(context.Context, string) (string, *Report, error) {
 		return "a\nb\n", &Report{Action: ActionRedact}, nil
 	}), StreamCapabilities{Unit: true})
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = ReleaseValidatedUnits
 	var sink bytes.Buffer
 	stream, err := CompileStream(&sink, cfg)
@@ -188,7 +188,7 @@ func assertStreamJSONPath(t *testing.T, profile ReleaseProfile, path string, tc 
 	if path == "fallback_transformed" {
 		transform = tc.value
 	}
-	cfg := testStreamConfig(NewPipeline(WithFastPath(streamOutputRule(transform))))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(streamOutputRule(transform))))
 	cfg.Profile, cfg.JSONValues = profile, true
 	cfg.MaxUnitBytes, cfg.MaxPendingBytes = 64, 65
 	cfg.Delivery = NewUserTextPolicy(
@@ -239,7 +239,7 @@ func assertStreamJSONUnitBudget(t *testing.T, fallback bool, output string) {
 		}),
 		StreamCapabilities{Unit: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 	cfg.MaxUnitBytes, cfg.MaxPendingBytes = 7, 8
 	cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
@@ -285,7 +285,7 @@ func TestStreamFallbackInputBudgetBeforeValidation(t *testing.T) {
 				}),
 				StreamCapabilities{Unit: true},
 			)
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, jsonUnits
 			cfg.MaxUnitBytes, cfg.MaxPendingBytes = 4, 5
 			cfg.Delivery = NewUserTextPolicy(

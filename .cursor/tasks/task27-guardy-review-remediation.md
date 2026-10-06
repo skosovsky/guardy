@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T07 приняты; T08 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T08 приняты; T09 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -307,14 +307,14 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 2. Mandatory fault/cancel сохраняют исходный документ и prior kind через T06 evidence; shadow не скрывает fault; AAA baseline repro.
 3. Optional adapter tests, contracts и examples PASS; no domain dependencies.
 
-**T08 — core API/config/faults** (следующий; commit `refactor: pipeline`; D04–D06, D10–D12).
+**T08 — core API/config/faults** (принят: полнота 100%, correctness PASS; commit `refactor: pipeline`; D04–D06, D10–D12).
 1. Fallible construction/Must и nil config validation; consumers migrated; invalid report combinations fail-closed, сохранение Report обосновано контрактом.
 2. Sequential/policy/parallel API/labels едины, Fast/Slow legacy удалён; migration включает serialized/telemetry labels.
 3. Validate panic all-phase → safe SystemFault, cause explicit, no pass; runtime/construction callback boundaries documented и tested.
 4. Route negative inputs validated/stateless, fallback suggestion требует checked delivery; low-level two fault channels/high-level exhaustive behavior regression matrix.
 5. Core/integration/build/OTel consumers compile и tests PASS.
 
-**T09 — ownership и сохранённые boundaries** (ожидает T08; commit `docs: ownership`; D08–D09, D23–D24).
+**T09 — ownership и сохранённые boundaries** (следующий; commit `docs: ownership`; D08–D09, D23–D24).
 1. Borrowed immutable build operands/StaticScope, sharing conditions/Use/no rollback/ScopeFactory transient facts явно в Godoc и CONTRACTS; reload recipe и regression не обещают snapshot.
 2. MapSlice alias precondition виден; authorization/rollback/host lifecycle явно вне core.
 3. JSON-schema pinned optional exact-number/overflow contract и upgrade probes сохранены; BoundaryProfile declared-only и fixture enforcement различены.
@@ -365,3 +365,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T07 acceptance
 
 Независимые приёмки окончательного diff: полнота 100% (3/3), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t07-*`. Все 19 modules race и make lint завершились с exit 0; независимые optional race ×5/×10, external probe ×10 и fuzz 89 558 executions PASS. Архив baseline HEAD `5dda01b` воспроизвёл R06/R07. Предыдущий принятый commit T06: `5dda01b fix: fault evidence`. Commit T07: `fix: json decisions`.
+
+### T08 acceptance
+
+После исправления cancellation-valued panic suppression и устаревших описаний фаз обе независимые приёмки повторены на окончательном diff: полнота 100% (5/5), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t08-*`; первые reports сохранены отдельно. Final all19 race и make lint завершились с exit 0. Независимые focused race ×5/×10, cancellation-panic ×10, legacy panicnil=1 race ×3 и внешний probe PASS. Изолированный архив HEAD `f392070` воспроизвёл четыре baseline runtime failures без compile errors. Предыдущий принятый commit T07: `f392070 fix: json decisions`. Commit T08: `refactor: pipeline`. T09–T12 остаются обязательными; общий goal активен.

@@ -28,7 +28,7 @@ func checkPostBindForm[T any](t *testing.T, raw string, permitted bool, expected
 	// Arrange.
 	var hooks atomic.Int64
 	ctx := context.WithValue(context.Background(), hookCounterContextKey{}, &hooks)
-	p := MustCompileArgs[T](NewPipeline[string]())
+	p := MustCompileArgs[T](MustNewPipeline[string]())
 	calls := 0
 	handler := WrapArgs(p, nil, func(context.Context, T) (string, error) { calls++; return "ok", nil })
 	// Act.

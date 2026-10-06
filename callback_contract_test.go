@@ -85,7 +85,7 @@ func testTypedCallbackCase[T any](t *testing.T, stage, kind, outcome string) {
 		probe.err = fmt.Errorf("private callback: %w", cause)
 	}
 	ctx = context.WithValue(ctx, callbackProbeKey{}, probe)
-	p := MustCompileArgs[T](NewPipeline[string](), WithArgsCodec(
+	p := MustCompileArgs[T](MustNewPipeline[string](), WithArgsCodec(
 		func(raw string, value *T) error {
 			probe.decode++
 			if stage == "decode" {
@@ -102,7 +102,7 @@ func testTypedCallbackCase[T any](t *testing.T, stage, kind, outcome string) {
 			}
 			bytes, err := json.Marshal(value)
 			return string(bytes), err
-		}), WithArgsFinalGuard[T](NewPipeline(WithFastPath(
+		}), WithArgsFinalGuard[T](MustNewPipeline(WithSequential(
 		ValidatorFunc[string](func(_ context.Context, raw string) (string, *Report, error) {
 			probe.final++
 			return raw, nil, nil
@@ -148,7 +148,7 @@ func TestCallbackWrappedCancellationWithLiveContext(t *testing.T) {
 				// Arrange.
 				probe := &callbackProbe{stage: stage, stop: func() {}, err: fmt.Errorf("callback: %w", cause)}
 				ctx := context.WithValue(t.Context(), callbackProbeKey{}, probe)
-				p := MustCompileArgs[callbackArgs](NewPipeline[string](), WithArgsCodec(
+				p := MustCompileArgs[callbackArgs](MustNewPipeline[string](), WithArgsCodec(
 					func(_ string, v *callbackArgs) error {
 						v.Amount = 1
 						if stage == "decode" {
@@ -182,12 +182,12 @@ func TestDynamicSchemaCancellation(t *testing.T) {
 					ctx, stop, cause := cancellationContext(t, kind)
 					final, handler := 0, 0
 					p := MustCompileJSONArgs(
-						NewPipeline[string](),
+						MustNewPipeline[string](),
 						JSONArgsValidatorFunc(func(context.Context, map[string]any) *Report {
 							stop()
 							return FinishReport(&Report{Action: outcome}, ControlSpec{Action: outcome})
 						}),
-						WithJSONArgsFinalGuard(NewPipeline(WithFastPath(ValidatorFunc[string](
+						WithJSONArgsFinalGuard(MustNewPipeline(WithSequential(ValidatorFunc[string](
 							func(_ context.Context, s string) (string, *Report, error) { final++; return s, nil, nil },
 						)))),
 						WithJSONArgsMetadata(JSONArgsMetadata{ID: "schema", Shape: nil}),
@@ -217,7 +217,7 @@ func TestDynamicSchemaPreCanceled(t *testing.T) {
 				ctx, stop, cause := cancellationContext(t, kind)
 				calls := 0
 				p := MustCompileJSONArgs(
-					NewPipeline[string](),
+					MustNewPipeline[string](),
 					JSONArgsValidatorFunc(func(context.Context, map[string]any) *Report { calls++; return nil }),
 					WithJSONArgsMetadata(JSONArgsMetadata{ID: "schema", Shape: nil}),
 				)
@@ -246,8 +246,8 @@ func testTypedCallbackBenign[T any](t *testing.T) {
 		}
 		return raw, nil, nil
 	})
-	final := NewPipeline(WithFastPath(finalRule))
-	p := MustCompileArgs[T](NewPipeline[string](), WithArgsCodec(
+	final := MustNewPipeline(WithSequential(finalRule))
+	p := MustCompileArgs[T](MustNewPipeline[string](), WithArgsCodec(
 		func(raw string, v *T) error { probe.decode++; return json.Unmarshal([]byte(raw), v) },
 		func(v T) (string, error) { probe.encode++; bytes, err := json.Marshal(v); return string(bytes), err },
 	), WithArgsFinalGuard[T](final))
@@ -296,7 +296,7 @@ func testDetectorCallbackCase(t *testing.T, detector, kind string, before, pipel
 			return 0, nil
 		}}, 0.5, true)
 	} else {
-		validator = NewLLMJudge(fakeJudge{eval: func(context.Context, string) (Report, error) {
+		validator = MustLLMJudge(fakeJudge{eval: func(context.Context, string) (Report, error) {
 			calls++
 			stop()
 			return Report{Action: ActionRetry}, nil
@@ -308,7 +308,7 @@ func testDetectorCallbackCase(t *testing.T, detector, kind string, before, pipel
 	// Act.
 	var err error
 	if pipeline {
-		result, runErr := NewPipeline(WithSlowPath(validator)).Run(ctx, nil, "input")
+		result, runErr := MustNewPipeline(WithParallel(validator)).Run(ctx, nil, "input")
 		err = runErr
 		assertCallbackFault(t, result.PolicyDecision(), err, cause)
 	} else {
@@ -345,7 +345,7 @@ func TestTypedEqualityDynamicComparability(t *testing.T) {
 		t.Run(fixture.name, func(t *testing.T) {
 			// Arrange.
 			key := NewScopeKey[any]("fact")
-			p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, fixture.want)))
+			p := MustNewPipeline(WithPolicyValidators(MustTypedAttributeEquals[string](key, fixture.want)))
 			// Act.
 			result, err := p.Run(t.Context(), NewScope(ScopeValue(key, fixture.got)), "input")
 			// Assert.
@@ -376,7 +376,7 @@ func TestDetectorFaultSurvivesSiblingCancellation(t *testing.T) {
 					return 0, providerErr
 				}}, 0.5, false)
 			} else {
-				check = NewLLMJudge(fakeJudge{eval: func(ctx context.Context, _ string) (Report, error) {
+				check = MustLLMJudge(fakeJudge{eval: func(ctx context.Context, _ string) (Report, error) {
 					close(started)
 					<-ctx.Done()
 					return Report{}, providerErr
@@ -386,7 +386,7 @@ func TestDetectorFaultSurvivesSiblingCancellation(t *testing.T) {
 				<-started
 				return raw, &Report{Action: ActionBlock}, nil
 			})
-			p := NewPipeline(WithSlowPath(check, deny))
+			p := MustNewPipeline(WithParallel(check, deny))
 			// Act.
 			result, err := p.Run(t.Context(), nil, "input")
 			// Assert.

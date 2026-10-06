@@ -26,7 +26,7 @@ func main() {
 		os.Exit(1)
 	}
 	lengthV := ext.MustLengthValidator(1, maxPromptLen, ext.WithCode("TOO_LONG"))
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV, lengthV))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(regexV, lengthV))
 
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {

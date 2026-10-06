@@ -15,7 +15,7 @@ func TestMapSliceCompletedClassificationSurvivesFault(t *testing.T) {
 	t.Parallel()
 	for _, kind := range []g.PayloadKind{g.PayloadTechnicalPayload, g.PayloadInternalControlSignal} {
 		for _, wrappedCancel := range []bool{false, true} {
-			for _, phase := range []string{"fast", "policy", "slow"} {
+			for _, phase := range []string{"sequential", "policy", "parallel"} {
 				t.Run(fmt.Sprintf("%v/%t/%s", kind, wrappedCancel, phase), func(t *testing.T) {
 					t.Parallel()
 					assertCompletedMapFault(t, kind, wrappedCancel, phase)
@@ -47,13 +47,13 @@ func assertCompletedMapFault(t *testing.T, kind g.PayloadKind, wrappedCancel boo
 	input := []string{"first", "second"}
 	var option g.PipelineOption[[]string]
 	switch phase {
-	case "fast":
-		option = g.WithFastPath(adapter)
-	case "slow":
-		option = g.WithSlowPath(adapter)
+	case "sequential":
+		option = g.WithSequential(adapter)
+	case "parallel":
+		option = g.WithParallel(adapter)
 	case "policy":
 		option = g.WithPolicyValidators(
-			g.NewPolicyFuncWithScope(
+			g.MustPolicyFuncWithScope(
 				nil,
 				func(ctx context.Context, input []string, _ g.ExecutionScope) ([]string, *g.Report, error) {
 					return adapter.Validate(ctx, input)
@@ -61,7 +61,7 @@ func assertCompletedMapFault(t *testing.T, kind g.PayloadKind, wrappedCancel boo
 			),
 		)
 	}
-	pipeline := g.NewPipeline(option)
+	pipeline := g.MustNewPipeline(option)
 	policy := g.NewDeliveryPolicy(
 		"internal",
 		g.WithDeliveryAllowedKinds(kind),

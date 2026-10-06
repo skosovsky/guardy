@@ -1,0 +1,42 @@
+MODULE build
+ok  	github.com/skosovsky/guardy/build	1.455s
+MODULE ext/guardyotel
+ok  	github.com/skosovsky/guardy/ext/guardyotel	1.604s
+MODULE ext/jsonschema
+ok  	github.com/skosovsky/guardy/ext/jsonschema	(cached)
+MODULE examples/json_streaming
+?   	github.com/skosovsky/guardy/examples/json_streaming	[no test files]
+MODULE ext/jsonredact
+ok  	github.com/skosovsky/guardy/ext/jsonredact	1.464s
+MODULE examples/declarative_guard
+ok  	github.com/skosovsky/guardy/examples/declarative_guard	1.463s
+MODULE examples/custom_validator
+?   	github.com/skosovsky/guardy/examples/custom_validator	[no test files]
+MODULE integration
+ok  	github.com/skosovsky/guardy/integration	1.544s
+MODULE .
+ok  	github.com/skosovsky/guardy	5.881s
+ok  	github.com/skosovsky/guardy/ext	1.260s
+ok  	github.com/skosovsky/guardy/guardytest	1.224s
+ok  	github.com/skosovsky/guardy/internal/jsondoc	(cached)
+MODULE examples/otel_integration
+ok  	github.com/skosovsky/guardy/examples/otel_integration	1.604s
+MODULE examples/reversible_redaction
+ok  	github.com/skosovsky/guardy/examples/reversible_redaction	2.014s
+MODULE examples/agent_tool_args
+?   	github.com/skosovsky/guardy/examples/agent_tool_args	[no test files]
+MODULE examples/streaming_filter
+?   	github.com/skosovsky/guardy/examples/streaming_filter	[no test files]
+MODULE examples/generic_decorator
+ok  	github.com/skosovsky/guardy/examples/generic_decorator	1.483s
+MODULE examples/input_guard
+?   	github.com/skosovsky/guardy/examples/input_guard	[no test files]
+MODULE examples/multi_turn
+?   	github.com/skosovsky/guardy/examples/multi_turn	[no test files]
+MODULE examples/struct_validation
+?   	github.com/skosovsky/guardy/examples/struct_validation	[no test files]
+MODULE examples/output_guard
+?   	github.com/skosovsky/guardy/examples/output_guard	[no test files]
+MODULE examples/policy_attributes
+?   	github.com/skosovsky/guardy/examples/policy_attributes	[no test files]
+ALL 19 MODULES PASS

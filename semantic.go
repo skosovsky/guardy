@@ -21,7 +21,7 @@ type Matcher interface {
 	Match(ctx context.Context, text string) (score float64, err error)
 }
 
-// SemanticValidator is a Slow-Path validator that blocks when score exceeds threshold.
+// SemanticValidator is a Parallel validator that blocks when score exceeds threshold.
 type SemanticValidator struct {
 	matcher   Matcher
 	threshold float64

@@ -67,12 +67,12 @@ func TestScopePrecheckMatchesTypedAssertion(t *testing.T) {
 			// Arrange.
 			scope := g.MapScope{"fact": tc.value}
 			calls := 0
-			policy := g.NewPolicyFuncWithScope([]g.ScopeRequirement{tc.requirement},
+			policy := g.MustPolicyFuncWithScope([]g.ScopeRequirement{tc.requirement},
 				func(_ context.Context, value string, _ g.ExecutionScope) (string, *g.Report, error) {
 					calls++
 					return value, nil, nil
 				})
-			pipeline := g.NewPipeline(g.WithPolicyValidators(policy))
+			pipeline := g.MustNewPipeline(g.WithPolicyValidators(policy))
 			// Act.
 			lookupOK := tc.lookup(scope)
 			result, err := pipeline.Run(context.Background(), scope, "payload")

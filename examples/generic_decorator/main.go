@@ -28,11 +28,11 @@ func runExample(writer io.Writer) {
 	roleKey := guardy.NewScopeKey[string]("principal.role")
 	scope := guardy.NewScope(guardy.ScopeValue(roleKey, "user"))
 
-	inPipe := guardy.NewPipeline(
+	inPipe := guardy.MustNewPipeline(
 		guardy.WithPolicyValidators(
-			guardy.NewTypedAttributeEquals[string, string](roleKey, "admin"),
+			guardy.MustTypedAttributeEquals[string, string](roleKey, "admin"),
 		),
-		guardy.WithFastPath(ext.MustWordlistValidator(
+		guardy.WithSequential(ext.MustWordlistValidator(
 			[]string{"forbidden"},
 			ext.Blocklist,
 			ext.WithCode("TOXIC_INPUT"),
@@ -40,10 +40,10 @@ func runExample(writer io.Writer) {
 	)
 
 	classifier := ext.MustTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
-	outPipe := guardy.NewPipeline(
+	outPipe := guardy.MustNewPipeline(
 		guardy.WithUserChannel[string](),
 		guardy.WithUserChannelFallback[string]("Output blocked for user safety."),
-		guardy.WithFastPath(classifier),
+		guardy.WithSequential(classifier),
 	)
 
 	scopeFactory := guardy.ScopeFactory(func(context.Context) (guardy.ExecutionScope, error) { return scope, nil })

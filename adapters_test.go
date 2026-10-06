@@ -9,7 +9,7 @@ import (
 func TestWrapArgs_ValidatesRawBeforeHandler(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	argsPipeline := MustCompileArgs[argsCommand](NewPipeline[string]())
+	argsPipeline := MustCompileArgs[argsCommand](MustNewPipeline[string]())
 	wrapped := WrapArgs(argsPipeline, nil, func(_ context.Context, req argsCommand) (string, error) {
 		return "hello " + req.Name, nil
 	})
@@ -32,7 +32,7 @@ func TestWrapArgs_ValidatesRawBeforeHandler(t *testing.T) {
 func TestWrapGuardedArgs_PassesBoundaryToHandler(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	argsPipeline := MustCompileArgs[argsCommand](NewPipeline[string]())
+	argsPipeline := MustCompileArgs[argsCommand](MustNewPipeline[string]())
 	wrapped := WrapGuardedArgs(
 		argsPipeline,
 		nil,
@@ -60,7 +60,7 @@ func TestWrapGuardedJSONArgs_PassesDynamicBoundaryToHandler(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	jsonPipeline := MustCompileJSONArgs(
-		NewPipeline[string](),
+		MustNewPipeline[string](),
 		nil,
 		WithJSONArgsMetadata(JSONArgsMetadata{ID: "dynamic.schema"}),
 	)
@@ -86,7 +86,7 @@ func TestWrapGuardedJSONArgs_PassesDynamicBoundaryToHandler(t *testing.T) {
 func TestWrapGuardedOutput_ReturnsGuardedContract(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	outputPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	outputPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -118,7 +118,7 @@ func TestWrapGuardedOutput_NextErrorDoesNotExposeResult(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	expectedErr := errors.New("handler failed")
-	outputPipeline := NewPipeline[string]()
+	outputPipeline := MustNewPipeline[string]()
 	wrapped := WrapGuardedOutput(outputPipeline, nil, func(_ context.Context, _ string) (string, error) {
 		return "raw secret", expectedErr
 	})
@@ -143,9 +143,9 @@ func TestGuardedOutputUsesPostHandlerFacts(t *testing.T) {
 	allowed := true
 	factoryCalls := 0
 	key := NewScopeKey[bool]("delivery.allowed")
-	pipeline := NewPipeline(
+	pipeline := MustNewPipeline(
 		WithPolicyValidators(
-			NewPolicyFuncWithScope(
+			MustPolicyFuncWithScope(
 				[]ScopeRequirement{key.Requirement()},
 				func(_ context.Context, value string, scope ExecutionScope) (string, *Report, error) {
 					current, _ := key.Lookup(scope)
@@ -179,7 +179,7 @@ func TestScopeFactoryCancellationSuppressesHandler(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	calls := 0
-	pipeline := MustCompileArgs[string](NewPipeline[string]())
+	pipeline := MustCompileArgs[string](MustNewPipeline[string]())
 	wrapped := WrapArgs(pipeline, func(context.Context) (ExecutionScope, error) {
 		cancel()
 		return NewScope(), nil

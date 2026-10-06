@@ -25,7 +25,7 @@ func TestLLMJudge_PassthroughPreservesFields(t *testing.T) {
 			}, nil
 		},
 	}
-	v := NewLLMJudge(j, true)
+	v := MustLLMJudge(j, true)
 
 	_, rep, err := v.Validate(context.Background(), "x")
 	if err != nil {
@@ -48,7 +48,7 @@ func TestLLMJudge_FillsValidatorWhenEmpty(t *testing.T) {
 			return Report{Action: ActionPass}, nil
 		},
 	}
-	v := NewLLMJudge(j, false)
+	v := MustLLMJudge(j, false)
 
 	_, rep, err := v.Validate(context.Background(), "x")
 	if err != nil {
@@ -60,9 +60,8 @@ func TestLLMJudge_FillsValidatorWhenEmpty(t *testing.T) {
 }
 
 func TestLLMJudge_NilJudge_ReturnsError(t *testing.T) {
-	v := NewLLMJudge(nil, false)
-	_, _, err := v.Validate(context.Background(), "x")
-	if err == nil {
-		t.Fatal("expected error")
+	v, err := NewLLMJudge(nil, false)
+	if err == nil || v != nil {
+		t.Fatal("expected construction error")
 	}
 }

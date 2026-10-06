@@ -18,7 +18,7 @@ func TestWrapInput_BlockUsesSafeUserMessage(t *testing.T) {
 			}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})
@@ -40,7 +40,7 @@ func TestWrapInput_BlockSkipsNext(t *testing.T) {
 			return text, &Report{Action: ActionBlock, Validator: "block", Reason: "nope"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		nextCalls.Add(1)
 		return s, nil
@@ -64,7 +64,7 @@ func TestWrapInput_RetryReturnsRetryError(t *testing.T) {
 			}, ControlSpec{Action: ActionRetry}), nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, _ string) (string, error) {
 		t.Error("next must not run on retry")
 		return "", errors.New("unexpected next")
@@ -97,7 +97,7 @@ func TestWrapInput_PassAndRedact(t *testing.T) {
 				return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 			},
 		}
-		p := NewPipeline(WithFastPath(v))
+		p := MustNewPipeline(WithSequential(v))
 		wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 			return "out:" + s, nil
 		})
@@ -120,7 +120,7 @@ func TestWrapInput_PassAndRedact(t *testing.T) {
 				}, nil
 			},
 		}
-		p := NewPipeline(WithFastPath(v))
+		p := MustNewPipeline(WithSequential(v))
 		wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 			if s != "clean" {
 				t.Fatalf("next got %q, want clean", s)
@@ -152,8 +152,8 @@ func TestWrapOutput_BlockAfterNext(t *testing.T) {
 			return text, &Report{Action: ActionBlock, Validator: "out", Reason: "bad output"}, nil
 		},
 	}
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, s string) (string, error) {
 		nextCalls.Add(1)
 		return "llm:" + s, nil
@@ -181,8 +181,8 @@ func TestWrapOutput_Pass(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "out"}, nil
 		},
 	}
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		return "resp", nil
 	}))
@@ -204,7 +204,7 @@ func TestWrapInput_PipelineErrorSkipsNext(t *testing.T) {
 			return "", nil, errors.New("validate boom")
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "", nil
@@ -235,8 +235,8 @@ func TestWrapOutput_RetryAfterNext(t *testing.T) {
 			}, ControlSpec{Action: ActionRetry}), nil
 		},
 	}
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "model out", nil
@@ -270,8 +270,8 @@ func TestWrapOutput_RedactAfterNext(t *testing.T) {
 			}, nil
 		},
 	}
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		return "dirty-out", nil
 	}))
@@ -299,8 +299,8 @@ func TestWrapOutput_PipelineErrorAfterNext(t *testing.T) {
 			return "", nil, errors.New("output validate boom")
 		},
 	}
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		nextCalls.Add(1)
 		return "ok", nil
@@ -324,7 +324,7 @@ func TestWrapInput_BlockErrorCarriesDisposition(t *testing.T) {
 			}, ControlSpec{Action: ActionBlock}), nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})
@@ -351,8 +351,8 @@ func TestWrapOutput_UserChannelBlocksTechnicalPayload(t *testing.T) {
 			Action: ActionPass, Validator: "classifier", PayloadKind: PayloadTechnicalPayload,
 		}, ControlSpec{Action: ActionPass}), nil
 	})
-	inP := NewPipeline(WithFastPath(inV))
-	outP := NewPipeline(WithUserChannel[string](), WithFastPath(outV))
+	inP := MustNewPipeline(WithSequential(inV))
+	outP := MustNewPipeline(WithUserChannel[string](), WithSequential(outV))
 	wrapped := WrapOutput(outP, nil, WrapInput(inP, nil, func(_ context.Context, _ string) (string, error) {
 		return `{"tool":"search"}`, nil
 	}))
@@ -370,7 +370,7 @@ func TestWrapInput_ValidatorFaultCarriesSystemFault(t *testing.T) {
 			return "", nil, errors.New("validator boom")
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})
@@ -396,7 +396,7 @@ func TestWrapInput_TerminalRetryReturnsBlockError(t *testing.T) {
 			}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
 	})
@@ -413,7 +413,7 @@ func TestWrapInput_TerminalRetryReturnsBlockError(t *testing.T) {
 func TestWrapInput_ScopeIncomplete(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
+	p := MustNewPipeline(WithPolicyValidators(MustTypedAttributePresent[string, string](resourceKey)))
 	wrapped := WrapInput(
 		p,
 		func(context.Context) (ExecutionScope, error) { return MapScope{}, nil },
@@ -430,7 +430,7 @@ func TestWrapInput_ScopeIncomplete(t *testing.T) {
 func TestWrapInputRefreshesFactsForEveryCall(t *testing.T) {
 	// Arrange.
 	key := NewScopeKey[bool]("allowed")
-	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	p := MustNewPipeline(WithPolicyValidators(MustTypedAttributeEquals[string](key, true)))
 	allowed, factories, calls := true, 0, 0
 	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
 		factories++
@@ -454,7 +454,7 @@ func TestWrapInputRefreshesFactsForEveryCall(t *testing.T) {
 func TestWrapOutputRefreshesFactsAfterHandler(t *testing.T) {
 	// Arrange.
 	key := NewScopeKey[bool]("allowed")
-	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	p := MustNewPipeline(WithPolicyValidators(MustTypedAttributeEquals[string](key, true)))
 	allowed, factories, calls := true, 0, 0
 	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
 		factories++
@@ -481,7 +481,7 @@ func TestWrappersScopeFactoryFaultsSuppressValues(t *testing.T) {
 			factory := ScopeFactory(func(context.Context) (ExecutionScope, error) { return nil, cause })
 			calls := 0
 			handler := func(context.Context, string) (string, error) { calls++; return "secret", nil }
-			p := NewPipeline[string]()
+			p := MustNewPipeline[string]()
 			wrapped := WrapInput(p, factory, handler)
 			wantCalls := 0
 			if output {

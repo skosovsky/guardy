@@ -39,10 +39,10 @@ func TestRecipientAuthorizationPrecedesRestorationAndFinalDelivery(t *testing.T)
 			if storeErr != nil {
 				t.Fatal(storeErr)
 			}
-			final := guardy.NewPipeline[string]()
+			final := guardy.MustNewPipeline[string]()
 			if tc.denyFinal {
-				final = guardy.NewPipeline(
-					guardy.WithFastPath(ext.MustPIIValidator(ext.WithAction(guardy.ActionBlock))),
+				final = guardy.MustNewPipeline(
+					guardy.WithSequential(ext.MustPIIValidator(ext.WithAction(guardy.ActionBlock))),
 				)
 			}
 			// Act.

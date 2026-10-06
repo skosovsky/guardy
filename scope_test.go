@@ -49,13 +49,13 @@ func TestMergeRequiredKeys(t *testing.T) {
 func TestPipeline_RequiredKeysCompileTime(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
+	p := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, string](resourceKey)),
 	)
 	if len(p.requiredKeys) != 1 || p.requiredKeys[0] != "resource.id" {
 		t.Fatalf("requiredKeys = %v", p.requiredKeys)
 	}
-	derived := p.Use()
+	derived := p.MustUse()
 	if len(derived.requiredKeys) != 1 {
 		t.Fatalf("clone requiredKeys = %v", derived.requiredKeys)
 	}
@@ -65,10 +65,10 @@ func TestPipeline_RequiredScopeKeysPublicAPI(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
 	roleKey := NewScopeKey[string]("principal.role")
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithPolicyValidators(
-			NewTypedAttributePresent[string, string](resourceKey),
-			NewTypedAttributeEquals[string, string](roleKey, "admin"),
+			MustTypedAttributePresent[string, string](resourceKey),
+			MustTypedAttributeEquals[string, string](roleKey, "admin"),
 		),
 	)
 	keys := p.RequiredScopeKeys()
@@ -83,8 +83,8 @@ func TestPipeline_RequiredScopeKeysPublicAPI(t *testing.T) {
 func TestPipeline_Run_FailClosedMissingScope(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
+	p := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, string](resourceKey)),
 	)
 	_, err := p.Run(context.Background(), MapScope{}, "x")
 	if !errors.Is(err, ErrScopeIncomplete) {
@@ -95,8 +95,8 @@ func TestPipeline_Run_FailClosedMissingScope(t *testing.T) {
 func TestPipeline_Run_ScopePresentPolicyRuns(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)),
+	p := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, string](resourceKey)),
 	)
 	result, err := p.Run(context.Background(), MapScope{"resource.id": "r1"}, "x")
 	if err != nil {

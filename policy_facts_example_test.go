@@ -27,7 +27,7 @@ type documentClaims struct {
 func ExampleScopeFactory_policyFacts() {
 	ctx := context.Background()
 	factsKey := g.NewScopeKey[boundaryFacts]("policy.facts")
-	policy := g.NewPolicyFuncWithScope(
+	policy := g.MustPolicyFuncWithScope(
 		[]g.ScopeRequirement{factsKey.Requirement()},
 		func(_ context.Context, s string, scope g.ExecutionScope) (string, *g.Report, error) {
 			facts, _ := factsKey.Lookup(scope)
@@ -49,7 +49,7 @@ func ExampleScopeFactory_policyFacts() {
 			return s, &g.Report{Action: g.ActionPass}, nil
 		},
 	)
-	p := g.NewPipeline(g.WithPolicyValidators(policy))
+	p := g.MustNewPipeline(g.WithPolicyValidators(policy))
 	claims := documentClaims{ClaimedTrust: "trusted", Content: "summary: secret"}
 	// Projection comes from host evidence, never from documentClaims. Summarizing
 	// changes transformation identity, but keeps the source and confirmed trust.

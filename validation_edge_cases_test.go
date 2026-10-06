@@ -14,7 +14,7 @@ func TestBestEffortEveryUTF8Split(t *testing.T) {
 	// Arrange.
 	input := "abc€😊Z"
 	for split := 0; split <= len(input); split++ {
-		cfg := testStreamConfig(NewPipeline[string]())
+		cfg := testStreamConfig(MustNewPipeline[string]())
 		cfg.Profile, cfg.MaxUnitBytes = ReleaseBestEffort, 4
 		var sink bytes.Buffer
 		s, err := CompileStream(&sink, cfg)
@@ -36,7 +36,7 @@ func TestJSONFramingWhitespaceEverySplit(t *testing.T) {
 	// Arrange.
 	input := "{}\n [] \t\r\n"
 	for split := 0; split <= len(input); split++ {
-		cfg := testStreamConfig(NewPipeline[string]())
+		cfg := testStreamConfig(MustNewPipeline[string]())
 		cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 		cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
 		cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
@@ -67,7 +67,7 @@ func TestFallbackUsesSupportedReleaseStage(t *testing.T) {
 		}),
 		StreamCapabilities{Unit: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = ReleaseValidatedUnits
 	cfg.Delivery.Fallback = "SECRET"
 	var sink bytes.Buffer
@@ -88,7 +88,7 @@ func TestJSONExactUnitLimitIndependentOfTransport(t *testing.T) {
 	for _, input := range []string{"{}", "{}\n", "{}[]"} {
 		for split := 0; split <= len(input); split++ {
 			// Arrange.
-			cfg := testStreamConfig(NewPipeline[string]())
+			cfg := testStreamConfig(MustNewPipeline[string]())
 			cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, true
 			cfg.MaxUnitBytes, cfg.MaxPendingBytes = 2, 3
 			cfg.Delivery = NewUserTextPolicy("internal", WithDeliveryAllowedKinds(PayloadTechnicalPayload))
@@ -118,7 +118,7 @@ func TestStreamObserverDoesNotExposeCorrectionFeedback(t *testing.T) {
 	rule := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 		return value, &Report{Action: ActionRetry, Feedback: "diagnostic=" + value}, nil
 	})
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	var event StreamEvent
 	cfg.Observer = func(e StreamEvent) { event = e }
 	var sink bytes.Buffer
@@ -146,7 +146,7 @@ func TestUnitFallbackCannotBypassFraming(t *testing.T) {
 		}),
 		StreamCapabilities{Unit: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = ReleaseValidatedUnits
 	cfg.Delivery.Fallback = "benign\nSECRET\n"
 	var sink bytes.Buffer
@@ -167,14 +167,14 @@ func TestRequiredScopeTypeRejectedBeforePolicy(t *testing.T) {
 	// Arrange.
 	key := NewScopeKey[bool]("required.flag")
 	calls := 0
-	rule := NewPolicyFuncWithScope[string](
+	rule := MustPolicyFuncWithScope[string](
 		[]ScopeRequirement{key.Requirement()},
 		func(_ context.Context, value string, _ ExecutionScope) (string, *Report, error) {
 			calls++
 			return value, nil, nil
 		},
 	)
-	p := NewPipeline(WithPolicyValidators(rule))
+	p := MustNewPipeline(WithPolicyValidators(rule))
 	// Act.
 	_, err := p.Run(context.Background(), MapScope{"required.flag": "wrong"}, "SECRET")
 	// Assert.
@@ -186,7 +186,7 @@ func TestRequiredScopeTypeRejectedBeforePolicy(t *testing.T) {
 
 func TestArgsEncoderFaultCanonicalDecision(t *testing.T) {
 	// Arrange.
-	p := MustCompileArgs[positiveAmount](NewPipeline[string](), WithArgsCodec[positiveAmount](
+	p := MustCompileArgs[positiveAmount](MustNewPipeline[string](), WithArgsCodec[positiveAmount](
 		func(_ string, value *positiveAmount) error { value.Amount = 1; return nil },
 		func(positiveAmount) (string, error) { return "", errors.New("encoder fault") },
 	))
@@ -208,9 +208,9 @@ func TestCompositionPreservesAllTypedScopeRequirements(t *testing.T) {
 		calls++
 		return value, nil, nil
 	}
-	p := NewPipeline(WithPolicyValidators(
-		NewPolicyFuncWithScope([]ScopeRequirement{boolKey.Requirement()}, callback),
-		NewPolicyFuncWithScope([]ScopeRequirement{stringKey.Requirement()}, callback),
+	p := MustNewPipeline(WithPolicyValidators(
+		MustPolicyFuncWithScope([]ScopeRequirement{boolKey.Requirement()}, callback),
+		MustPolicyFuncWithScope([]ScopeRequirement{stringKey.Requirement()}, callback),
 	))
 	// Act.
 	result, err := p.Run(context.Background(), NewScope(ScopeValue(boolKey, false)), "SECRET")
@@ -252,9 +252,9 @@ func TestScopeContractsUseGoTypeIdentityNotDisplayName(t *testing.T) {
 		calls++
 		return value, nil, nil
 	}
-	p := NewPipeline(WithPolicyValidators(
-		NewPolicyFuncWithScope([]ScopeRequirement{firstKey.Requirement()}, callback),
-		NewPolicyFuncWithScope([]ScopeRequirement{secondKey.Requirement()}, callback),
+	p := MustNewPipeline(WithPolicyValidators(
+		MustPolicyFuncWithScope([]ScopeRequirement{firstKey.Requirement()}, callback),
+		MustPolicyFuncWithScope([]ScopeRequirement{secondKey.Requirement()}, callback),
 	))
 	// Act.
 	result, err := p.Run(context.Background(), NewScope(ScopeValue(firstKey, htmltemplate.New("first"))), "SECRET")

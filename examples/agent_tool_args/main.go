@@ -29,7 +29,7 @@ func main() {
 		},
 	)
 
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(toolArgsGuard))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(toolArgsGuard))
 	in := agentCall{
 		ToolName: "lookup",
 		ToolArgs: json.RawMessage(`{"user":"alice","email":"alice@example.com"}`),

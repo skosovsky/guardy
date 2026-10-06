@@ -8,7 +8,7 @@ import (
 )
 
 func TestStreamChecksCapabilitiesOfAppliedMiddleware(t *testing.T) {
-	for _, phase := range []string{"fast", "policy", "slow"} {
+	for _, phase := range []string{"sequential", "policy", "parallel"} {
 		t.Run(phase, func(t *testing.T) {
 			// Arrange: the underlying validator supports units, but the actually
 			// applied middleware declares and executes only final checks.
@@ -20,24 +20,24 @@ func TestStreamChecksCapabilitiesOfAppliedMiddleware(t *testing.T) {
 			)
 			var pipeline *Pipeline[string]
 			switch phase {
-			case "fast":
-				pipeline = NewPipeline(WithFastPath(base))
-			case "slow":
-				pipeline = NewPipeline(WithSlowPath(base))
+			case "sequential":
+				pipeline = MustNewPipeline(WithSequential(base))
+			case "parallel":
+				pipeline = MustNewPipeline(WithParallel(base))
 			default:
-				policy := NewPolicyFuncWithScope(
+				policy := MustPolicyFuncWithScope(
 					nil,
 					func(ctx context.Context, value string, _ ExecutionScope) (string, *Report, error) {
 						return base.Validate(ctx, value)
 					},
 				)
-				pipeline = NewPipeline(
+				pipeline = MustNewPipeline(
 					WithPolicyValidators(
 						WithStreamingPolicyCapabilities(policy, StreamCapabilities{Unit: true, Final: true}),
 					),
 				)
 			}
-			pipeline = pipeline.Use(func(next Validator[string]) Validator[string] {
+			pipeline = pipeline.MustUse(func(next Validator[string]) Validator[string] {
 				return WithStreamingCapabilities(
 					ValidatorFunc[string](func(ctx context.Context, value string) (string, *Report, error) {
 						if StreamValidationStage(ctx) == StreamFinal {
@@ -63,7 +63,7 @@ func TestStreamChecksCapabilitiesOfAppliedMiddleware(t *testing.T) {
 }
 
 func TestStreamMiddlewareCapabilityContract(t *testing.T) {
-	for _, phase := range []string{"fast", "policy", "slow"} {
+	for _, phase := range []string{"sequential", "policy", "parallel"} {
 		for _, scenario := range []struct {
 			name       string
 			profile    ReleaseProfile
@@ -85,7 +85,7 @@ func TestStreamMiddlewareCapabilityContract(t *testing.T) {
 					StreamCapabilities{Unit: true, Final: true},
 				)
 				pipeline := middlewareCapabilityPipeline(phase, base)
-				pipeline = pipeline.Use(func(next Validator[string]) Validator[string] {
+				pipeline = pipeline.MustUse(func(next Validator[string]) Validator[string] {
 					wrapper := ValidatorFunc[string](next.Validate)
 					if scenario.declared {
 						return WithStreamingCapabilities(wrapper, scenario.capability)
@@ -121,25 +121,25 @@ func TestStreamMiddlewareCapabilityContract(t *testing.T) {
 
 func middlewareCapabilityPipeline(phase string, base Validator[string]) *Pipeline[string] {
 	switch phase {
-	case "fast":
-		return NewPipeline(WithFastPath(base))
-	case "slow":
-		return NewPipeline(WithSlowPath(base))
+	case "sequential":
+		return MustNewPipeline(WithSequential(base))
+	case "parallel":
+		return MustNewPipeline(WithParallel(base))
 	default:
-		policy := NewPolicyFuncWithScope(
+		policy := MustPolicyFuncWithScope(
 			nil,
 			func(ctx context.Context, value string, _ ExecutionScope) (string, *Report, error) {
 				return base.Validate(ctx, value)
 			},
 		)
-		return NewPipeline(
+		return MustNewPipeline(
 			WithPolicyValidators(WithStreamingPolicyCapabilities(policy, StreamCapabilities{Unit: true, Final: true})),
 		)
 	}
 }
 
 func TestStreamRejectsHiddenIntermediateMiddleware(t *testing.T) {
-	for _, phase := range []string{"fast", "policy", "slow"} {
+	for _, phase := range []string{"sequential", "policy", "parallel"} {
 		t.Run(phase, func(t *testing.T) {
 			// Arrange: an outer forwarding wrapper cannot upgrade a final-only inner layer.
 			base := WithStreamingCapabilities(
@@ -165,7 +165,7 @@ func TestStreamRejectsHiddenIntermediateMiddleware(t *testing.T) {
 					StreamCapabilities{Final: true},
 				)
 			}
-			pipeline := middlewareCapabilityPipeline(phase, base).Use(outer, inner)
+			pipeline := middlewareCapabilityPipeline(phase, base).MustUse(outer, inner)
 			cfg := testStreamConfig(pipeline)
 			cfg.Profile = ReleaseValidatedUnits
 			var sink bytes.Buffer

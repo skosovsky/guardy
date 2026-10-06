@@ -19,8 +19,8 @@ func TestEqualityScopeFailures(t *testing.T) {
 			// Arrange.
 			key := NewScopeKey[int]("fact")
 			calls := 0
-			p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, 1)),
-				WithFastPath(ValidatorFunc[string](func(_ context.Context, raw string) (string, *Report, error) {
+			p := MustNewPipeline(WithPolicyValidators(MustTypedAttributeEquals[string](key, 1)),
+				WithSequential(ValidatorFunc[string](func(_ context.Context, raw string) (string, *Report, error) {
 					calls++
 					return raw, nil, nil
 				})))
@@ -38,7 +38,7 @@ func TestEqualityScopeFailures(t *testing.T) {
 func TestSiblingCancellationOfNestedValidation(t *testing.T) {
 	// Arrange: a cooperative check delegates to another pipeline after its sibling stops it.
 	started := make(chan struct{})
-	nested := NewPipeline[string]()
+	nested := MustNewPipeline[string]()
 	check := ValidatorFunc[string](func(ctx context.Context, raw string) (string, *Report, error) {
 		close(started)
 		<-ctx.Done()
@@ -49,7 +49,7 @@ func TestSiblingCancellationOfNestedValidation(t *testing.T) {
 		<-started
 		return raw, &Report{Action: ActionBlock}, nil
 	})
-	p := NewPipeline(WithSlowPath(check, deny))
+	p := MustNewPipeline(WithParallel(check, deny))
 	// Act.
 	result, err := p.Run(t.Context(), nil, "input")
 	// Assert.
@@ -87,13 +87,13 @@ func testCallbackClassification(t *testing.T, kind PayloadKind, boundary, stage 
 		cancel()
 		return raw, nil, nil
 	})
-	raw := NewPipeline(WithFastPath(classify))
+	raw := MustNewPipeline(WithSequential(classify))
 	if stage == "raw" {
-		raw = NewPipeline(WithFastPath(classify, abort))
+		raw = MustNewPipeline(WithSequential(classify, abort))
 	}
-	final := NewPipeline[string]()
+	final := MustNewPipeline[string]()
 	if stage == "final" {
-		final = NewPipeline(WithFastPath(abort))
+		final = MustNewPipeline(WithSequential(abort))
 	}
 	calls := 0
 	var decision Decision

@@ -18,7 +18,7 @@ func TestImmutableConfigurationAndConcurrentRequestLocalBoundaries(t *testing.T)
 	// Arrange: construction copies caller-owned requirement and validator slices.
 	key := NewScopeKey[int]("request.number")
 	requirements := []ScopeRequirement{key.Requirement()}
-	policy := NewPolicyFuncWithScope(
+	policy := MustPolicyFuncWithScope(
 		requirements,
 		func(_ context.Context, raw string, scope ExecutionScope) (string, *Report, error) {
 			number, ok := key.Lookup(scope)
@@ -32,7 +32,7 @@ func TestImmutableConfigurationAndConcurrentRequestLocalBoundaries(t *testing.T)
 	exposed := policy.RequiredScope()
 	exposed[0].Key = "mutated.accessor"
 	validators := []PolicyValidator[string]{policy}
-	p := NewPipeline(WithPolicyValidators(validators...), WithPipelineName[string]("immutable-config"))
+	p := MustNewPipeline(WithPolicyValidators(validators...), WithPipelineName[string]("immutable-config"))
 	validators[0] = nil
 	compiledRequirements := p.RequiredScope()
 	compiledRequirements[0].Key = "mutated.pipeline-accessor"
@@ -83,7 +83,7 @@ func TestImmutableConfigurationAndConcurrentRequestLocalBoundaries(t *testing.T)
 func TestStreamAndCoverageConfigurationSnapshotOwnership(t *testing.T) {
 	// Arrange.
 	kinds := []PayloadKind{PayloadSafeUserText}
-	cfg := testStreamConfig(NewPipeline[string]())
+	cfg := testStreamConfig(MustNewPipeline[string]())
 	originalIdentity := cfg.Identity
 	cfg.Delivery.AllowedPayloadKinds = kinds
 	var sink bytes.Buffer
@@ -118,8 +118,8 @@ type independentPayload struct {
 
 func TestIndependentAPIPayloadAndBatchTransform(t *testing.T) {
 	// Arrange: entirely caller-owned API and batch types, no runtime/provider wrapper.
-	api := NewPipeline(
-		WithFastPath(
+	api := MustNewPipeline(
+		WithSequential(
 			ValidatorFunc[independentPayload](
 				func(_ context.Context, value independentPayload) (independentPayload, *Report, error) {
 					value.Name, value.Token = strings.TrimSpace(value.Name), ""
@@ -133,8 +133,8 @@ func TestIndependentAPIPayloadAndBatchTransform(t *testing.T) {
 		nil,
 		func(_ context.Context, value independentPayload) (independentPayload, error) { return value, nil },
 	)
-	batch := NewPipeline(
-		WithFastPath(
+	batch := MustNewPipeline(
+		WithSequential(
 			ValidatorFunc[[]independentPayload](
 				func(_ context.Context, values []independentPayload) ([]independentPayload, *Report, error) {
 					out := append([]independentPayload(nil), values...)
@@ -163,7 +163,7 @@ func TestIndependentFakeProducerConsumer(t *testing.T) {
 	for _, abort := range []bool{false, true} {
 		// Arrange: producer has only a push callback and success/error signal.
 		var sink bytes.Buffer
-		stream, err := CompileStream(&sink, testStreamConfig(NewPipeline[string]()))
+		stream, err := CompileStream(&sink, testStreamConfig(MustNewPipeline[string]()))
 		if err != nil {
 			t.Fatal(err)
 		}

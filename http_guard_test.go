@@ -22,7 +22,7 @@ func TestGuard_Block(t *testing.T) {
 			return text, &Report{Action: ActionBlock, Validator: "block", Reason: "blocked"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			t.Error("next handler should not be called on Block")
@@ -49,7 +49,7 @@ func TestGuard_Retry_PublicMessageDoesNotLeakFeedback(t *testing.T) {
 			}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			t.Error("next must not run on retry")
@@ -76,7 +76,7 @@ func TestGuard_Block_UsesSafeUserMessage(t *testing.T) {
 			}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
 	)
@@ -100,7 +100,7 @@ func TestGuard_Block_UsesReportCode(t *testing.T) {
 			}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
 	)
@@ -122,7 +122,7 @@ func TestGuard_Pass(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	called := false
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -149,7 +149,7 @@ func TestGuard_PassBodyRestored(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	var nextBody string
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +182,7 @@ func TestGuard_PassRestoresOriginalBodyNotExtractorText(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	var nextBody string
 	handler := Guard(p, transformingExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -210,7 +210,7 @@ func TestGuard_Redact(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "redact"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	var nextBody string
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +234,7 @@ func TestGuard_RedactToEmptyBody(t *testing.T) {
 			return "", &Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	var nextBody string
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -255,7 +255,7 @@ func TestGuard_ExtractorError(t *testing.T) {
 	badExtractor := func(*http.Request) (string, error) {
 		return "", io.EOF
 	}
-	p := NewPipeline[string]()
+	p := MustNewPipeline[string]()
 	handler := Guard(p, badExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}),
 	)
@@ -270,7 +270,7 @@ func TestGuard_ExtractorError(t *testing.T) {
 func TestGuard_ScopeIncompleteBeforeHandler(t *testing.T) {
 	t.Parallel()
 	resourceKey := NewScopeKey[string]("resource.id")
-	p := NewPipeline(WithPolicyValidators(NewTypedAttributePresent[string, string](resourceKey)))
+	p := MustNewPipeline(WithPolicyValidators(MustTypedAttributePresent[string, string](resourceKey)))
 	var nextCalled bool
 	handler := Guard(
 		p,
@@ -328,7 +328,7 @@ func TestGuard_TerminalRetry_Returns422WithTerminalDenyDisposition(t *testing.T)
 			}, ControlSpec{Action: ActionRetry, Retryable: new(false)}), nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	handler := Guard(p, bodyExtractor, PlainTextInjector())(
 		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 			t.Error("next must not run on terminal retry")
@@ -348,7 +348,7 @@ func TestGuard_TerminalRetry_Returns422WithTerminalDenyDisposition(t *testing.T)
 func TestGuardCurrentFactsAfterExtractionAndPerRequest(t *testing.T) {
 	// Arrange.
 	key := NewScopeKey[bool]("allowed")
-	p := NewPipeline(WithPolicyValidators(NewTypedAttributeEquals[string](key, true)))
+	p := MustNewPipeline(WithPolicyValidators(MustTypedAttributeEquals[string](key, true)))
 	allowed, revokeDuringExtraction, factories, calls := true, false, 0, 0
 	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) {
 		factories++
@@ -392,7 +392,7 @@ func TestGuardScopeFactoryFaultDoesNotCallHandler(t *testing.T) {
 	// Arrange.
 	calls := 0
 	factory := ScopeFactory(func(context.Context) (ExecutionScope, error) { return nil, io.ErrUnexpectedEOF })
-	handler := Guard(NewPipeline[string](), bodyExtractor, PlainTextInjector(), WithGuardScopeFactory(factory))(
+	handler := Guard(MustNewPipeline[string](), bodyExtractor, PlainTextInjector(), WithGuardScopeFactory(factory))(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),
 	)
 	// Act.

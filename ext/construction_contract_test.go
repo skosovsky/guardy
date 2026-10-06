@@ -229,7 +229,7 @@ func assertFatalHitDelivery(t *testing.T, validator guardy.Validator[string], in
 		t.Fatalf("fatal hit=%+v", hit)
 	}
 	// Act.
-	delivery, fault := guardy.NewPipeline(guardy.WithFastPath(validator)).GuardOutput(t.Context(), nil, input)
+	delivery, fault := guardy.MustNewPipeline(guardy.WithSequential(validator)).GuardOutput(t.Context(), nil, input)
 	// Assert.
 	if !errors.Is(fault, guardy.ErrBlocked) || delivery.Deliverable || delivery.Value != "" {
 		t.Fatalf("fatal delivery=%+v error=%v", delivery, fault)

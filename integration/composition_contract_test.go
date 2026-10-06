@@ -58,7 +58,7 @@ func TestCompositionControlBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			for _, phase := range []string{"fast", "policy", "slow", "judge"} {
+			for _, phase := range []string{"sequential", "policy", "parallel", "judge"} {
 				t.Run(phase, func(t *testing.T) {
 					// Arrange.
 					report := tc.report
@@ -67,25 +67,25 @@ func TestCompositionControlBoundaries(t *testing.T) {
 					})
 					var option g.PipelineOption[string]
 					switch phase {
-					case "fast":
-						option = g.WithFastPath(rule)
+					case "sequential":
+						option = g.WithSequential(rule)
 					case "policy":
-						option = g.WithPolicyValidators(g.NewPolicyFuncWithScope(nil,
+						option = g.WithPolicyValidators(g.MustPolicyFuncWithScope(nil,
 							func(ctx context.Context, value string, _ g.ExecutionScope) (string, *g.Report, error) {
 								return rule.Validate(ctx, value)
 							}))
-					case "slow":
+					case "parallel":
 						if report.Action == g.ActionRedact {
 							return
 						}
-						option = g.WithSlowPath(rule)
+						option = g.WithParallel(rule)
 					case "judge":
 						if report.Action == g.ActionRedact {
 							return
 						}
-						option = g.WithSlowPath[string](g.NewLLMJudge(contractJudge{report}, true))
+						option = g.WithParallel[string](g.MustLLMJudge(contractJudge{report}, true))
 					}
-					p := g.NewPipeline(option).Use(func(next g.Validator[string]) g.Validator[string] {
+					p := g.MustNewPipeline(option).MustUse(func(next g.Validator[string]) g.Validator[string] {
 						return g.ValidatorFunc[string](
 							func(ctx context.Context, value string) (string, *g.Report, error) {
 								return next.Validate(ctx, value)
@@ -186,7 +186,7 @@ func TestReportConstructionAndComposition(t *testing.T) {
 		pass := &g.Report{Action: g.ActionPass}
 		redact := &g.Report{Action: g.ActionRedact, PayloadKind: g.PayloadTechnicalPayload}
 		want := g.DecisionFromReport(&raw).Disposition
-		_, judged, err := g.NewLLMJudge(contractJudge{raw}, false).Validate(context.Background(), "value")
+		_, judged, err := g.MustLLMJudge(contractJudge{raw}, false).Validate(context.Background(), "value")
 		first := g.ComposeReports(pass, built, redact)
 		last := g.ComposeReports(redact, pass, judged)
 		// Assert.
@@ -247,7 +247,7 @@ func TestJSONSchemaCallbackDoesNotReinitializeReport(t *testing.T) {
 	schema := g.JSONArgsValidatorFunc(func(context.Context, map[string]any) *g.Report {
 		return &g.Report{Action: g.ActionRetry, Retryable: false}
 	})
-	p := g.MustCompileJSONArgs(g.NewPipeline[string](), schema, g.WithJSONArgsMetadata(
+	p := g.MustCompileJSONArgs(g.MustNewPipeline[string](), schema, g.WithJSONArgsMetadata(
 		g.JSONArgsMetadata{ID: "callback"}),
 	)
 
@@ -297,7 +297,7 @@ func TestHTTPReportFaultStopsHandler(t *testing.T) {
 	leaf := g.ValidatorFunc[string](func(_ context.Context, value string) (string, *g.Report, error) {
 		return value, &g.Report{Action: g.ActionBlock, ShadowMode: true, Disposition: g.DispositionSystemFault}, nil
 	})
-	p := g.NewPipeline(g.WithFastPath(leaf))
+	p := g.MustNewPipeline(g.WithSequential(leaf))
 	calls := 0
 	handler := g.Guard(p, func(*http.Request) (string, error) { return "secret", nil }, g.PlainTextInjector())(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),

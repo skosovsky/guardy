@@ -39,7 +39,7 @@ func WithMeter(meter metric.Meter) Option {
 	}
 }
 
-// WithIncludePayloads enables raw string payload capture in slow-path spans.
+// WithIncludePayloads enables raw string payload capture in parallel phase spans.
 // Disabled payload capture does not authorize raw validator errors or report text;
 // neither is exported. This middleware is not an audit ledger of all decisions.
 func WithIncludePayloads(include bool) Option {
@@ -75,7 +75,7 @@ type recorder[T any] struct {
 	latency metric.Float64Histogram
 }
 
-// NewMiddleware builds ValidatorMiddleware with fast-path metrics and slow-path tracing.
+// NewMiddleware builds ValidatorMiddleware with sequential phase metrics and parallel phase tracing.
 // It exports canonical per-call decisions, not final delivery or an authorization ledger.
 // Its own partial/unit/final support never upgrades delegate or inner middleware capabilities.
 func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
@@ -130,13 +130,13 @@ func newRecorder[T any](cfg Config) *recorder[T] {
 func (r *recorder[T]) validate(ctx context.Context, next guardy.Validator[T], input T) (T, *guardy.Report, error) {
 	phase, ok := guardy.ValidationPhaseFromContext(ctx)
 	if !ok {
-		phase = guardy.ValidationPhaseFast
+		phase = guardy.ValidationPhaseSequential
 	}
 
 	start := time.Now()
-	if phase == guardy.ValidationPhaseSlow && r.cfg.Tracer != nil {
+	if phase == guardy.ValidationPhaseParallel && r.cfg.Tracer != nil {
 		var span trace.Span
-		ctx, span = r.cfg.Tracer.Start(ctx, "guardy.validator.slow")
+		ctx, span = r.cfg.Tracer.Start(ctx, "guardy.validator.parallel")
 		defer span.End()
 
 		out, rep, err := next.Validate(ctx, input)

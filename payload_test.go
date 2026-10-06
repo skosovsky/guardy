@@ -33,9 +33,9 @@ func TestAggregatePayloadKind_InternalVsTechnical(t *testing.T) {
 
 func TestPipeline_UserChannel_InternalControlSignal(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",
@@ -54,10 +54,10 @@ func TestPipeline_UserChannel_InternalControlSignal(t *testing.T) {
 
 func TestPipeline_UserChannelBlocksTechnicalPayload(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
 		WithUserChannelFallback[string]("blocked"),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",
@@ -82,9 +82,9 @@ func TestPipeline_UserChannelBlocksTechnicalPayload(t *testing.T) {
 
 func TestPipeline_UserChannelAllowsSafeText(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, &Report{Action: ActionPass, Validator: "pass"}, nil
 		})),
 	)
@@ -102,9 +102,9 @@ func TestPipeline_UserChannelAllowsSafeText(t *testing.T) {
 
 func TestPipeline_UserChannel_GenericDTO(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[dtoOutput](),
-		WithFastPath(ValidatorFunc[dtoOutput](func(_ context.Context, input dtoOutput) (dtoOutput, *Report, error) {
+		WithSequential(ValidatorFunc[dtoOutput](func(_ context.Context, input dtoOutput) (dtoOutput, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",
@@ -126,9 +126,9 @@ func TestPipeline_UserChannel_GenericDTO(t *testing.T) {
 
 func TestPipeline_UserChannel_ExplicitBlockScrubsOutput(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:    ActionBlock,
 				Validator: "wordlist",
@@ -150,10 +150,10 @@ func TestPipeline_UserChannel_ExplicitBlockScrubsOutput(t *testing.T) {
 
 func TestPipeline_UserChannelFallback_PublicMessage(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
 		WithUserChannelFallback[string]("blocked for user"),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",
@@ -172,9 +172,9 @@ func TestPipeline_UserChannelFallback_PublicMessage(t *testing.T) {
 
 func TestPipeline_UserChannel_TerminalRetryScrubsOutput(t *testing.T) {
 	t.Parallel()
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithUserChannel[string](),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:    ActionRetry,
 				Validator: ActionRetry.String(),

@@ -16,7 +16,7 @@ go run .
 - **json_streaming** — Uses `CompileStream` with explicit whole-response and JSON validation; malformed/forbidden final content is never flushed.
 - **reversible_redaction** — Shows host recipient authorization before `UnredactText`, then a separate final output guard before delivery. Token possession grants no disclosure permission.
 - **multi_turn** — Applies an independent validator to each BYOT message using `ext.MapSlice`; no cross-message context analysis.
-- **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default; raw validator errors are never exported. Code/name labels require a static caller allowlist. Metrics and slow-path spans are not a complete decision audit.
+- **otel_integration** — Demonstrates telemetry middleware from `github.com/skosovsky/guardy/ext/guardyotel` with payload capture disabled by default; raw validator errors are never exported. Code/name labels require a static caller allowlist. Metrics and parallel-phase spans are not a complete decision audit.
 - **custom_validator** — Custom validator that calls a mock word-matching HTTP API (no supplied model); integrates into a pipeline and runs two sample inputs.
 - **struct_validation** — Validates raw JSON through `ArgsPipeline`, returns `GuardedArgs[T]`, and prints canonical retry feedback.
 - **generic_decorator** — Scope-aware input policy + output user channel with technical JSON classifier; `PolicyFailure` + `GuardedDelivery` demo. Separate viewer/admin flows reach policy, wordlist, and delivery checks; JSON shape detection supplies no authorization.

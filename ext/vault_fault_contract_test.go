@@ -45,7 +45,7 @@ func TestConfiguredVaultNeverDegrades(t *testing.T) {
 					v := recipe.build(faultVault{tc.store})
 					// Act.
 					output, report, err := v.Validate(t.Context(), recipe.input)
-					delivery, boundaryErr := guardy.NewPipeline(guardy.WithFastPath(v)).
+					delivery, boundaryErr := guardy.MustNewPipeline(guardy.WithSequential(v)).
 						GuardOutput(t.Context(), nil, recipe.input)
 					// Assert.
 					var storage *TokenStorageError

@@ -37,7 +37,7 @@ func TestStreamPassRedactAndEmpty(t *testing.T) {
 				return test.output, &Report{Action: test.action}, nil
 			})
 			var sink bytes.Buffer
-			s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithFastPath(rule))))
+			s, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithSequential(rule))))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -75,7 +75,7 @@ func TestStreamCanonicalDenyRetryAndFault(t *testing.T) {
 			func(_ context.Context, s string) (string, *Report, error) { return s, &rep, nil },
 		)
 		var sink bytes.Buffer
-		s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithFastPath(rule))))
+		s, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithSequential(rule))))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestStreamRequiredScopeBeforeValidation(t *testing.T) {
 	// Arrange.
 	key := NewScopeKey[string]("destination")
 	calls := 0
-	policy := NewPolicyFuncWithScope(
+	policy := MustPolicyFuncWithScope(
 		[]ScopeRequirement{key.Requirement()},
 		func(_ context.Context, s string, _ ExecutionScope) (string, *Report, error) {
 			calls++
@@ -108,7 +108,7 @@ func TestStreamRequiredScopeBeforeValidation(t *testing.T) {
 		},
 	)
 	var sink bytes.Buffer
-	s, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithPolicyValidators(policy))))
+	s, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithPolicyValidators(policy))))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestStreamInvalidConfiguration(t *testing.T) {
 		func(c *StreamConfig) { c.ValidationTimeout = -time.Second },
 		func(c *StreamConfig) { c.Pipeline = nil },
 	} {
-		cfg := testStreamConfig(NewPipeline[string]())
+		cfg := testStreamConfig(MustNewPipeline[string]())
 		change(&cfg)
 		if _, err := CompileStream(io.Discard, cfg); err == nil {
 			t.Fatal("invalid configuration accepted")
@@ -153,7 +153,7 @@ func TestStreamBoundedIncrementalUTF8(t *testing.T) {
 		}),
 		StreamCapabilities{Partial: true},
 	)
-	cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+	cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 	cfg.Profile = ReleaseBestEffort
 	cfg.MaxUnitBytes = 1024
 	cfg.MaxPendingBytes = 2048
@@ -193,7 +193,7 @@ func TestJSONUnitFramingAcrossEverySplit(t *testing.T) {
 				),
 				StreamCapabilities{Unit: true},
 			)
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Profile = ReleaseValidatedUnits
 			cfg.JSONValues = true
 			cfg.MaxPendingBytes = cfg.MaxUnitBytes + 1
@@ -218,7 +218,7 @@ func TestJSONUnitFramingAcrossEverySplit(t *testing.T) {
 func TestJSONIncompleteMalformedAndLimit(t *testing.T) {
 	for _, input := range []string{`{"name":`, `{"name":[}]`, strings.Repeat(" ", 65)} {
 		// Arrange.
-		cfg := testStreamConfig(NewPipeline[string]())
+		cfg := testStreamConfig(MustNewPipeline[string]())
 		cfg.Profile = ReleaseValidatedUnits
 		cfg.JSONValues = true
 		cfg.MaxUnitBytes = 64
@@ -242,7 +242,7 @@ func TestJSONIncompleteMalformedAndLimit(t *testing.T) {
 
 func TestStreamObserverCannotChangeDelivery(t *testing.T) {
 	// Arrange.
-	cfg := testStreamConfig(NewPipeline[string]())
+	cfg := testStreamConfig(MustNewPipeline[string]())
 	cfg.Observer = func(StreamEvent) { panic("observer only") }
 	var sink bytes.Buffer
 	s, err := CompileStream(&sink, cfg)

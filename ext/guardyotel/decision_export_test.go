@@ -52,7 +52,7 @@ func TestExporterCanonicalDecisionsAndTransparentMiddleware(t *testing.T) {
 				func(context.Context, string) (string, *guardy.Report, error) { return "clean", tc.report, tc.fault },
 			)
 			base, expectedSpans := testCallPipeline(rule, tc.report)
-			traced := base.Use(
+			traced := base.MustUse(
 				NewMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(metricsProvider.Meter("test"))),
 			)
 			// Act.
@@ -186,10 +186,10 @@ func checkMetricDecisions(
 }
 
 func testCallPipeline(rule guardy.Validator[string], report *guardy.Report) (*guardy.Pipeline[string], int) {
-	// Redaction is a fast-path operation; slow-path redaction is an orchestration
+	// Redaction is a sequential phase operation; parallel phase redaction is an orchestration
 	// fault detected after the middleware returns, outside per-call telemetry.
 	if report != nil && report.Action == guardy.ActionRedact {
-		return guardy.NewPipeline(guardy.WithFastPath(rule)), 0
+		return guardy.MustNewPipeline(guardy.WithSequential(rule)), 0
 	}
-	return guardy.NewPipeline(guardy.WithSlowPath(rule)), 1
+	return guardy.MustNewPipeline(guardy.WithParallel(rule)), 1
 }

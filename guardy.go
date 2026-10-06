@@ -1,6 +1,6 @@
 // Package guardy provides a pipeline engine for AI guardrails: validation,
-// intervention actions (pass, block, redact, retry), and two-phase execution
-// (sequential Fast-Path for mutations, parallel Slow-Path via errgroup).
+// intervention actions (pass, block, redact, retry), and three-phase execution
+// (sequential mutation, scoped policy, then parallel read-only via errgroup).
 //
 // Boundary contracts: typed [ScopeKey] / [ScopeRequirement],
 // canonical [Decision] / [PolicyFailure], [ArgsPipeline] / [GuardedArgs],
@@ -110,7 +110,7 @@ type RunResult[T any] struct {
 // Decision returns the report that determines the pipeline outcome.
 // Priority: system fault > terminal deny > retryable correction > redact > pass.
 // Shadow block reports are observations and never select an enforcement decision.
-// Reports order is nondeterministic in slow path; must scan entire slice.
+// Reports order is nondeterministic in parallel phase; must scan entire slice.
 func (r *RunResult[T]) Decision() *Report {
 	var selected *Report
 	priority := 0

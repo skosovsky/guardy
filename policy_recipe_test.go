@@ -86,7 +86,7 @@ func checkRecipeFacts(facts recipeFacts) error {
 
 func recipePipeline(identity string) *g.Pipeline[string] {
 	key := recipeKey()
-	rule := g.NewPolicyFuncWithScope([]g.ScopeRequirement{key.Requirement()},
+	rule := g.MustPolicyFuncWithScope([]g.ScopeRequirement{key.Requirement()},
 		func(_ context.Context, value string, scope g.ExecutionScope) (string, *g.Report, error) {
 			facts, _ := key.Lookup(scope)
 			if err := checkRecipeFacts(facts); err != nil {
@@ -111,7 +111,7 @@ func recipePipeline(identity string) *g.Pipeline[string] {
 			}
 			return value, nil, nil
 		})
-	return g.NewPipeline(g.WithPolicyValidators(rule), g.WithPipelineName[string](identity))
+	return g.MustNewPipeline(g.WithPolicyValidators(rule), g.WithPipelineName[string](identity))
 }
 
 func recipeScope(facts recipeFacts, destination string) g.ScopeFactory {

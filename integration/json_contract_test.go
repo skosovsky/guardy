@@ -17,7 +17,7 @@ func TestJSONNumberSurvivesActualPIIPipelineAndArgs(t *testing.T) {
 	// Arrange.
 	redactor := jsonredact.NewJSONRedactValidator(ext.MustPIIValidator(), "pii-json")
 	raw := `{"id":9007199254740993,"profile":{"email":"alice@example.com"}}`
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(redactor))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(redactor))
 	typed := guardy.MustCompileArgs[map[string]any](pipeline)
 	dynamic := guardy.MustCompileJSONArgs(pipeline, nil)
 	// Act.
@@ -67,7 +67,7 @@ func TestFinalSchemaPreventsHandlerAfterTransformation(t *testing.T) {
 				return s, &guardy.Report{Action: guardy.ActionPass}, nil
 			})
 			redactor := jsonredact.NewJSONRedactValidator(leaf, "role")
-			rawGuard := guardy.NewPipeline(guardy.WithFastPath(redactor))
+			rawGuard := guardy.MustNewPipeline(guardy.WithSequential(redactor))
 			if strings.Contains(schema, `"required"`) {
 				removeField := guardy.ValidatorFunc[string](
 					func(_ context.Context, raw string) (string, *guardy.Report, error) {
@@ -80,13 +80,13 @@ func TestFinalSchemaPreventsHandlerAfterTransformation(t *testing.T) {
 						return string(encoded), &guardy.Report{Action: guardy.ActionRedact}, err
 					},
 				)
-				rawGuard = guardy.NewPipeline(guardy.WithFastPath(redactor, removeField))
+				rawGuard = guardy.MustNewPipeline(guardy.WithSequential(redactor, removeField))
 			}
 			checker, err := jsonschema.NewJSONSchemaValidator(schema)
 			if err != nil {
 				t.Fatal(err)
 			}
-			final := guardy.NewPipeline(guardy.WithFastPath(checker))
+			final := guardy.MustNewPipeline(guardy.WithSequential(checker))
 			typed := guardy.MustCompileArgs[schemaContractArgs](
 				rawGuard,
 				guardy.WithArgsFinalGuard[schemaContractArgs](final),
@@ -117,7 +117,7 @@ func TestFinalSchemaPreventsHandlerAfterTransformation(t *testing.T) {
 
 func TestArgsRejectDuplicateKeysAndTrailingDocuments(t *testing.T) {
 	// Arrange.
-	pipeline := guardy.NewPipeline[string]()
+	pipeline := guardy.MustNewPipeline[string]()
 	typed := guardy.MustCompileArgs[map[string]any](pipeline)
 	dynamic := guardy.MustCompileJSONArgs(pipeline, nil)
 	// Act / Assert.

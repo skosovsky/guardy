@@ -15,10 +15,10 @@ import (
 func main() {
 	piiV := ext.MustPIIValidator(ext.WithCode("PII_DETECTED"))
 	classifier := ext.MustTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
-	pipeline := guardy.NewPipeline(
+	pipeline := guardy.MustNewPipeline(
 		guardy.WithUserChannel[string](),
 		guardy.WithUserChannelFallback[string]("Sorry, I can't show that response."),
-		guardy.WithFastPath(piiV, classifier),
+		guardy.WithSequential(piiV, classifier),
 	)
 
 	ctx := context.Background()

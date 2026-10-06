@@ -19,33 +19,36 @@ func TestArgsCompilationRequirementsAndMetadata(t *testing.T) {
 	}{
 		{name: "typed raw", field: "raw", compile: func() (any, error) { p, e := g.CompileArgs[argsConfigDTO](nil); return p, e }},
 		{name: "typed final", field: "final", compile: func() (any, error) {
-			p, e := g.CompileArgs[argsConfigDTO](g.NewPipeline[string](), g.WithArgsFinalGuard[argsConfigDTO](nil), g.WithArgsShapeProvider[argsConfigDTO](g.ShapeProviderFunc[argsConfigDTO](func() any { return "shape" })), g.WithArgsConfigurationID[argsConfigDTO]("secret"))
+			p, e := g.CompileArgs[argsConfigDTO](g.MustNewPipeline[string](), g.WithArgsFinalGuard[argsConfigDTO](nil), g.WithArgsShapeProvider[argsConfigDTO](g.ShapeProviderFunc[argsConfigDTO](func() any { return "shape" })), g.WithArgsConfigurationID[argsConfigDTO]("secret"))
 			return p, e
 		}},
 		{name: "typed decode", field: "codec", compile: func() (any, error) {
-			p, e := g.CompileArgs[argsConfigDTO](g.NewPipeline[string](), g.WithArgsCodec[argsConfigDTO](nil, func(argsConfigDTO) (string, error) { return "", nil }))
+			p, e := g.CompileArgs[argsConfigDTO](g.MustNewPipeline[string](), g.WithArgsCodec[argsConfigDTO](nil, func(argsConfigDTO) (string, error) { return "", nil }))
 			return p, e
 		}},
 		{name: "typed encode", field: "codec", compile: func() (any, error) {
-			p, e := g.CompileArgs[argsConfigDTO](g.NewPipeline[string](), g.WithArgsCodec[argsConfigDTO](func(string, *argsConfigDTO) error { return nil }, nil))
+			p, e := g.CompileArgs[argsConfigDTO](g.MustNewPipeline[string](), g.WithArgsCodec[argsConfigDTO](func(string, *argsConfigDTO) error { return nil }, nil))
 			return p, e
 		}},
-		{name: "typed option", field: "options[0]", compile: func() (any, error) { p, e := g.CompileArgs[argsConfigDTO](g.NewPipeline[string](), nil); return p, e }},
+		{name: "typed option", field: "options[0]", compile: func() (any, error) {
+			p, e := g.CompileArgs[argsConfigDTO](g.MustNewPipeline[string](), nil)
+			return p, e
+		}},
 		{name: "dynamic raw", field: "raw", compile: func() (any, error) { p, e := g.CompileJSONArgs(nil, nil); return p, e }},
 		{name: "dynamic final", field: "final", compile: func() (any, error) {
-			p, e := g.CompileJSONArgs(g.NewPipeline[string](), nil, g.WithJSONArgsFinalGuard(nil), g.WithJSONArgsMetadata(g.JSONArgsMetadata{ID: "secret", Shape: "schema"}))
+			p, e := g.CompileJSONArgs(g.MustNewPipeline[string](), nil, g.WithJSONArgsFinalGuard(nil), g.WithJSONArgsMetadata(g.JSONArgsMetadata{ID: "secret", Shape: "schema"}))
 			return p, e
 		}},
 		{name: "dynamic checker", field: "checker", compile: func() (any, error) {
-			p, e := g.CompileJSONArgs(g.NewPipeline[string](), g.JSONArgsValidatorFunc(nil), g.WithJSONArgsMetadata(g.JSONArgsMetadata{ID: "secret", Shape: "schema"}))
+			p, e := g.CompileJSONArgs(g.MustNewPipeline[string](), g.JSONArgsValidatorFunc(nil), g.WithJSONArgsMetadata(g.JSONArgsMetadata{ID: "secret", Shape: "schema"}))
 			return p, e
 		}},
 		{name: "dynamic typed nil", field: "checker", compile: func() (any, error) {
 			var checker *nilArgsChecker
-			p, e := g.CompileJSONArgs(g.NewPipeline[string](), checker)
+			p, e := g.CompileJSONArgs(g.MustNewPipeline[string](), checker)
 			return p, e
 		}},
-		{name: "dynamic option", field: "options[0]", compile: func() (any, error) { p, e := g.CompileJSONArgs(g.NewPipeline[string](), nil, nil); return p, e }},
+		{name: "dynamic option", field: "options[0]", compile: func() (any, error) { p, e := g.CompileJSONArgs(g.MustNewPipeline[string](), nil, nil); return p, e }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange.
@@ -95,14 +98,14 @@ func (v *argsConfigDTO) ValidatePostBind(context.Context) error {
 func TestMetadataOnlyAndSchemaFreeFlowsRemainValid(t *testing.T) {
 	// Arrange: metadata is intentionally not an executable checker.
 	typed, err := g.CompileArgs[argsConfigDTO](
-		g.NewPipeline[string](),
+		g.MustNewPipeline[string](),
 		g.WithArgsShapeProvider[argsConfigDTO](g.ShapeProviderFunc[argsConfigDTO](func() any { return "shape" })),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 	dynamic, err := g.CompileJSONArgs(
-		g.NewPipeline[string](),
+		g.MustNewPipeline[string](),
 		nil,
 		g.WithJSONArgsMetadata(g.JSONArgsMetadata{ID: "description-only", Shape: "shape"}),
 	)
@@ -139,17 +142,21 @@ func TestRawAndFinalSchemaObserveHandlerBoundary(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			raw := g.NewPipeline(
-				g.WithFastPath(g.ValidatorFunc[string](func(ctx context.Context, s string) (string, *g.Report, error) {
-					rawCount++
-					return schema.Validate(ctx, s)
-				})),
+			raw := g.MustNewPipeline(
+				g.WithSequential(
+					g.ValidatorFunc[string](func(ctx context.Context, s string) (string, *g.Report, error) {
+						rawCount++
+						return schema.Validate(ctx, s)
+					}),
+				),
 			)
-			final := g.NewPipeline(
-				g.WithFastPath(g.ValidatorFunc[string](func(ctx context.Context, s string) (string, *g.Report, error) {
-					finalCount++
-					return schema.Validate(ctx, s)
-				})),
+			final := g.MustNewPipeline(
+				g.WithSequential(
+					g.ValidatorFunc[string](func(ctx context.Context, s string) (string, *g.Report, error) {
+						finalCount++
+						return schema.Validate(ctx, s)
+					}),
+				),
 			)
 			args := g.MustCompileArgs[argsConfigDTO](raw, g.WithArgsFinalGuard[argsConfigDTO](final))
 			handler := g.WrapArgs(
@@ -178,9 +185,9 @@ func TestDynamicRawSchemaAndReadOnlyFinalGuard(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				rawGuard := g.NewPipeline(g.WithFastPath(schema))
-				finalGuard := g.NewPipeline(
-					g.WithFastPath(
+				rawGuard := g.MustNewPipeline(g.WithSequential(schema))
+				finalGuard := g.MustNewPipeline(
+					g.WithSequential(
 						g.ValidatorFunc[string](
 							func(context.Context, string) (string, *g.Report, error) { return `{"mode":"forbidden"}`, nil, nil },
 						),
@@ -229,7 +236,7 @@ func TestCallerOptionPanicsAreNotConfigurationErrors(t *testing.T) {
 	}()
 	// Act / Assert.
 	_, _ = g.CompileArgs[argsConfigDTO](
-		g.NewPipeline[string](),
+		g.MustNewPipeline[string](),
 		func(*g.ArgsPipeline[argsConfigDTO]) { panic("caller panic") },
 	)
 }
@@ -240,7 +247,7 @@ func Example_documentAPI() {
 	if err != nil {
 		panic(err)
 	}
-	checks := g.NewPipeline(g.WithFastPath(schema))
+	checks := g.MustNewPipeline(g.WithSequential(schema))
 	document, _ := checks.Run(context.Background(), nil, `{"mode":"allowed"}`)
 	args := g.MustCompileArgs[argsConfigDTO](checks, g.WithArgsFinalGuard[argsConfigDTO](checks))
 	_, invalid := args.Validate(context.Background(), nil, `{"mode":"allowed","change":true}`)

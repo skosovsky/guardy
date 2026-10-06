@@ -20,7 +20,7 @@ func (v *positiveAmount) ValidatePostBind(context.Context) error {
 
 func TestArgsPointerPostBind(t *testing.T) {
 	// Arrange.
-	p := MustCompileArgs[*positiveAmount](NewPipeline[string]())
+	p := MustCompileArgs[*positiveAmount](MustNewPipeline[string]())
 	for _, raw := range []string{`{"amount":-1}`, `null`} {
 		// Act.
 		_, err := p.Validate(context.Background(), nil, raw)
@@ -39,7 +39,7 @@ func TestFatalDispositionSurvivesRedaction(t *testing.T) {
 	fatal := ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
 		return s, &Report{Action: ActionPass, Fatal: true}, nil
 	})
-	p := NewPipeline(WithFastPath(redact, fatal))
+	p := MustNewPipeline(WithSequential(redact, fatal))
 	called := false
 	fn := WrapInput(p, nil, func(_ context.Context, s string) (string, error) { called = true; return s, nil })
 	// Act.
@@ -56,7 +56,7 @@ func TestStreamReportOnlyFaultDoesNotRelease(t *testing.T) {
 		return s, &Report{Action: ActionBlock, Disposition: DispositionSystemFault}, nil
 	})
 	var sink bytes.Buffer
-	w, err := CompileStream(&sink, testStreamConfig(NewPipeline(WithFastPath(fault))))
+	w, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithSequential(fault))))
 	if err != nil {
 		t.Fatal(err)
 	}

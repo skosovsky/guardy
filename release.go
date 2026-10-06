@@ -221,11 +221,11 @@ func CompileStream(writer io.Writer, cfg StreamConfig) (*StreamProcessor, error)
 }
 
 func checkStreamCapabilities(p *Pipeline[string], profile ReleaseProfile) error {
-	rules := make([]any, 0, len(p.fastPath)+len(p.slowPath)+len(p.policyValidators))
-	for _, rule := range p.fastPath {
+	rules := make([]any, 0, len(p.sequentialPath)+len(p.parallelPath)+len(p.policyValidators))
+	for _, rule := range p.sequentialPath {
 		rules = append(rules, rule)
 	}
-	for _, rule := range p.slowPath {
+	for _, rule := range p.parallelPath {
 		rules = append(rules, rule)
 	}
 	for _, rule := range p.policyValidators {
@@ -234,10 +234,10 @@ func checkStreamCapabilities(p *Pipeline[string], profile ReleaseProfile) error 
 	// Check both the underlying rules and the actual middleware chains. A wrapper
 	// cannot authorize a stage unsupported by its delegate or silently hide a
 	// missing declaration. Middleware construction must be deterministic.
-	for _, rule := range p.fastPathLayers {
+	for _, rule := range p.sequentialPathLayers {
 		rules = append(rules, rule)
 	}
-	for _, rule := range p.slowPathLayers {
+	for _, rule := range p.parallelPathLayers {
 		rules = append(rules, rule)
 	}
 	_, policyLayers := p.buildPolicyChain(NewScope(), true)

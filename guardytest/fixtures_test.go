@@ -19,7 +19,7 @@ func fixturePipeline(fixture gt.StringBoundaryFixture) *g.Pipeline[string] {
 		}
 		return input, nil, nil
 	})
-	return g.NewPipeline(g.WithFastPath(rule))
+	return g.MustNewPipeline(g.WithSequential(rule))
 }
 
 func TestReferenceBoundaryFixturesActualHandlerAndSink(t *testing.T) {
@@ -67,7 +67,7 @@ func TestReferenceSemanticFixturesActualBoundary(t *testing.T) {
 				}
 				return
 			}
-			pipeline := g.NewPipeline(g.WithSlowPath(validator), g.WithPipelineName[string](fixture.Identity),
+			pipeline := g.MustNewPipeline(g.WithParallel(validator), g.WithPipelineName[string](fixture.Identity),
 				g.WithObserver[string](func(_ context.Context, event g.GuardEvent) {
 					observations++
 					if event.PipelineName != fixture.Identity {

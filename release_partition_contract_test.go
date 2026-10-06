@@ -72,7 +72,7 @@ func TestReleasePartitionFramingAndUnitLimits(t *testing.T) {
 					}),
 					StreamCapabilities{Unit: true},
 				)
-				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+				cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 				cfg.Profile, cfg.JSONValues = ReleaseValidatedUnits, test.json
 				cfg.Delivery = NewUserTextPolicy(
 					"internal",
@@ -125,7 +125,7 @@ func TestReleasePartitionRedactionOutputBudget(t *testing.T) {
 				}),
 				StreamCapabilities{Unit: true},
 			)
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Profile, cfg.MaxOutputBytes = ReleaseValidatedUnits, budget
 			var sink bytes.Buffer
 			stream, err := CompileStream(&sink, cfg)
@@ -183,7 +183,7 @@ func TestReleasePartitionFaultCancelAndFallbackAfterPrefix(t *testing.T) {
 				}),
 				StreamCapabilities{Unit: true},
 			)
-			cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+			cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 			cfg.Profile = ReleaseValidatedUnits
 			cfg.Delivery.Fallback = "safe\n"
 			var sink bytes.Buffer
@@ -240,7 +240,7 @@ func TestReleasePartitionAbortAndCloseAfterPrefix(t *testing.T) {
 	for _, closeStream := range []bool{false, true} {
 		for partition, chunks := range releasePartitions("ok\npending") {
 			// Arrange.
-			cfg := testStreamConfig(NewPipeline[string]())
+			cfg := testStreamConfig(MustNewPipeline[string]())
 			cfg.Profile = ReleaseValidatedUnits
 			var sink bytes.Buffer
 			stream, err := CompileStream(&sink, cfg)
@@ -281,7 +281,7 @@ func TestReleasePartitionAbortAndCloseAfterPrefix(t *testing.T) {
 func TestReleasePartitionShortTransportAfterFraming(t *testing.T) {
 	for partition, chunks := range releasePartitions("ok\nnext\n") {
 		// Arrange: the first framed unit encounters a short downstream write.
-		cfg := testStreamConfig(NewPipeline[string]())
+		cfg := testStreamConfig(MustNewPipeline[string]())
 		cfg.Profile = ReleaseValidatedUnits
 		stream, err := CompileStream(shortPartitionSink{}, cfg)
 		if err != nil {

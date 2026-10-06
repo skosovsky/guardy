@@ -24,7 +24,7 @@ func (f *fakeValidator) Validate(ctx context.Context, text string) (string, *Rep
 }
 
 func TestPipeline_Empty(t *testing.T) {
-	p := NewPipeline[string]()
+	p := MustNewPipeline[string]()
 	ctx := context.Background()
 	result, err := p.Run(ctx, nil, "hello")
 	if err != nil {
@@ -39,14 +39,14 @@ func TestPipeline_Empty(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_Pass(t *testing.T) {
+func TestPipeline_Sequential_Pass(t *testing.T) {
 	v := &fakeValidator{
 		name: "pass",
 		validate: func(context.Context, string) (string, *Report, error) {
 			return "hello", &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	result, err := p.Run(context.Background(), nil, "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestPipeline_FastPath_Pass(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_PassMutatesOutput(t *testing.T) {
+func TestPipeline_Sequential_PassMutatesOutput(t *testing.T) {
 	t.Parallel()
 	v := &fakeValidator{
 		name: "mutate",
@@ -68,7 +68,7 @@ func TestPipeline_FastPath_PassMutatesOutput(t *testing.T) {
 			return text + "-mutated", &Report{Action: ActionPass, Validator: "mutate"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	result, err := p.Run(context.Background(), nil, "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -78,14 +78,14 @@ func TestPipeline_FastPath_PassMutatesOutput(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_Block(t *testing.T) {
+func TestPipeline_Sequential_Block(t *testing.T) {
 	v := &fakeValidator{
 		name: "blocker",
 		validate: func(context.Context, string) (string, *Report, error) {
 			return "bad", &Report{Action: ActionBlock, Validator: "blocker", Reason: "bad"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	result, err := p.Run(context.Background(), nil, "bad")
 	if err != nil {
 		t.Fatal(err)
@@ -99,7 +99,7 @@ func TestPipeline_FastPath_Block(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_RedactChain(t *testing.T) {
+func TestPipeline_Sequential_RedactChain(t *testing.T) {
 	v1 := &fakeValidator{
 		name: "r1",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
@@ -118,7 +118,7 @@ func TestPipeline_FastPath_RedactChain(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "r2"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v1, v2))
+	p := MustNewPipeline(WithSequential(v1, v2))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -132,14 +132,14 @@ func TestPipeline_FastPath_RedactChain(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_RedactToEmptyText(t *testing.T) {
+func TestPipeline_Sequential_RedactToEmptyText(t *testing.T) {
 	wiper := &fakeValidator{
 		name: "wiper",
 		validate: func(_ context.Context, _ string) (string, *Report, error) {
 			return "", &Report{Action: ActionRedact, Validator: "wiper", MutatedText: ""}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(wiper))
+	p := MustNewPipeline(WithSequential(wiper))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestPipeline_FastPath_RedactToEmptyText(t *testing.T) {
 	}
 }
 
-func TestPipeline_FastPath_RedactKeepsValidatorAfterSubsequentPass(t *testing.T) {
+func TestPipeline_Sequential_RedactKeepsValidatorAfterSubsequentPass(t *testing.T) {
 	redactor := &fakeValidator{
 		name: "redactor",
 		validate: func(_ context.Context, _ string) (string, *Report, error) {
@@ -172,7 +172,7 @@ func TestPipeline_FastPath_RedactKeepsValidatorAfterSubsequentPass(t *testing.T)
 			return "clean", &Report{Action: ActionPass, Validator: "passer"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(redactor, passer))
+	p := MustNewPipeline(WithSequential(redactor, passer))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +204,7 @@ func TestPipeline_ShortCircuit(t *testing.T) {
 			}
 		},
 	}
-	p := NewPipeline(WithSlowPath(blocker, sleeper))
+	p := MustNewPipeline(WithParallel(blocker, sleeper))
 	start := time.Now()
 	result, err := p.Run(context.Background(), nil, "x")
 	elapsed := time.Since(start)
@@ -233,7 +233,7 @@ func TestPipeline_ShadowMode(t *testing.T) {
 			return "x", &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	p := NewPipeline(WithSlowPath(blockShadow, passer))
+	p := MustNewPipeline(WithParallel(blockShadow, passer))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -260,7 +260,7 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 		},
 	}
 	scope := MapScope{"request.id": "r1"}
-	p := NewPipeline(
+	p := MustNewPipeline(
 		WithPipelineName[string]("shadow-check"),
 		WithObserver[string](func(ctx context.Context, observed GuardEvent) {
 			if ctx == nil {
@@ -269,7 +269,7 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 			event = observed
 			atomic.AddInt32(&calls, 1)
 		}),
-		WithFastPath(shadowBlock),
+		WithSequential(shadowBlock),
 	)
 	result, err := p.Run(context.Background(), scope, "x")
 	if err != nil {
@@ -285,7 +285,7 @@ func TestPipeline_ShadowBlock_CallsObserver(t *testing.T) {
 	if got, ok := event.Scope.Lookup("request.id"); !ok || got != "r1" {
 		t.Fatalf("event scope lookup = %v, %v", got, ok)
 	}
-	if event.Phase != ValidationPhaseFast {
+	if event.Phase != ValidationPhaseSequential {
 		t.Fatalf("event phase = %q", event.Phase)
 	}
 	if event.PipelineName != "shadow-check" {
@@ -306,7 +306,7 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "pass"}, nil
 		},
 	}
-	shadowPolicy := NewPolicyFuncWithScope[string](nil, func(
+	shadowPolicy := MustPolicyFuncWithScope[string](nil, func(
 		_ context.Context,
 		input string,
 		_ ExecutionScope,
@@ -320,8 +320,8 @@ func TestPipeline_PolicyShadowBlock_CallsObserverAndContinues(t *testing.T) {
 	})
 	scope := MapScope{"principal.role": "sales"}
 	var observed atomic.Int32
-	p := NewPipeline(
-		WithFastPath(pass),
+	p := MustNewPipeline(
+		WithSequential(pass),
 		WithPolicyValidators(shadowPolicy),
 		WithObserver[string](func(_ context.Context, event GuardEvent) {
 			if event.Phase != ValidationPhasePolicy {
@@ -362,9 +362,9 @@ func TestPipeline_SlowShadowBlock_CallsObserverWithEvent(t *testing.T) {
 	}
 	scope := MapScope{"request.id": "slow-1"}
 	events := make(chan GuardEvent, 1)
-	pipeline := NewPipeline(
+	pipeline := MustNewPipeline(
 		WithPipelineName[string]("slow-check"),
-		WithSlowPath(shadowSlow),
+		WithParallel(shadowSlow),
 		WithObserver[string](func(_ context.Context, event GuardEvent) {
 			events <- event
 		}),
@@ -382,7 +382,7 @@ func TestPipeline_SlowShadowBlock_CallsObserverWithEvent(t *testing.T) {
 	}
 	select {
 	case event := <-events:
-		if event.Phase != ValidationPhaseSlow {
+		if event.Phase != ValidationPhaseParallel {
 			t.Fatalf("event phase = %q", event.Phase)
 		}
 		if event.PipelineName != "slow-check" {
@@ -416,7 +416,7 @@ func TestPipeline_WordlistRedact(t *testing.T) {
 			return text, &Report{Action: ActionPass, Validator: "wordlist"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	result, err := p.Run(context.Background(), nil, "hello spam world")
 	if err != nil {
 		t.Fatal(err)
@@ -438,7 +438,7 @@ func TestPipeline_ValidatorError(t *testing.T) {
 			return "", nil, errFail
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	_, err := p.Run(context.Background(), nil, "x")
 	if err == nil {
 		t.Fatal("expected error")
@@ -448,7 +448,7 @@ func TestPipeline_ValidatorError(t *testing.T) {
 	}
 }
 
-func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
+func TestPipeline_Parallel_BlockCancelsOthers(t *testing.T) {
 	var runCount atomic.Int32
 	v1 := &fakeValidator{
 		name: "v1",
@@ -465,7 +465,7 @@ func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
 			return "x", &Report{Action: ActionBlock, Validator: "v2"}, nil
 		},
 	}
-	p := NewPipeline(WithSlowPath(v1, v2))
+	p := MustNewPipeline(WithParallel(v1, v2))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -479,24 +479,24 @@ func TestPipeline_SlowPath_BlockCancelsOthers(t *testing.T) {
 	}
 }
 
-func TestPipeline_SlowPath_InvalidActionReturnsError(t *testing.T) {
+func TestPipeline_Parallel_InvalidActionReturnsError(t *testing.T) {
 	badSlow := &fakeValidator{
 		name: "bad",
 		validate: func(context.Context, string) (string, *Report, error) {
 			return "x", &Report{Action: ActionRedact, Validator: "bad", MutatedText: "x"}, nil
 		},
 	}
-	p := NewPipeline(WithSlowPath(badSlow))
+	p := MustNewPipeline(WithParallel(badSlow))
 	_, err := p.Run(context.Background(), nil, "x")
 	if err == nil {
-		t.Fatal("expected error for redact in slow-path")
+		t.Fatal("expected error for redact in parallel phase")
 	}
 	if !errors.Is(err, ErrValidatorFailed) {
 		t.Errorf("err = %v, want ErrValidatorFailed", err)
 	}
 }
 
-func TestPipeline_SlowPath_FaultPriorityOverBlock(t *testing.T) {
+func TestPipeline_Parallel_FaultPriorityOverBlock(t *testing.T) {
 	errInfra := errors.New("infra failure")
 	blocker := &fakeValidator{
 		name: "blocker",
@@ -510,7 +510,7 @@ func TestPipeline_SlowPath_FaultPriorityOverBlock(t *testing.T) {
 			return "", nil, errInfra
 		},
 	}
-	p := NewPipeline(WithSlowPath(blocker, failer))
+	p := MustNewPipeline(WithParallel(blocker, failer))
 	result, err := p.Run(context.Background(), nil, "x")
 	if !errors.Is(err, errInfra) || !result.PolicyDecision().IsSystemFault() {
 		t.Fatalf("expected infrastructure fault to win, got decision=%+v err=%v", result.PolicyDecision(), err)
@@ -532,7 +532,7 @@ func TestPipeline_RetryShortCircuit(t *testing.T) {
 			return "x", &Report{Action: ActionBlock, Validator: "block"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(retryV, blockV))
+	p := MustNewPipeline(WithSequential(retryV, blockV))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -567,8 +567,8 @@ func TestPipeline_MiddlewareOrder(t *testing.T) {
 			return "ok", &Report{Action: ActionPass, Validator: "v"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
-	p = p.Use(outer, inner)
+	p := MustNewPipeline(WithSequential(v))
+	p = p.MustUse(outer, inner)
 	_, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)
@@ -590,7 +590,7 @@ func TestRunResult_Decision_BlockOverRetry(t *testing.T) {
 	retryRep := Report{Action: ActionRetry, Validator: ActionRetry.String(), Feedback: "fix it"}
 	passRep := Report{Action: ActionPass, Validator: "pass"}
 
-	// Retry first, Block second (nondeterministic slow-path order)
+	// Retry first, Block second (nondeterministic parallel phase order)
 	r1 := RunResult[string]{Output: "x", Reports: []Report{retryRep, blockRep, passRep}}
 	if got := r1.Decision(); got.Action != ActionBlock || got.Validator != "blocker" {
 		t.Errorf("Decision(Retry,Block,Pass) = %v, want Block from blocker", got)
@@ -631,8 +631,8 @@ func TestPipeline_UseImmutable(t *testing.T) {
 		})
 	}
 
-	original := NewPipeline(WithFastPath(v))
-	derived := original.Use(mw)
+	original := MustNewPipeline(WithSequential(v))
+	derived := original.MustUse(mw)
 
 	if original == derived {
 		t.Fatal("Use must return a new pipeline instance")
@@ -657,20 +657,20 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 	t.Parallel()
 	var order []string
 	fastV := &fakeValidator{
-		name: "fast",
+		name: "sequential",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
-			order = append(order, "fast")
-			return text, &Report{Action: ActionPass, Validator: "fast"}, nil
+			order = append(order, "sequential")
+			return text, &Report{Action: ActionPass, Validator: "sequential"}, nil
 		},
 	}
 	slowV := &fakeValidator{
-		name: "slow",
+		name: "parallel",
 		validate: func(_ context.Context, text string) (string, *Report, error) {
-			order = append(order, "slow")
-			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
+			order = append(order, "parallel")
+			return text, &Report{Action: ActionPass, Validator: "parallel"}, nil
 		},
 	}
-	policyPV := NewPolicyFuncWithScope[string](nil, func(
+	policyPV := MustPolicyFuncWithScope[string](nil, func(
 		_ context.Context,
 		text string,
 		_ ExecutionScope,
@@ -678,15 +678,15 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 		order = append(order, "policy")
 		return text, &Report{Action: ActionPass, Validator: "policy"}, nil
 	})
-	p := NewPipeline(
-		WithFastPath(fastV),
+	p := MustNewPipeline(
+		WithSequential(fastV),
 		WithPolicyValidators(policyPV),
-		WithSlowPath(slowV),
+		WithParallel(slowV),
 	)
 	if _, err := p.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"fast", "policy", "slow"}
+	want := []string{"sequential", "policy", "parallel"}
 	if len(order) != len(want) {
 		t.Fatalf("order = %v, want %v", order, want)
 	}
@@ -700,27 +700,27 @@ func TestPipeline_PolicyPhaseRunsBetweenFastAndSlow(t *testing.T) {
 func TestPipeline_PhaseContext(t *testing.T) {
 	var fastSeen, slowSeen atomic.Bool
 	fastV := &fakeValidator{
-		name: "fast",
+		name: "sequential",
 		validate: func(ctx context.Context, text string) (string, *Report, error) {
 			phase, ok := ValidationPhaseFromContext(ctx)
-			if ok && phase == ValidationPhaseFast {
+			if ok && phase == ValidationPhaseSequential {
 				fastSeen.Store(true)
 			}
-			return text, &Report{Action: ActionPass, Validator: "fast"}, nil
+			return text, &Report{Action: ActionPass, Validator: "sequential"}, nil
 		},
 	}
 	slowV := &fakeValidator{
-		name: "slow",
+		name: "parallel",
 		validate: func(ctx context.Context, text string) (string, *Report, error) {
 			phase, ok := ValidationPhaseFromContext(ctx)
-			if ok && phase == ValidationPhaseSlow {
+			if ok && phase == ValidationPhaseParallel {
 				slowSeen.Store(true)
 			}
-			return text, &Report{Action: ActionPass, Validator: "slow"}, nil
+			return text, &Report{Action: ActionPass, Validator: "parallel"}, nil
 		},
 	}
 
-	p := NewPipeline(WithFastPath(fastV), WithSlowPath(slowV))
+	p := MustNewPipeline(WithSequential(fastV), WithParallel(slowV))
 	if _, err := p.Run(context.Background(), nil, "x"); err != nil {
 		t.Fatal(err)
 	}
@@ -753,7 +753,7 @@ func TestPipeline_MapJSONRawMessage_RedactUpdatesOutput(t *testing.T) {
 			return d
 		},
 	)
-	p := NewPipeline[pipelineToolArgs](WithFastPath(mapped))
+	p := MustNewPipeline[pipelineToolArgs](WithSequential(mapped))
 	in := pipelineToolArgs{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)}
 	result, err := p.Run(context.Background(), nil, in)
 	if err != nil {
@@ -778,7 +778,7 @@ func TestPipeline_ValidatorFaultCarriesSystemFault(t *testing.T) {
 			return "", nil, errors.New("boom")
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 	_, err := p.Run(context.Background(), nil, "x")
 	var fault *ValidatorFaultError
 	if !errors.As(err, &fault) {
@@ -830,7 +830,7 @@ func TestPipeline_ExplicitSystemFaultBlock_PreservedAndShortCircuits(t *testing.
 			return text, &Report{Action: ActionPass, Validator: "second"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(fault, second))
+	p := MustNewPipeline(WithSequential(fault, second))
 	result, err := p.Run(context.Background(), nil, "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -862,7 +862,7 @@ func TestNormalizeReport_RawActionRetryWithoutFinishReport_ConsistentDeny(t *tes
 			}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(v))
+	p := MustNewPipeline(WithSequential(v))
 
 	wrapped := WrapInput(p, nil, func(_ context.Context, s string) (string, error) {
 		return s, nil
@@ -920,7 +920,7 @@ func TestPipeline_FatalPassShortCircuits(t *testing.T) {
 			return text, &Report{Action: ActionBlock, Validator: "block"}, nil
 		},
 	}
-	p := NewPipeline(WithFastPath(fatalV, blockV))
+	p := MustNewPipeline(WithSequential(fatalV, blockV))
 	result, err := p.Run(context.Background(), nil, "x")
 	if err != nil {
 		t.Fatal(err)

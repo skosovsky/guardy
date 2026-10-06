@@ -86,7 +86,7 @@ func makeDocumentAPIHost() (*documentAPIHost, error) {
 			"delivery":    "delivery",
 		},
 	}
-	policy := g.NewPolicyFuncWithScope(
+	policy := g.MustPolicyFuncWithScope(
 		[]g.ScopeRequirement{documentAPIFactsKey().Requirement()},
 		func(_ context.Context, value string, scope g.ExecutionScope) (string, *g.Report, error) {
 			facts, _ := documentAPIFactsKey().Lookup(scope)
@@ -108,8 +108,10 @@ func makeDocumentAPIHost() (*documentAPIHost, error) {
 			return value, nil, nil
 		},
 	)
-	raw := g.NewPipeline(g.WithFastPath(schema, jsonredact.NewJSONRedactValidator(ext.MustPIIValidator(), "json-pii")))
-	final := g.NewPipeline(g.WithFastPath(schema), g.WithPolicyValidators(policy))
+	raw := g.MustNewPipeline(
+		g.WithSequential(schema, jsonredact.NewJSONRedactValidator(ext.MustPIIValidator(), "json-pii")),
+	)
+	final := g.MustNewPipeline(g.WithSequential(schema), g.WithPolicyValidators(policy))
 	host.typed = g.MustCompileArgs[documentAPIArgs](
 		raw,
 		g.WithArgsFinalGuard[documentAPIArgs](final),
@@ -121,7 +123,7 @@ func makeDocumentAPIHost() (*documentAPIHost, error) {
 		g.WithJSONArgsFinalGuard(final),
 		g.WithJSONArgsConfigurationID("sample-args:1"),
 	)
-	host.consumers = g.NewPipeline(g.WithPolicyValidators(policy))
+	host.consumers = g.MustNewPipeline(g.WithPolicyValidators(policy))
 	return host, nil
 }
 
@@ -451,7 +453,7 @@ func TestDocumentAPIReferenceFaultAndExhaustedBudget(t *testing.T) {
 				}
 				return value, &g.Report{Action: g.ActionRetry, Retryable: true, Code: "HOST_CORRECTION"}, nil
 			})
-			host.typed = g.MustCompileArgs[documentAPIArgs](g.NewPipeline(g.WithFastPath(detector)))
+			host.typed = g.MustCompileArgs[documentAPIArgs](g.MustNewPipeline(g.WithSequential(detector)))
 			var err error
 			// Act: retries stop on fault and never bypass validation into execution.
 			for range 2 {

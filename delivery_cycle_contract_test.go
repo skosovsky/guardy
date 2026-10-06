@@ -45,7 +45,7 @@ func checkDeliveryCycleChild(t *testing.T, mode string) {
 		var pointer recursivePointer
 		value = pointer
 	}
-	pipeline := g.NewPipeline[any]()
+	pipeline := g.MustNewPipeline[any]()
 	// Act.
 	var decision g.Decision
 	var err error

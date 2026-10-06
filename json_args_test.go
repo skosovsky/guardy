@@ -9,7 +9,7 @@ import (
 func TestJSONArgsPipeline_ValidateKeepsBoundaryTogether(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	rawPipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	rawPipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, _ string) (string, *Report, error) {
 			return `{"name":"Ada","role":"admin"}`, FinishReport(&Report{
 				Action:      ActionRedact,
@@ -56,7 +56,7 @@ func TestJSONArgsPipeline_ValidateKeepsBoundaryTogether(t *testing.T) {
 func TestJSONArgsPipeline_InvalidObjectReturnsRetryableDecision(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := MustCompileJSONArgs(NewPipeline[string](), nil)
+	pipeline := MustCompileJSONArgs(MustNewPipeline[string](), nil)
 
 	// Act.
 	args, err := pipeline.Validate(context.Background(), nil, `["not","object"]`)
@@ -90,7 +90,7 @@ func TestJSONArgsPipeline_SchemaReportControlsDecision(t *testing.T) {
 		return nil
 	})
 
-	pipeline := MustCompileJSONArgs(NewPipeline[string](), schema, WithJSONArgsMetadata(
+	pipeline := MustCompileJSONArgs(MustNewPipeline[string](), schema, WithJSONArgsMetadata(
 		JSONArgsMetadata{ID: "strict.schema"}),
 	)
 

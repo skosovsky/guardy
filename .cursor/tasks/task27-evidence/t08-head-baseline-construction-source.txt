@@ -1,0 +1,16 @@
+package guardy
+import "testing"
+func TestT08LegacyConstructionAdmission(t *testing.T) {
+ for name, options := range map[string][]PipelineOption[string]{
+  "nil sequential": {WithFastPath[string](nil)},
+  "nil parallel": {WithSlowPath[string](nil)},
+  "fallback without channel": {WithUserChannelFallback[string]("unused")},
+ } {
+  t.Run(name, func(t *testing.T) {
+   // Arrange/Act: old construction API has no error channel.
+   pipeline := NewPipeline(options...)
+   // Assert: an invalid configuration must not produce a usable pipeline.
+   if pipeline != nil { t.Fatal("invalid configuration admitted before Run") }
+  })
+ }
+}

@@ -1,0 +1,17 @@
+--- FAIL: TestPipelinePanicContractAllPhases (0.00s)
+    --- FAIL: TestPipelinePanicContractAllPhases/sequential (0.00s)
+        pipeline_panic_contract_test.go:50: Validate panic escaped: *errors.errorString
+    --- FAIL: TestPipelinePanicContractAllPhases/policy (0.00s)
+        pipeline_panic_contract_test.go:50: Validate panic escaped: *errors.errorString
+    --- FAIL: TestPipelinePanicContractAllPhases/parallel (0.00s)
+        pipeline_panic_contract_test.go:52: fault category/original error cause missing: guardy: validator failed
+    --- FAIL: TestPipelinePanicContractAllPhases/middleware (0.00s)
+        pipeline_panic_contract_test.go:50: Validate panic escaped: *errors.errorString
+--- FAIL: TestPipelinePanicAfterCancelRemainsIndependentFault (0.00s)
+    pipeline_panic_contract_test.go:80: Validate panic escaped
+FAIL
+FAIL	github.com/skosovsky/guardy	0.422s
+ok  	github.com/skosovsky/guardy/ext	(cached) [no tests to run]
+ok  	github.com/skosovsky/guardy/guardytest	(cached) [no tests to run]
+ok  	github.com/skosovsky/guardy/internal/jsondoc	(cached) [no tests to run]
+FAIL

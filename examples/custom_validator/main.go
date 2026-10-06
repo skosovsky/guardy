@@ -74,7 +74,7 @@ func main() {
 	defer mock.Close()
 
 	v := NewModerationValidator(mock.URL)
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
 	ctx := context.Background()
 
 	for _, text := range []string{"Hello world", "This has badword in it"} {

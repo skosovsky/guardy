@@ -32,7 +32,7 @@ func TestWholeResponseRedactsEverySplit(t *testing.T) {
 	value := "Привет alice@example.com!"
 	for split := 0; split <= len(value); split++ {
 		var sink bytes.Buffer
-		s, err := g.CompileStream(&sink, streamConfig(g.NewPipeline(g.WithFastPath(ext.MustPIIValidator()))))
+		s, err := g.CompileStream(&sink, streamConfig(g.MustNewPipeline(g.WithSequential(ext.MustPIIValidator()))))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestWholeResponseRedactsEverySplit(t *testing.T) {
 func TestAbortAndPayloadCompletionCannotFlush(t *testing.T) {
 	// Arrange.
 	var sink bytes.Buffer
-	s, err := g.CompileStream(&sink, streamConfig(g.NewPipeline[string]()))
+	s, err := g.CompileStream(&sink, streamConfig(g.MustNewPipeline[string]()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +88,7 @@ func TestUnitCapabilityAndSequence(t *testing.T) {
 		}
 		return strings.ReplaceAll(s, "secret", "[X]"), &g.Report{Action: g.ActionRedact}, nil
 	})
-	cfg := streamConfig(g.NewPipeline(g.WithFastPath(rule)))
+	cfg := streamConfig(g.MustNewPipeline(g.WithSequential(rule)))
 	cfg.Profile = g.ReleaseValidatedUnits
 	var sink bytes.Buffer
 	// Act: unknown capability rejected before issuing any bytes.
@@ -98,7 +98,9 @@ func TestUnitCapabilityAndSequence(t *testing.T) {
 		t.Fatal("unsupported unit profile accepted")
 	}
 	// Arrange compatible unit-local rule.
-	cfg.Pipeline = g.NewPipeline(g.WithFastPath(g.WithStreamingCapabilities(rule, g.StreamCapabilities{Unit: true})))
+	cfg.Pipeline = g.MustNewPipeline(
+		g.WithSequential(g.WithStreamingCapabilities(rule, g.StreamCapabilities{Unit: true})),
+	)
 	s, err := g.CompileStream(&sink, cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -135,9 +137,9 @@ func TestStreamBoundsAndFault(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			// Arrange.
-			p := g.NewPipeline[string]()
+			p := g.MustNewPipeline[string]()
 			if test.guard != nil {
-				p = g.NewPipeline(g.WithFastPath(test.guard))
+				p = g.MustNewPipeline(g.WithSequential(test.guard))
 			}
 			cfg := streamConfig(p)
 			cfg.MaxPendingBytes = test.pending
@@ -167,7 +169,7 @@ func (shortSink) Write(p []byte) (int, error) { return len(p) / 2, nil }
 
 func TestTransportCountAndStickyCompletion(t *testing.T) {
 	// Arrange.
-	s, err := g.CompileStream(shortSink{}, streamConfig(g.NewPipeline[string]()))
+	s, err := g.CompileStream(shortSink{}, streamConfig(g.MustNewPipeline[string]()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,12 +185,12 @@ func TestTransportCountAndStickyCompletion(t *testing.T) {
 }
 
 func TestCancellationAfterIgnoringValidatorSuppressesDelivery(t *testing.T) {
-	// Arrange: cooperative timeout must also be checked after a non-cooperative rule.
-	rule := g.ValidatorFunc[string](func(_ context.Context, s string) (string, *g.Report, error) {
-		time.Sleep(5 * time.Millisecond)
+	// Arrange: wait for the deadline, then deliberately return pass without its error.
+	rule := g.ValidatorFunc[string](func(ctx context.Context, s string) (string, *g.Report, error) {
+		<-ctx.Done()
 		return s, &g.Report{Action: g.ActionPass}, nil
 	})
-	cfg := streamConfig(g.NewPipeline(g.WithFastPath(rule)))
+	cfg := streamConfig(g.MustNewPipeline(g.WithSequential(rule)))
 	cfg.ValidationTimeout = time.Millisecond
 	var sink bytes.Buffer
 	s, err := g.CompileStream(&sink, cfg)

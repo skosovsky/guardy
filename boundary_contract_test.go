@@ -10,20 +10,22 @@ import (
 
 func TestCanonicalArgsFinalGuardAfterPostBind(t *testing.T) {
 	// Arrange: final schema requires a positive amount after binding.
-	final := NewPipeline(WithFastPath(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
-		var v positiveAmount
-		if err := json.Unmarshal([]byte(s), &v); err != nil {
-			return s, nil, err
-		}
-		if v.Amount == 0 {
-			return s, FinishReport(
-				&Report{Action: ActionRetry, Code: CodeJSONSchemaInvalid},
-				ControlSpec{Action: ActionRetry},
-			), nil
-		}
-		return s, &Report{Action: ActionPass}, nil
-	})))
-	p := MustCompileArgs[positiveAmount](NewPipeline[string](), WithArgsFinalGuard[positiveAmount](final))
+	final := MustNewPipeline(
+		WithSequential(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
+			var v positiveAmount
+			if err := json.Unmarshal([]byte(s), &v); err != nil {
+				return s, nil, err
+			}
+			if v.Amount == 0 {
+				return s, FinishReport(
+					&Report{Action: ActionRetry, Code: CodeJSONSchemaInvalid},
+					ControlSpec{Action: ActionRetry},
+				), nil
+			}
+			return s, &Report{Action: ActionPass}, nil
+		})),
+	)
+	p := MustCompileArgs[positiveAmount](MustNewPipeline[string](), WithArgsFinalGuard[positiveAmount](final))
 	calls := 0
 	wrapped := WrapArgs(
 		p,
@@ -41,7 +43,7 @@ func TestCanonicalArgsFinalGuardAfterPostBind(t *testing.T) {
 func TestFreshScopeOnEveryInvocation(t *testing.T) {
 	// Arrange: caller policy factory changes between host-controlled invocations.
 	key := NewScopeKey[bool]("allowed")
-	policy := NewPolicyFuncWithScope(
+	policy := MustPolicyFuncWithScope(
 		[]ScopeRequirement{key.Requirement()},
 		func(_ context.Context, s string, scope ExecutionScope) (string, *Report, error) {
 			allow, _ := key.Lookup(scope)
@@ -51,7 +53,7 @@ func TestFreshScopeOnEveryInvocation(t *testing.T) {
 			return s, &Report{Action: ActionPass}, nil
 		},
 	)
-	p := MustCompileArgs[argsCommand](NewPipeline(WithPolicyValidators(policy)))
+	p := MustCompileArgs[argsCommand](MustNewPipeline(WithPolicyValidators(policy)))
 	allowed := true
 	factory := ScopeFactory(
 		func(context.Context) (ExecutionScope, error) { return NewScope(ScopeValue(key, allowed)), nil },
@@ -73,12 +75,14 @@ func TestFreshScopeOnEveryInvocation(t *testing.T) {
 
 func TestFallbackMustPassContentPolicy(t *testing.T) {
 	// Arrange.
-	p := NewPipeline(WithFastPath(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
-		if strings.Contains(s, "secret") {
-			return s, &Report{Action: ActionBlock}, nil
-		}
-		return s, &Report{Action: ActionPass}, nil
-	})))
+	p := MustNewPipeline(
+		WithSequential(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
+			if strings.Contains(s, "secret") {
+				return s, &Report{Action: ActionBlock}, nil
+			}
+			return s, &Report{Action: ActionPass}, nil
+		})),
+	)
 	// Act.
 	result, err := p.GuardDelivery(
 		context.Background(),
@@ -98,7 +102,7 @@ func TestDynamicSchemaCannotMutateNestedArguments(t *testing.T) {
 		obj["nested"].(map[string]any)["name"] = "injected"
 		return &Report{Action: ActionPass}
 	})
-	p := MustCompileJSONArgs(NewPipeline[string](), schema, WithJSONArgsMetadata(
+	p := MustCompileJSONArgs(MustNewPipeline[string](), schema, WithJSONArgsMetadata(
 		JSONArgsMetadata{ID: "nested"}),
 	)
 

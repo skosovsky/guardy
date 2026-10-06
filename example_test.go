@@ -15,7 +15,7 @@ import (
 
 func ExamplePipeline_Run() {
 	wordlistV := ext.MustWordlistValidator([]string{"bad"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(wordlistV))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(wordlistV))
 	ctx := context.Background()
 	result, err := pipeline.Run(ctx, nil, "this is bad")
 	if err != nil {
@@ -29,12 +29,12 @@ func ExamplePipeline_Run() {
 	// blocked: FORBIDDEN
 }
 
-func ExampleNewPipeline() {
+func ExampleMustNewPipeline() {
 	regexV, _ := ext.NewRegexValidator(`(?i)(ignore previous|system prompt)`, ext.WithCode("PROMPT_INJECTION"))
 	lengthV := ext.MustLengthValidator(0, 10000, ext.WithCode("TOO_LONG"))
 
-	pipeline := guardy.NewPipeline(
-		guardy.WithFastPath(regexV, lengthV),
+	pipeline := guardy.MustNewPipeline(
+		guardy.WithSequential(regexV, lengthV),
 	)
 
 	ctx := context.Background()
@@ -58,8 +58,8 @@ func ExampleNewPipeline() {
 
 func ExamplePipeline_Run_withScope() {
 	roleKey := guardy.NewScopeKey[string]("principal.role")
-	pipeline := guardy.NewPipeline(
-		guardy.WithPolicyValidators(guardy.NewTypedAttributeEquals[string, string](
+	pipeline := guardy.MustNewPipeline(
+		guardy.WithPolicyValidators(guardy.MustTypedAttributeEquals[string, string](
 			roleKey,
 			"admin",
 			guardy.WithPolicyCode(guardy.CodeAttributeMismatch),
@@ -79,7 +79,7 @@ func ExamplePipeline_Run_withScope() {
 
 func ExampleGuard() {
 	regexV, _ := ext.NewRegexValidator(`(?i)ignore`, ext.WithCode("INJECT"))
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(regexV))
 
 	extractor := func(r *http.Request) (string, error) {
 		body, _ := io.ReadAll(r.Body)
@@ -103,7 +103,7 @@ func ExampleGuard() {
 
 func ExampleCompileStream() {
 	v := &examplePassValidator{}
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(v))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
 
 	var out strings.Builder
 	gw, err := guardy.CompileStream(&out, guardy.StreamConfig{

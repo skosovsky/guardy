@@ -44,9 +44,9 @@ func TestFinalChecksRejectPostMutationRequiredAndEnum(t *testing.T) {
 			// Arrange: raw schema passes, then the post-bind hook changes the value.
 			early, final, calls := 0, 0, 0
 			p := MustCompileArgs[mutatedContractArgs](
-				NewPipeline(WithFastPath(executableModeChecker(&early))),
+				MustNewPipeline(WithSequential(executableModeChecker(&early))),
 				WithArgsFinalGuard[mutatedContractArgs](
-					NewPipeline(WithFastPath(executableModeChecker(&final))),
+					MustNewPipeline(WithSequential(executableModeChecker(&final))),
 				),
 			)
 			handler := WrapArgs(
@@ -71,8 +71,8 @@ func TestFinalChecksRejectPostMutationRequiredAndEnum(t *testing.T) {
 				}
 				return `{"mode":"invalid"}`, &Report{Action: ActionRedact}, nil
 			})
-			p := MustCompileJSONArgs(NewPipeline(WithFastPath(executableModeChecker(&early), sanitizer)), nil,
-				WithJSONArgsFinalGuard(NewPipeline(WithFastPath(executableModeChecker(&final)))))
+			p := MustCompileJSONArgs(MustNewPipeline(WithSequential(executableModeChecker(&early), sanitizer)), nil,
+				WithJSONArgsFinalGuard(MustNewPipeline(WithSequential(executableModeChecker(&final)))))
 			handler := WrapGuardedJSONArgs(
 				p,
 				nil,
@@ -109,7 +109,7 @@ func TestComposedBoundaryRoutingMatrix(t *testing.T) {
 			rule := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 				return value, fixture.report, fixture.fault
 			})
-			p := MustCompileArgs[argsCommand](NewPipeline(WithFastPath(rule)))
+			p := MustCompileArgs[argsCommand](MustNewPipeline(WithSequential(rule)))
 			handler := WrapArgs(
 				p,
 				nil,
@@ -119,8 +119,11 @@ func TestComposedBoundaryRoutingMatrix(t *testing.T) {
 			_, boundary, err := handler(context.Background(), `{"name":"one"}`)
 			var failure *PolicyFailure
 			// Assert.
-			if calls != 0 || !errors.As(err, &failure) || failure.Decision != boundary.Decision ||
-				failure.Decision.Route(fixture.budget).Outcome != fixture.outcome {
+			if calls != 0 || !errors.As(err, &failure) || failure.Decision != boundary.Decision {
+				t.Fatalf("calls=%d boundary=%+v err=%v", calls, boundary, err)
+			}
+			route, routeErr := failure.Decision.Route(fixture.budget)
+			if routeErr != nil || route.Outcome != fixture.outcome {
 				t.Fatalf("calls=%d boundary=%+v err=%v", calls, boundary, err)
 			}
 		})
@@ -132,8 +135,8 @@ func TestIndependentConsumerPoliciesAndSerialization(t *testing.T) {
 	value := "secret result"
 	for _, channel := range []string{"context", "persistence", "export"} {
 		t.Run(channel, func(t *testing.T) {
-			p := NewPipeline(
-				WithFastPath(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
+			p := MustNewPipeline(
+				WithSequential(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
 					switch channel {
 					case "context":
 						return s, nil, nil
@@ -179,7 +182,7 @@ func TestPreHandlerDenyVersusShadowObservation(t *testing.T) {
 		rule := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 			return value, &Report{Action: ActionBlock, ShadowMode: shadow}, nil
 		})
-		p := NewPipeline(WithFastPath(rule), WithObserver[string](func(context.Context, GuardEvent) { events++ }))
+		p := MustNewPipeline(WithSequential(rule), WithObserver[string](func(context.Context, GuardEvent) { events++ }))
 		handler := WrapInput(
 			p,
 			nil,
@@ -211,7 +214,7 @@ func TestResumeRechecksChangedScopePolicyAndArguments(t *testing.T) {
 				return NewScope(ScopeValue(argsAllowed, allowed)), nil
 			})
 			compile := func(id string) *ArgsPipeline[mutatedContractArgs] {
-				policy := NewPolicyFuncWithScope([]ScopeRequirement{argsAllowed.Requirement()},
+				policy := MustPolicyFuncWithScope([]ScopeRequirement{argsAllowed.Requirement()},
 					func(_ context.Context, value string, scope ExecutionScope) (string, *Report, error) {
 						permit, _ := argsAllowed.Lookup(scope)
 						if !permit || id == "args-policy-B" {
@@ -221,9 +224,9 @@ func TestResumeRechecksChangedScopePolicyAndArguments(t *testing.T) {
 					})
 				checks := 0
 				return MustCompileArgs[mutatedContractArgs](
-					NewPipeline(WithPolicyValidators(policy)),
+					MustNewPipeline(WithPolicyValidators(policy)),
 					WithArgsFinalGuard[mutatedContractArgs](
-						NewPipeline(WithFastPath(executableModeChecker(&checks))),
+						MustNewPipeline(WithSequential(executableModeChecker(&checks))),
 					),
 					WithArgsConfigurationID[mutatedContractArgs](id),
 				)
@@ -291,7 +294,7 @@ func TestObserverDisabledEnabledSampledParity(t *testing.T) {
 		shadow := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 			return value, &Report{Action: ActionBlock, ShadowMode: true}, nil
 		})
-		args := MustCompileArgs[argsCommand](NewPipeline(WithFastPath(shadow), WithObserver[string](observer)))
+		args := MustCompileArgs[argsCommand](MustNewPipeline(WithSequential(shadow), WithObserver[string](observer)))
 		var observed observation
 		handler := WrapArgs(
 			args,
@@ -305,8 +308,8 @@ func TestObserverDisabledEnabledSampledParity(t *testing.T) {
 		}
 		var sink bytes.Buffer
 		cfg := testStreamConfig(
-			NewPipeline(
-				WithFastPath(WithStreamingCapabilities(shadow, StreamCapabilities{Unit: true})),
+			MustNewPipeline(
+				WithSequential(WithStreamingCapabilities(shadow, StreamCapabilities{Unit: true})),
 				WithObserver[string](observer),
 			),
 		)
@@ -345,8 +348,8 @@ func TestTechnicalCallbackReplacementAndFallbackDestinationChecks(t *testing.T) 
 	for _, candidate := range []string{"safe notice", "secret replacement", `{"tool_calls":[]}`} {
 		t.Run(candidate, func(t *testing.T) {
 			// Arrange: downstream checks apply equally to callback replacement and fallback.
-			p := NewPipeline(
-				WithFastPath(ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
+			p := MustNewPipeline(
+				WithSequential(ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
 					if strings.Contains(value, "secret") {
 						return value, &Report{Action: ActionBlock}, nil
 					}

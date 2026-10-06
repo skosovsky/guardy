@@ -1,0 +1,10 @@
+--- FAIL: TestT08LegacyConstructionAdmission (0.00s)
+    --- FAIL: TestT08LegacyConstructionAdmission/nil_sequential (0.00s)
+        pipeline_construction_baseline_test.go:13: invalid configuration admitted before Run
+    --- FAIL: TestT08LegacyConstructionAdmission/nil_parallel (0.00s)
+        pipeline_construction_baseline_test.go:13: invalid configuration admitted before Run
+    --- FAIL: TestT08LegacyConstructionAdmission/fallback_without_channel (0.00s)
+        pipeline_construction_baseline_test.go:13: invalid configuration admitted before Run
+FAIL
+FAIL	github.com/skosovsky/guardy	0.399s
+FAIL

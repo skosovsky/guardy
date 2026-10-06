@@ -395,8 +395,9 @@ parent cancellation enforce. Low-level Run may retain prior diagnostic output;
 guarded boundaries suppress values on faults. The carrier is a trusted-code
 attestation, not proof that arbitrary host detector claims are true. It exposes no
 transformed value, grants no declassification and never activates fallback. This
-error/cancellation contract does not add callback termination or panic recovery;
-central panic handling remains a separate core configuration/fault task.
+error/cancellation contract does not add callback termination. Pipeline Validate
+panic recovery is specified under Pipeline callback faults; direct adapters retain
+their own callback contracts.
 
 ### Recursive JSON aggregation
 
@@ -416,3 +417,76 @@ hide a subsequent fault, including invalid reports. Go error/cancellation preser
 only prior completed classification through the T06 evidence carrier; failed leaf
 report/output is discarded. Host leaf callbacks must be independent, cooperative,
 and free of input alias mutation or irreversible validation side effects.
+
+## Pipeline callback faults (T08)
+
+Every Validate invocation in sequential, policy and parallel phases, including
+middleware's Validate wrapper, has the same panic boundary. A panic is a validator
+system fault, never pass, retry or shadow observation. The failed callback's report
+and returned value are discarded; completed earlier observations and original
+error/cancellation causes are retained. Public error text and fault diagnostics do
+not format the panic value. `ValidatorPanicError.PanicValue` explicitly exposes the
+original value for trusted operator inspection; an error-valued panic also remains
+in the cause chain. High-level delivery suppresses payload on this fault.
+
+Recovery surrounds Validate only. Pipeline option evaluation, RequiredScope and
+middleware construction callbacks are trusted construction code: their panics
+remain construction panics. Framework scope prechecks, runtime observer and host
+sink callbacks must not panic; their invocations sit outside Validate recovery.
+A scope lookup (or another nested callback) invoked inside Validate is covered by
+that enclosing Validate boundary, not by an independent scope/host recovery layer. Recovery is not
+rollback for mutations of caller-owned aliases or external callback side effects.
+
+## Pipeline phase identities (T08)
+
+`WithSequential` validators execute in registration order and may return a new
+value. Policy validators then execute sequentially with the supplied scope.
+`WithParallel` validators read the final sequential/policy value concurrently;
+returned values are ignored and ActionRedact is a system fault. Middleware and
+observer context/event phases use the stable serialized identities `sequential`,
+`policy`, `parallel`. There are three phases; names describe execution semantics,
+not estimated latency. Fast/Slow APIs and labels are removed in this clear break.
+
+## Pipeline construction and routing configuration (T08)
+
+NewPipeline returns (*Pipeline[T], error); MustNewPipeline panics on that same
+error for static configuration. Use returns a new pipeline and an error;
+MustUse is the explicit static-configuration wrapper. Nil options, nil/typed-nil
+rules in every phase, nil middleware and nil middleware wrapper layers are
+configuration errors. WithObserver(nil) explicitly disables the optional observer.
+WithUserChannelFallback requires WithUserChannel, including an empty fallback.
+Empty pipelines and empty phase lists are valid. RequiredScope is evaluated only
+after rules are checked. Options, RequiredScope and middleware factories are
+trusted deterministic construction callbacks; their panics are not intercepted.
+Middleware factories for scoped policies are checked during Use and reconstructed
+per invocation; they must return valid wrappers for every supplied scope.
+
+Core policy/Judge constructors are fallible with explicit Must wrappers. Nil policy
+functions/options, zero scope keys and nil/typed-nil Judge implementations are
+configuration errors. Scope requirements need a nonempty key; typed declarations
+come from ScopeKey.Requirement. Name-only declarations retain their presence-only
+contract. Caller-owned equality operands remain borrowed; construction does not
+introduce a universal copier.
+
+Report remains the validator diagnostic/observation DTO: Action describes the
+requested intervention, while the normalized disposition drives enforcement.
+Fatal is escalation; Retryable describes retry metadata; ShadowMode suppresses
+only a valid, nonfatal block. Explicit terminal/fault dispositions may strengthen
+an action. Explicit retryable disposition requires ActionRetry. Invalid actions,
+dispositions, payload kinds and nonfinite scores fault even in shadow mode. This
+keeps existing consumers and avoids a second outcome DTO; it does not authorize
+routing by diagnostic strings or MutatedText.
+
+Low-level Run intentionally has two system-fault channels: a Validate Go error
+(including panic/cancellation) returns a safe typed ValidatorFaultError; a completed
+report-only system fault returns a fault decision with nil Go error. Always inspect
+PolicyDecision after checking error. High-level boundaries project both into a
+PolicyFailure and suppress payload delivery. Returned T is the authoritative value.
+
+RouteDecision and Decision.Route return (GuardRoute, error). Negative RetryAttempt
+or MaxRetries is a configuration error for every decision. Zero budget permits no
+retries. The helper is a stateless projection: it never increments counters, calls
+callbacks, schedules retries or delivers messages. FallbackDelivery is a host
+proposal, not approval of SafeMessage/FallbackMessage; the chosen fallback must
+pass a separate GuardDelivery check for its destination. System faults never
+propose fallback. Repeated calls with identical inputs return identical routes.

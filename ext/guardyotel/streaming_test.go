@@ -56,13 +56,13 @@ func verifyOTelStream(
 	if capability != nil {
 		rule = guardy.WithStreamingCapabilities(rule, *capability)
 	}
-	p := guardy.NewPipeline(guardy.WithFastPath(rule))
+	p := guardy.MustNewPipeline(guardy.WithSequential(rule))
 	if inner {
-		p = p.Use(func(next guardy.Validator[string]) guardy.Validator[string] {
+		p = p.MustUse(func(next guardy.Validator[string]) guardy.Validator[string] {
 			return guardy.ValidatorFunc[string](next.Validate)
 		})
 	}
-	p = p.Use(NewMiddleware[string](WithTracer(nil), WithMeter(nil)))
+	p = p.MustUse(NewMiddleware[string](WithTracer(nil), WithMeter(nil)))
 	cfg := otelStreamConfig(p, profile)
 	if profile == guardy.ReleaseWholeResponse {
 		cfg.MaxUnitBytes = 64

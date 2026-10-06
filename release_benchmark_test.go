@@ -39,7 +39,7 @@ func BenchmarkStreamRelease(b *testing.B) {
 					}),
 					StreamCapabilities{Partial: true, Unit: true, Final: true},
 				)
-				cfg := testStreamConfig(NewPipeline(WithFastPath(rule)))
+				cfg := testStreamConfig(MustNewPipeline(WithSequential(rule)))
 				cfg.Profile = profile
 				cfg.MaxInputBytes, cfg.MaxOutputBytes = int64(len(input)), int64(len(input))
 				cfg.MaxPendingBytes = len(input)

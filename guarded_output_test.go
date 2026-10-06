@@ -9,7 +9,7 @@ import (
 func TestPipeline_GuardOutputDeliverable(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -41,10 +41,10 @@ func TestPipeline_GuardOutputDeliverable(t *testing.T) {
 func TestPipeline_GuardOutputBlocksTechnicalPayload(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(
+	pipeline := MustNewPipeline(
 		WithUserChannel[string](),
 		WithUserChannelFallback[string]("blocked"),
-		WithFastPath(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
+		WithSequential(ValidatorFunc[string](func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
 				Validator:   "classifier",
@@ -81,7 +81,7 @@ func TestPipeline_GuardOutputBlocksTechnicalPayload(t *testing.T) {
 func TestPipeline_GuardOutputBlockDoesNotExposeRawValue(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:    ActionBlock,
@@ -109,7 +109,7 @@ func TestPipeline_GuardOutputBlockDoesNotExposeRawValue(t *testing.T) {
 func TestPipeline_GuardDeliveryBlocksStructuredSafeText(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -150,7 +150,7 @@ func TestPipeline_GuardDeliveryBlocksDefinedStringJSON(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	type reply string
-	pipeline := NewPipeline[reply]()
+	pipeline := MustNewPipeline[reply]()
 
 	// Act.
 	output, err := pipeline.GuardDelivery(
@@ -175,7 +175,7 @@ func TestPipeline_GuardDeliveryBlocksDefinedStringJSON(t *testing.T) {
 func TestPipeline_GuardDeliveryBlocksStructuredMap(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline[map[string]any]()
+	pipeline := MustNewPipeline[map[string]any]()
 
 	// Act.
 	output, err := pipeline.GuardDelivery(
@@ -200,7 +200,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredMap(t *testing.T) {
 func TestPipeline_GuardDeliveryBlocksStructuredSlice(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline[[]string]()
+	pipeline := MustNewPipeline[[]string]()
 
 	// Act.
 	output, err := pipeline.GuardDelivery(
@@ -228,7 +228,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredStruct(t *testing.T) {
 	type deliveryEnvelope struct {
 		Internal bool
 	}
-	pipeline := NewPipeline[deliveryEnvelope]()
+	pipeline := MustNewPipeline[deliveryEnvelope]()
 
 	// Act.
 	output, err := pipeline.GuardDelivery(
@@ -256,7 +256,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredPointer(t *testing.T) {
 	type deliveryEnvelope struct {
 		Internal bool
 	}
-	pipeline := NewPipeline[*deliveryEnvelope]()
+	pipeline := MustNewPipeline[*deliveryEnvelope]()
 
 	// Act.
 	output, err := pipeline.GuardDelivery(
@@ -284,7 +284,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointer(t *testing.T) {
 	type deliveryEnvelope struct {
 		Internal bool
 	}
-	pipeline := NewPipeline[*deliveryEnvelope]()
+	pipeline := MustNewPipeline[*deliveryEnvelope]()
 	var outputValue *deliveryEnvelope
 
 	// Act.
@@ -313,7 +313,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointer(t *testing.T) {
 func TestPipeline_GuardDeliveryUsesTypedFallback(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			if input == "safe fallback" {
 				return input, &Report{Action: ActionPass}, nil
@@ -357,7 +357,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointerFallback(t *testing.T) 
 		Internal bool
 	}
 	var fallback *deliveryEnvelope
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[*deliveryEnvelope](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[*deliveryEnvelope](
 		func(_ context.Context, input *deliveryEnvelope) (*deliveryEnvelope, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -390,7 +390,7 @@ func TestPipeline_GuardDeliveryBlocksNilStructuredPointerFallback(t *testing.T) 
 func TestPipeline_GuardDeliveryBlocksStructuredFallback(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[map[string]any](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[map[string]any](
 		func(_ context.Context, input map[string]any) (map[string]any, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -423,7 +423,7 @@ func TestPipeline_GuardDeliveryBlocksStructuredFallback(t *testing.T) {
 func TestPipeline_GuardDeliveryBlocksJSONFallback(t *testing.T) {
 	t.Parallel()
 	// Arrange.
-	pipeline := NewPipeline(WithFastPath(ValidatorFunc[string](
+	pipeline := MustNewPipeline(WithSequential(ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *Report, error) {
 			return input, FinishReport(&Report{
 				Action:      ActionPass,
@@ -457,8 +457,8 @@ func TestPipeline_GuardDeliveryRunErrorIsNotDeliverable(t *testing.T) {
 	t.Parallel()
 	// Arrange.
 	roleKey := NewScopeKey[string]("role")
-	pipeline := NewPipeline(
-		WithPolicyValidators(NewTypedAttributePresent[string, string](roleKey)),
+	pipeline := MustNewPipeline(
+		WithPolicyValidators(MustTypedAttributePresent[string, string](roleKey)),
 	)
 
 	// Act.

@@ -25,8 +25,12 @@ func callbackCancellation(ctx context.Context, callbackErr error) error {
 func cancellationOnly(err error) bool {
 	// A nested pipeline marks its cancellation as a fault for its own caller.
 	// The category marker is not an independent failure of this sibling check.
-	//nolint:errorlint // Inspect this node only; errors.As could skip other independently failed joined causes.
-	if fault, ok := err.(*ValidatorFaultError); ok {
+	//nolint:errorlint // Inspect this node only; errors.As could skip independent joined causes.
+	switch fault := err.(type) {
+	case *ValidatorPanicError:
+		// Panic is an independent failure even if its value unwraps to cancellation.
+		return false
+	case *ValidatorFaultError:
 		return cancellationOnly(fault.Failure.Cause)
 	}
 	if joined, ok := err.(interface{ Unwrap() []error }); ok {

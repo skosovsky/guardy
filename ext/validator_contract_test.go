@@ -153,7 +153,7 @@ func TestClassifierContextFaultAndNoLateDelivery(t *testing.T) {
 					return ClassifierResult{IsViolation: violation, Score: score}, nil
 				}),
 			)
-			pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
+			pipeline := guardy.MustNewPipeline(guardy.WithSequential(validator))
 			// Act.
 			result, err := pipeline.GuardOutput(context.Background(), nil, "payload")
 			// Assert.
@@ -175,7 +175,7 @@ func TestClassifierContextFaultAndNoLateDelivery(t *testing.T) {
 		cancel()
 		return ClassifierResult{Score: 1}, nil
 	}))
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(validator))
 	// Act.
 	result, err := pipeline.GuardOutput(ctx, nil, "payload")
 	// Assert.
@@ -241,7 +241,7 @@ func TestClassifierErrorIsPipelineFault(t *testing.T) {
 	validator := MustClassifierValidator(
 		classifierFunc(func(context.Context, string) (ClassifierResult, error) { return ClassifierResult{}, want }),
 	)
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(validator))
 	// Act.
 	result, err := pipeline.GuardOutput(context.Background(), nil, "payload")
 	// Assert.

@@ -12,7 +12,7 @@ func ExampleArgsPipeline_Validate() {
 		Name string `json:"name"`
 	}
 
-	argsPipeline := guardy.MustCompileArgs[Command](guardy.NewPipeline[string]())
+	argsPipeline := guardy.MustCompileArgs[Command](guardy.MustNewPipeline[string]())
 	payload, err := argsPipeline.Validate(context.Background(), nil, `{"name":"Ada"}`)
 	if err != nil {
 		panic(err)
@@ -27,7 +27,7 @@ func ExampleArgsPipeline_Validate() {
 
 func ExampleJSONArgsPipeline_Validate() {
 	argsPipeline := guardy.MustCompileJSONArgs(
-		guardy.NewPipeline[string](),
+		guardy.MustNewPipeline[string](),
 		nil,
 		guardy.WithJSONArgsMetadata(guardy.JSONArgsMetadata{ID: "command.schema"}),
 	)
@@ -48,7 +48,7 @@ func ExampleJSONArgsPipeline_Validate() {
 
 func ExampleWrapGuardedJSONArgs() {
 	argsPipeline := guardy.MustCompileJSONArgs(
-		guardy.NewPipeline[string](),
+		guardy.MustNewPipeline[string](),
 		nil,
 		guardy.WithJSONArgsMetadata(guardy.JSONArgsMetadata{ID: "command.schema"}),
 	)
@@ -73,7 +73,7 @@ func ExampleWrapGuardedJSONArgs() {
 }
 
 func ExamplePipeline_GuardOutput() {
-	outputPipeline := guardy.NewPipeline(guardy.WithFastPath(guardy.ValidatorFunc[string](
+	outputPipeline := guardy.MustNewPipeline(guardy.WithSequential(guardy.ValidatorFunc[string](
 		func(_ context.Context, input string) (string, *guardy.Report, error) {
 			return input, guardy.FinishReport(&guardy.Report{
 				Action:      guardy.ActionPass,
@@ -97,7 +97,7 @@ func ExamplePipeline_GuardOutput() {
 }
 
 func ExamplePipeline_GuardDelivery() {
-	outputPipeline := guardy.NewPipeline[string]()
+	outputPipeline := guardy.MustNewPipeline[string]()
 	guarded, _ := outputPipeline.GuardDelivery(
 		context.Background(),
 		nil,
@@ -121,8 +121,11 @@ func ExampleDecision_Route() {
 		Feedback: "fix the payload",
 	}, guardy.ControlSpec{Action: guardy.ActionRetry}))
 
-	route := decision.Route(guardy.RemediationPolicy{RetryAttempt: 1, MaxRetries: 3})
+	route, err := decision.Route(guardy.RemediationPolicy{RetryAttempt: 1, MaxRetries: 3})
 
+	if err != nil {
+		panic(err)
+	}
 	fmt.Println(route.Outcome)
 	fmt.Println(route.Retryable)
 	fmt.Println(route.RetryFeedback)

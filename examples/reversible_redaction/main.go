@@ -32,7 +32,7 @@ func main() {
 		ext.WithSeverity(guardy.SeverityMedium),
 	)
 
-	pipeline := guardy.NewPipeline(guardy.WithFastPath(piiValidator, wordlistValidator))
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(piiValidator, wordlistValidator))
 	input := "Contact alice@example.com. Internal customer: ACME."
 	result, err := pipeline.Run(context.Background(), nil, input)
 	if err != nil {
@@ -43,7 +43,7 @@ func main() {
 	llmAnswer := "Approved summary: " + redacted
 	// Caller-owned facts/decision: a token never grants permission to disclose.
 	const ownerID = "customer-42"
-	final := guardy.NewPipeline(guardy.WithFastPath(ext.MustLengthValidator(0, maxRecipientOutputLength)))
+	final := guardy.MustNewPipeline(guardy.WithSequential(ext.MustLengthValidator(0, maxRecipientOutputLength)))
 
 	for _, recipientID := range []string{"external-reader", ownerID} {
 		checked, err := restoreForRecipient(context.Background(), recipientID, ownerID, llmAnswer, vault, final)
