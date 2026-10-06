@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T05 приняты; T06 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T06 приняты; T07 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -297,7 +297,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Mandatory faults не становятся fallback, whole-response JSON отдельный contract не повреждён.
 4. Stream race/partition/work tests и релевантные changed benchmarks сохранены.
 
-**T06 — completed observations** (ожидает T05; commit `fix: fault evidence`; R07).
+**T06 — completed observations** (принят: полнота 100%, correctness PASS; commit `fix: fault evidence`; R07).
 1. Типизированный completed evidence contract не доверяет failed callback report/output; MapSlice сохраняет только prior successful observations.
 2. Technical/internal + error/wrapped cancellation согласованы direct/RunResult/boundary/PolicyFailure; first fault default; transformed output suppress; AAA baseline repro.
 3. Все фазы pipeline и recursive adapters проверены, failure/cancellation cause сохранён; contracts/tests актуальны.
@@ -357,3 +357,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T05 acceptance
 
 Независимые приёмки итогового diff: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t05-*`. Root/optional OTel race, root lint, before/after adversarial/component benchmarks PASS. Независимый public API probe проверил irreversible prefix, expansion с retained classification, cancellation и short fallback transport. Предыдущий принятый commit T04: `f07f82b fix: stream limits`. Commit T05: `fix: stream framing`.
+
+### T06 acceptance
+
+После исправления simultaneous cancellation cause loss обе независимые приёмки повторены на окончательном diff: полнота 100% (3/3), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t06-*`. Final all19modules race и make lint PASS, независимые focused race ×10 и direct cancellation probe PASS. Архив baseline HEAD `98a52c2` подтвердил R07 во всех фазах. T07 aggregation и T08 panic handling остаются отдельными задачами. Предыдущий принятый commit T05: `98a52c2 fix: stream framing`. Commit T06: `fix: fault evidence`.

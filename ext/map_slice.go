@@ -41,19 +41,19 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 	}
 
 	out := append([]T(nil), input...)
-	combined := guardy.ComposeReports()
+	var combined *guardy.Report
 
 	for i := range input {
 		if err := ctx.Err(); err != nil {
-			return input, combined, err
+			return mapSliceFault(input, combined, err)
 		}
 		current := input[i]
 		newSub, rep, err := m.validator.Validate(ctx, m.extract(current))
-		if err != nil {
-			return input, rep, err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
 		}
-		if err := ctx.Err(); err != nil {
-			return input, combined, err
+		if err != nil {
+			return mapSliceFault(input, combined, err)
 		}
 		indexed := rep.CloneWithoutState()
 		prefixIndex(indexed, i)
@@ -67,7 +67,7 @@ func (m *mapSliceValidator[T]) Validate(ctx context.Context, input []T) ([]T, *g
 		}
 	}
 	if err := ctx.Err(); err != nil {
-		return input, combined, err
+		return mapSliceFault(input, combined, err)
 	}
 	return out, combined, nil
 }
@@ -82,4 +82,9 @@ func prefixIndex(rep *guardy.Report, idx int) {
 	if rep.Feedback != "" {
 		rep.Feedback = fmt.Sprintf("item[%d]: %s", idx, rep.Feedback)
 	}
+}
+
+func mapSliceFault[T any](input []T, completed *guardy.Report, cause error) ([]T, *guardy.Report, error) {
+	err := guardy.WithCompletedObservations(cause, completed)
+	return input, guardy.CompletedReportFromError(err), err
 }

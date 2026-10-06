@@ -312,6 +312,11 @@ func (p *Pipeline[T]) finalizeResult(output T, reports []Report) RunResult[T] {
 }
 
 func (p *Pipeline[T]) validatorFaultResult(output T, reports []Report, cause error) (RunResult[T], error) {
+	completed := make([]*Report, len(reports))
+	for i := range reports {
+		completed[i] = &reports[i]
+	}
+	cause = WithCompletedObservations(cause, completed...)
 	faultRep := validatorFaultReport(cause)
 	reports = append(reports, faultRep)
 	result := RunResult[T]{
@@ -345,11 +350,11 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			return p.validatorFaultResult(current, reports, err)
 		}
 		out, rep, err := v.Validate(fastCtx, current)
-		if err == nil {
-			err = fastCtx.Err()
+		if ctxErr := fastCtx.Err(); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
 		}
 		if err != nil {
-			return p.validatorFaultResult(current, reports, err)
+			return p.validatorFaultResult(current, appendCompletedObservations(reports, err), err)
 		}
 		if rep != nil {
 			reports = append(reports, normalizeReport(rep))
@@ -373,11 +378,11 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			return p.validatorFaultResult(current, reports, err)
 		}
 		out, rep, err := v.Validate(policyCtx, current)
-		if err == nil {
-			err = policyCtx.Err()
+		if ctxErr := policyCtx.Err(); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
 		}
 		if err != nil {
-			return p.validatorFaultResult(current, reports, err)
+			return p.validatorFaultResult(current, appendCompletedObservations(reports, err), err)
 		}
 		if rep != nil {
 			reports = append(reports, normalizeReport(rep))
@@ -423,7 +428,13 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 			}()
 			out, rep, validateErr := v.Validate(gctx, current)
 			_ = out // slow-path is read-only, we ignore mutations
+			if ctxErr := gctx.Err(); ctxErr != nil {
+				validateErr = errors.Join(validateErr, ctxErr)
+			}
 			if validateErr != nil {
+				mu.Lock()
+				slowReps = appendCompletedObservations(slowReps, validateErr)
+				mu.Unlock()
 				// A sibling deny cancels cooperative checks; genuine detector faults
 				// still outrank deny/retry in the canonical result.
 				if errors.Is(validateErr, context.Canceled) && cancellationOnly(validateErr) && ctx.Err() == nil {

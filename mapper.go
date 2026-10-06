@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/skosovsky/guardy/internal/jsondoc"
 )
@@ -25,11 +26,11 @@ func (m *mappedValidator[T, U]) Validate(ctx context.Context, input T) (T, *Repo
 	}
 	subInput := m.extract(input)
 	newSub, rep, err := m.inner.Validate(ctx, subInput)
-	if err != nil {
-		return input, rep, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = errors.Join(err, ctxErr)
 	}
-	if err := ctx.Err(); err != nil {
-		return input, rep, err
+	if err != nil {
+		return input, CompletedReportFromError(err), err
 	}
 	if rep != nil {
 		normalized := normalizeReport(rep)
@@ -109,11 +110,11 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 	}
 
 	newStr, rep, err := m.inner.Validate(ctx, string(raw))
-	if err != nil {
-		return input, rep, err
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = errors.Join(err, ctxErr)
 	}
-	if err := ctx.Err(); err != nil {
-		return input, rep, err
+	if err != nil {
+		return input, CompletedReportFromError(err), err
 	}
 	if rep == nil {
 		return input, rep, nil

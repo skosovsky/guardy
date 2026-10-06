@@ -56,3 +56,13 @@ with the previous migration notes before the candidate is verified.
   irreversible replacement. Host lifecycle/ACL responsibilities remain unchanged.
 - Clean passes clear violation-only flags. Detected technical JSON still receives
   configured hit flags. Regex identity and zero-width matches remain detections.
+
+## Completed observations
+
+Compound validators returning an error must attach only earlier completed checks
+with WithCompletedObservations(error, reports...). Pipeline ignores the report
+returned beside an error, including late cancellation. Inspect attested history
+with CompletedReportFromError or errors.As into *CompletedObservationsError.
+Snapshots clear MutatedText and retain causes through errors.Is/errors.As. MapSlice
+and JSONRedact now preserve prior classification on faults; Map/MapJSONRawMessage
+error reports project only attested inner history. Fault delivery remains suppressed.

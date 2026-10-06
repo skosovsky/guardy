@@ -4,6 +4,7 @@ package jsonredact
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -49,17 +50,17 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 	)
 	walkErr := v.walk(ctx, &root, &changed, &lastRep)
 	if walkErr != nil {
-		return input, nil, walkErr
+		return jsonFault(input, lastRep, walkErr)
 	}
 	if guardy.DecisionFromReport(lastRep).Disposition != guardy.DispositionNone {
 		return input, lastRep, nil
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
-		return input, nil, fmt.Errorf("jsonredact: marshal: %w", err)
+		return jsonFault(input, lastRep, fmt.Errorf("jsonredact: marshal: %w", err))
 	}
 	if err := ctx.Err(); err != nil {
-		return input, nil, err
+		return jsonFault(input, lastRep, err)
 	}
 	if !changed {
 		if lastRep != nil {
@@ -109,10 +110,10 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 		}
 	case string:
 		out, rep, err := v.leafValidator.Validate(ctx, val)
-		if err != nil {
-			return err
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
 		}
-		if err := ctx.Err(); err != nil {
+		if err != nil {
 			return err
 		}
 		if rep != nil {
@@ -144,4 +145,9 @@ func isNilLeaf(leaf LeafValidator) bool {
 	default:
 		return false
 	}
+}
+
+func jsonFault(input string, completed *guardy.Report, cause error) (string, *guardy.Report, error) {
+	err := guardy.WithCompletedObservations(cause, completed)
+	return input, guardy.CompletedReportFromError(err), err
 }

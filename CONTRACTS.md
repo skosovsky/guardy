@@ -369,3 +369,31 @@ MaxOutputBytes also bounds cumulative actual release plus any separate fallback.
 Previously released prefixes remain irreversible; no failing unit is partially
 written for framing or budget errors. A mandatory processing fault makes separate
 fallback unavailable; fallback cannot turn the original terminal outcome to success.
+
+### Completed observations on processing errors
+
+A report/output returned beside a callback error is untrusted and is never treated
+as a completed check. This also applies when context cancellation is detected
+immediately after return. Compound adapters explicitly attach prior completed
+checks with WithCompletedObservations; CompletedObservationsError privately stores
+a snapshot and preserves the original cause through Unwrap. Snapshot projections
+clear MutatedText and return copies. CompletedReportFromError traverses wrappers
+and every joined branch, joining only these attested observations. A nested carrier
+already contains its nested evidence and is not counted twice. No cause/evidence
+fabricates a successful callback or a deliverable value.
+
+Pipeline consumes this separate evidence in fast, policy and slow phases, retains
+payload classification in RunResult, boundary Decision and PolicyFailure, and
+attaches its own completed history to nested pipeline faults. MapSlice/jsonredact
+return original input on error/cancellation and expose only completed snapshots,
+including nested carrier evidence. Map/MapJSONRawMessage forward attested inner
+history and discard raw failed reports. Failed callback output is never injected.
+
+Slow sibling-only cancellation after a policy stop is still not an independent
+fault, but completed evidence from that sibling is retained. Genuine faults and
+parent cancellation enforce. Low-level Run may retain prior diagnostic output;
+guarded boundaries suppress values on faults. The carrier is a trusted-code
+attestation, not proof that arbitrary host detector claims are true. It exposes no
+transformed value, grants no declassification and never activates fallback. This
+error/cancellation contract does not add callback termination or panic recovery;
+central panic handling remains a separate core configuration/fault task.

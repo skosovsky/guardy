@@ -1,0 +1,4 @@
+ok  	github.com/skosovsky/guardy	6.489s
+ok  	github.com/skosovsky/guardy/ext	1.987s
+ok  	github.com/skosovsky/guardy/guardytest	(cached)
+ok  	github.com/skosovsky/guardy/internal/jsondoc	(cached)
