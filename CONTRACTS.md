@@ -178,7 +178,7 @@ mode and declassification are explicit caller policies. Evidence is bounded refe
 not raw secrets. Each consumer has its own policy; only DeliveryProjection is
 serialized. Fallback/replacement values go through the destination's content checks.
 
-BoundaryProfile declares actual configured coverage, rejects unsupported mandatory
+BoundaryProfile declares caller-reported configured coverage, rejects unsupported mandatory
 boundaries, and does not automatically intercept hosted/remote execution. External
 approval binding and invocation remain the host's responsibility. A reference host
 gate binds exact canonical arguments, authenticated identity, destination, current
@@ -490,3 +490,45 @@ callbacks, schedules retries or delivers messages. FallbackDelivery is a host
 proposal, not approval of SafeMessage/FallbackMessage; the chosen fallback must
 pass a separate GuardDelivery check for its destination. System faults never
 propose fallback. Repeated calls with identical inputs return identical routes.
+
+## Borrowed ownership and reload (T09)
+
+Build PolicyRuleSpec.Value/DeepEqual operands and StaticScope values are borrowed,
+not recursively frozen or copied. NewScope owns its key map; each bound value
+retains its ordinary Go aliases. Pipeline.Use copies configuration lists but shares
+validator objects and their middleware/provider state. Sharing is safe only when
+validators, middleware, scope lookups/values, observers and host callbacks are
+concurrency-safe, and borrowed operands/inputs are not mutated during their lifetime.
+Parallel validators are read-only with respect to all aliases, not only returned T.
+Custom equality operands are immutable after compile; mutating a map can change
+future decisions and concurrent mutation is a caller data race, not snapshot reload.
+
+Reload by constructing and validating a fresh pipeline and fresh immutable values,
+then atomically publish one bundle containing both pipeline and scope/config version.
+Each request loads that bundle once. In-flight requests may keep the old bundle;
+its operands remain immutable until all users release it. The executable build
+reload example/regression demonstrates this contract without a reflective copier.
+ScopeFactory supplies current transient facts at a boundary; it does not make an
+aliased value a coherent snapshot, bind approval or authorize subsequent execution.
+The host owns consistency, authorization, provider/vault lifecycle and side effects.
+
+MapSlice copies the outer slice only. Getters/validators must not mutate input;
+setters for pointer/map/slice elements must use copy-on-write for reachable aliases.
+Returning original input after deny/error discards private transformations; it
+cannot undo alias mutations or external effects. This same precondition applies
+to Map and other BYOT adapters. No generic rollback or deep copy is promised.
+
+BoundaryProfile remains a declaration of caller-reported adapter coverage. Compile
+checks names and mandatory membership; Covers does not inspect wiring, intercept
+calls or prove enforcement. Retain it for host setup validation; prove actual
+handler calls and delivered bytes through integration fixtures such as
+`guardytest.CheckBoundaryCases`. A compiled profile alone cannot authorize a sink.
+
+The optional JSON-schema module retains its pinned engine and numeric graph probe:
+consumers need distinct adjacent integers beyond float64 precision, decimal
+multipleOf/bounds and fail-closed unsupported numeric/count ranges. Only the
+original schema becomes runtime validation; numericProbe's safe compilation copy
+locates active assertions/references rather than silently weakening them. Inactive
+annotations must not be mistaken for assertions. Core has no schema-engine import.
+Dependency upgrades require the probes documented in ext/jsonschema/UPGRADE.md;
+a shorter graph walk or a pin update without these checks is not equivalent safety.

@@ -689,7 +689,7 @@ See [CONTRACTS.md](CONTRACTS.md) for boundary and release invariants.
   feedback. Read these explicitly through `PolicyFailure`; do not expose them
   as external response text. Semantic scores and thresholds must be finite;
   NaN/infinity is a system fault, not a benign detector result.
-- `CompileBoundaryProfile` declares actual supported/mandatory coverage; it does
+- `CompileBoundaryProfile` declares caller-reported supported/mandatory coverage; it does
   not intercept remote backends automatically. Use reusable
   `guardytest.CheckBoundaryCases` in optional integrations.
 
@@ -917,3 +917,24 @@ and approved expanded output, including UTF-8 bytes and framing whitespace.
 Whole-response expanded output uses its overall `MaxOutputBytes` budget. Framing
 and unit-budget failures emit no bytes from the failing unit; earlier prefixes
 remain irreversible, and processing faults never activate fallback.
+
+## Sharing and policy reload
+
+Pipeline configuration lists and StaticScope’s key map are immutable; validators,
+providers, middleware state and bound map/slice/pointer values remain caller-owned.
+Use does not clone these objects. Keep borrowed policy operands and scope values
+immutable, and make callbacks safe for concurrent calls. MapSlice copies only its
+outer slice; pointer/map/slice setters must use copy-on-write. Denial cannot undo
+alias mutations or host side effects.
+
+For reload, build a fresh pipeline and immutable facts, atomically publish them as
+one version, and load that version once per request. Retired versions remain valid
+for in-flight requests. See the executable reload example in
+[build/ownership_test.go](build/ownership_test.go). ScopeFactory refreshes transient
+facts but does not provide a deep snapshot or execution authorization.
+
+BoundaryProfile validates a declaration, not adapter wiring. Actual handler and
+sink enforcement belongs in integration fixtures. The optional JSON-schema engine
+and exact-number graph are retained for canonical tool arguments and exact numeric
+constraints; dependency upgrade checks are in
+[ext/jsonschema/UPGRADE.md](ext/jsonschema/UPGRADE.md).

@@ -46,7 +46,10 @@ func ScopeValue[T any](key ScopeKey[T], value T) ScopeBinding {
 	return ScopeBinding{key: key.Name(), value: value}
 }
 
-// StaticScope is an immutable map-backed [ExecutionScope] built from typed bindings.
+// StaticScope owns an immutable key map built from typed bindings. Bound values
+// are borrowed: maps, slices and pointers retain their aliases and are not frozen.
+// Keep reachable values immutable while the scope is shared; publish a fresh scope
+// for updated facts. NewScope is not a recursive snapshot.
 type StaticScope struct {
 	values map[string]any
 }

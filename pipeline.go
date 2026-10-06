@@ -19,7 +19,10 @@ type ValidatorMiddleware[T any] func(next Validator[T]) Validator[T]
 // Pipeline orchestrates the execution of multiple Validators.
 //
 // THREAD SAFETY:
-// A Pipeline is safe for concurrent use.
+// A Pipeline is safe for concurrent use only when its validators, middleware,
+// observers, scopes and caller-owned aliases are concurrency-safe. Parallel
+// validators must not mutate input aliases. Configuration lists are immutable;
+// objects/providers referenced by those lists remain caller-owned.
 // Configuration method Use returns a new instance and never mutates the original pipeline.
 type Pipeline[T any] struct {
 	sequentialPath         []Validator[T]
@@ -96,7 +99,8 @@ func WithUserChannelFallback[T any](msg string) PipelineOption[T] {
 }
 
 // Use appends middleware and returns a new immutable pipeline instance.
-// The original pipeline is not modified.
+// The original pipeline is not modified. Validator/provider objects and their
+// internal state are shared, not cloned; Use does not make them concurrency-safe.
 func (p *Pipeline[T]) Use(mw ...ValidatorMiddleware[T]) (*Pipeline[T], error) {
 	if p == nil {
 		return nil, configurationError("pipeline", "receiver", "nil")

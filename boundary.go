@@ -8,7 +8,9 @@ import (
 // ScopeFactory constructs current request-local policy facts at every invocation,
 // including host-controlled resume. Output wrappers call it after the handler succeeds;
 // input/argument wrappers call it before validation. The host owns a coherent snapshot
-// and revalidation at execution time. Nil means an empty scope, not a cached verdict.
+// and revalidation at execution time. Transient facts are borrowed values; a fresh
+// factory call does not deep-copy aliases or provide atomic authorization. Nil means
+// an empty scope, not a cached verdict.
 type ScopeFactory func(context.Context) (ExecutionScope, error)
 
 func (f ScopeFactory) scope(ctx context.Context) (ExecutionScope, error) {
@@ -41,8 +43,9 @@ const (
 	BoundaryDelivery    Boundary = "delivery"
 )
 
-// BoundaryProfile is an immutable compiled declaration of actual adapter coverage.
-// Caller owns wiring: declaring coverage does not intercept a remote backend.
+// BoundaryProfile is an immutable declaration of caller-reported adapter coverage.
+// It checks declared membership, not real wiring or enforcement. Caller owns the
+// adapters; prove handler/sink behavior with integration fixtures.
 type BoundaryProfile struct {
 	identity string
 	covered  map[Boundary]bool
@@ -64,7 +67,8 @@ func (e *BoundaryConfigurationError) Error() string {
 func (e *BoundaryConfigurationError) Unwrap() error { return ErrBoundaryConfiguration }
 
 // CompileBoundaryProfile rejects unsupported mandatory boundaries before execution.
-// Supported must list only boundaries that the integration really enforces.
+// Supported must list only boundaries that the integration really enforces;
+// CompileBoundaryProfile cannot inspect or verify that claim.
 func CompileBoundaryProfile(identity string, supported, mandatory []Boundary) (*BoundaryProfile, error) {
 	if identity == "" {
 		return nil, &BoundaryConfigurationError{Boundary: "", Code: "missing_identity"}

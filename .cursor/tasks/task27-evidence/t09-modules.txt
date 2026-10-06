@@ -1,0 +1,12 @@
+MODULE .
+ok  	github.com/skosovsky/guardy	6.610s
+ok  	github.com/skosovsky/guardy/ext	1.648s
+ok  	github.com/skosovsky/guardy/guardytest	(cached)
+ok  	github.com/skosovsky/guardy/internal/jsondoc	(cached)
+MODULE build
+ok  	github.com/skosovsky/guardy/build	1.523s
+MODULE ext/jsonschema
+ok  	github.com/skosovsky/guardy/ext/jsonschema	1.489s
+MODULE integration
+ok  	github.com/skosovsky/guardy/integration	1.515s
+ALL 4 RELEVANT MODULES PASS

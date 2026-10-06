@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T08 приняты; T09 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T09 приняты; T10 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -314,13 +314,13 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 4. Route negative inputs validated/stateless, fallback suggestion требует checked delivery; low-level two fault channels/high-level exhaustive behavior regression matrix.
 5. Core/integration/build/OTel consumers compile и tests PASS.
 
-**T09 — ownership и сохранённые boundaries** (следующий; commit `docs: ownership`; D08–D09, D23–D24).
+**T09 — ownership и сохранённые boundaries** (принят: полнота 100%, correctness PASS; commit `docs: ownership`; D08–D09, D23–D24).
 1. Borrowed immutable build operands/StaticScope, sharing conditions/Use/no rollback/ScopeFactory transient facts явно в Godoc и CONTRACTS; reload recipe и regression не обещают snapshot.
 2. MapSlice alias precondition виден; authorization/rollback/host lifecycle явно вне core.
 3. JSON-schema pinned optional exact-number/overflow contract и upgrade probes сохранены; BoundaryProfile declared-only и fixture enforcement различены.
 4. Build/schema/core relevant tests PASS; конкретные consumer причины сохранения D23/D24 задокументированы.
 
-**T10 — integrations/setup** (ожидает T09; commit `fix: adapters`; D20–D22, D24).
+**T10 — integrations/setup** (следующий; commit `fix: adapters`; D20–D22, D24).
 1. Fake meter sentinel creation error обнаруживается setup, cause сохранён, бизнес-validation/telemetry privacy не меняется скрыто.
 2. HTTP configurable validated cap/default/status 413/ownership table, tracking ReadCloser и extractor/injector/cancel/error/replace matrix.
 3. Safe guarded wrappers/sinks integration fixtures suppress fault/partial result; WrapOutput low-level contract explicit, no side-effect undo.
@@ -369,3 +369,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T08 acceptance
 
 После исправления cancellation-valued panic suppression и устаревших описаний фаз обе независимые приёмки повторены на окончательном diff: полнота 100% (5/5), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t08-*`; первые reports сохранены отдельно. Final all19 race и make lint завершились с exit 0. Независимые focused race ×5/×10, cancellation-panic ×10, legacy panicnil=1 race ×3 и внешний probe PASS. Изолированный архив HEAD `f392070` воспроизвёл четыре baseline runtime failures без compile errors. Предыдущий принятый commit T07: `f392070 fix: json decisions`. Commit T08: `refactor: pipeline`. T09–T12 остаются обязательными; общий goal активен.
+
+### T09 acceptance
+
+Независимые приёмки итогового diff: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t09-*`. Relevant root/build/schema/integration race и all19 make lint завершились с exit 0; независимые root/build focused race ×5, schema ×3 и полные reviewer root/build/schema race ×3 PASS. Архив HEAD `6e79068` с preservation probes PASS ожидаемо: borrowed runtime contract сохранён, исправлены Godoc/ownership claims. Core dependency graph не содержит optional schema/engine packages. Предыдущий принятый commit T08: `6e79068 refactor: pipeline`. Commit T09: `docs: ownership`. T10–T12 остаются обязательными.

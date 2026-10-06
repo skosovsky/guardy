@@ -25,7 +25,7 @@ const (
 type PolicyRuleSpec struct {
 	Kind  PolicyRuleKind
 	Key   string
-	Value any // reflect.DeepEqual operand; no type coercion.
+	Value any // Borrowed immutable reflect.DeepEqual operand; no copying or type coercion.
 }
 
 // GuardSpec explicitly selects the rules of a string guard pipeline.
@@ -81,7 +81,10 @@ func WithOutputClassifier() CompileOption {
 	}
 }
 
-// CompileStringGuard builds a string pipeline from spec.
+// CompileStringGuard builds a string pipeline from spec. Policy Value operands
+// are borrowed, not snapshots: keep reachable maps/slices/pointers immutable after
+// compile, including while retired pipelines still run. Reload with a fresh pipeline
+// and fresh facts, publishing a single coherent version for each request.
 // Sequential validator order: PII (optional) → wordlist → length → JSON schema (optional) → output classifier (optional).
 func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline[string], error) {
 	cfg := compileConfig{

@@ -18,6 +18,10 @@ type mapSliceValidator[T any] struct {
 
 // MapSlice applies an independent Validator[string] to each element of a BYOT slice.
 // It aggregates decisions; it does not analyze relationships between messages.
+// Only the outer slice is copied. Extract/validator must not mutate input aliases;
+// inject must use copy-on-write for pointer/map/slice elements and reachable values.
+// Deny/error returns original input but cannot roll back alias mutation or external
+// side effects. See CONTRACTS.md for borrowed ownership and callback obligations.
 func MapSlice[T any](
 	extract func(T) string,
 	inject func(T, string) T,
