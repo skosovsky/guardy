@@ -3,6 +3,7 @@ package ext
 import (
 	"cmp"
 	"context"
+	"errors"
 	"regexp"
 	"slices"
 	"strings"
@@ -42,19 +43,32 @@ const defaultPIIValidatorName = "pii_validator"
 // merge before literal replacement/token storage; generated text is never rescanned.
 // International email, other country codes/card families and arbitrary formatting
 // are unsupported. This matcher neither establishes trust nor provides global DLP.
-func NewPIIValidator(opts ...Option) guardy.Validator[string] {
-	cfg := applyOptions(RuleConfig{
+func NewPIIValidator(opts ...Option) (guardy.Validator[string], error) {
+	cfg, err := applyOptions("pii", RuleConfig{
 		Action:               guardy.ActionRedact,
 		Severity:             guardy.SeverityHigh,
 		Name:                 defaultPIIValidatorName,
 		RedactionReplacement: defaultRedactionReplacement,
 	}, opts...)
-	if cfg.Action != guardy.ActionBlock && cfg.Action != guardy.ActionRedact {
-		cfg.Action = guardy.ActionRedact
+	if err != nil {
+		return nil, err
 	}
+	if err := validateRuleOptions("pii", cfg); err != nil {
+		return nil, err
+	}
+
 	return &piiValidator{
 		cfg: cfg,
+	}, nil
+}
+
+// MustPIIValidator panics when NewPIIValidator rejects configuration.
+func MustPIIValidator(opts ...Option) guardy.Validator[string] {
+	v, err := NewPIIValidator(opts...)
+	if err != nil {
+		panic(err)
 	}
+	return v
 }
 
 func (p *piiValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
@@ -68,11 +82,11 @@ func (p *piiValidator) Validate(ctx context.Context, input string) (string, *gua
 	if p.cfg.Action == guardy.ActionBlock {
 		return input, violationReport(p.cfg, guardy.ActionBlock, "PII detected"), nil
 	}
-	output := replaceSpans(input, spans, func(original string) string {
-		return storeTokenOrFallback(p.cfg.TokenVault, TokenNamespacePII, original, p.cfg.RedactionReplacement)
+	output, err := replaceSpans(input, spans, func(original string) (string, error) {
+		return storeRedaction(p.cfg.TokenVault, TokenNamespacePII, original, p.cfg.RedactionReplacement)
 	})
-	if err := ctx.Err(); err != nil {
-		return input, nil, err
+	if fault := errors.Join(err, ctx.Err()); fault != nil {
+		return input, nil, fault
 	}
 	report := violationReport(p.cfg, guardy.ActionRedact, "PII detected")
 	report.MutatedText = output

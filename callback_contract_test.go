@@ -290,7 +290,7 @@ func testDetectorCallbackCase(t *testing.T, detector, kind string, before, pipel
 	calls := 0
 	var validator Validator[string]
 	if detector == "semantic" {
-		validator = NewSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
+		validator = MustSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
 			calls++
 			stop()
 			return 0, nil
@@ -370,7 +370,7 @@ func TestDetectorFaultSurvivesSiblingCancellation(t *testing.T) {
 			providerErr := errors.New("provider failure")
 			var check Validator[string]
 			if detector == "semantic" {
-				check = NewSemanticValidator(fakeMatcher{match: func(ctx context.Context, _ string) (float64, error) {
+				check = MustSemanticValidator(fakeMatcher{match: func(ctx context.Context, _ string) (float64, error) {
 					close(started)
 					<-ctx.Done()
 					return 0, providerErr

@@ -31,7 +31,7 @@ func ExamplePipeline_Run() {
 
 func ExampleNewPipeline() {
 	regexV, _ := ext.NewRegexValidator(`(?i)(ignore previous|system prompt)`, ext.WithCode("PROMPT_INJECTION"))
-	lengthV := ext.NewLengthValidator(0, 10000, ext.WithCode("TOO_LONG"))
+	lengthV := ext.MustLengthValidator(0, 10000, ext.WithCode("TOO_LONG"))
 
 	pipeline := guardy.NewPipeline(
 		guardy.WithFastPath(regexV, lengthV),

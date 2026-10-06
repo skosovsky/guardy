@@ -13,7 +13,7 @@ type observedVault struct {
 	restores int
 }
 
-func (v *observedVault) Store(namespace, original string) string {
+func (v *observedVault) Store(namespace, original string) (string, error) {
 	return v.vault.Store(namespace, original)
 }
 func (v *observedVault) Restore(token string) (string, bool) {
@@ -35,10 +35,15 @@ func TestRecipientAuthorizationPrecedesRestorationAndFinalDelivery(t *testing.T)
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange: host facts determine disclosure; token ownership is insufficient.
 			vault := &observedVault{vault: ext.NewInMemoryTokenVault()}
-			token := vault.Store(ext.TokenNamespacePII, "user@example.com")
+			token, storeErr := vault.Store(ext.TokenNamespacePII, "user@example.com")
+			if storeErr != nil {
+				t.Fatal(storeErr)
+			}
 			final := guardy.NewPipeline[string]()
 			if tc.denyFinal {
-				final = guardy.NewPipeline(guardy.WithFastPath(ext.NewPIIValidator(ext.WithAction(guardy.ActionBlock))))
+				final = guardy.NewPipeline(
+					guardy.WithFastPath(ext.MustPIIValidator(ext.WithAction(guardy.ActionBlock))),
+				)
 			}
 			// Act.
 			result, err := restoreForRecipient(context.Background(), tc.recipient, "owner", token, vault, final)

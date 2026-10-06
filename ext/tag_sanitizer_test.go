@@ -7,8 +7,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-func TestTagSanitizer_NoTag_Pass(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("")
+func TestTagPattern_NoTag_Pass(t *testing.T) {
+	tag, err := NewTagPatternValidator("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,8 +22,8 @@ func TestTagSanitizer_NoTag_Pass(t *testing.T) {
 	}
 }
 
-func TestTagSanitizer_NoTag_PassPreservesMetadata(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("", WithCode("SAFE"), WithSeverity(guardy.SeverityLow))
+func TestTagPattern_NoTag_PassPreservesMetadata(t *testing.T) {
+	tag, err := NewTagPatternValidator("", WithCode("SAFE"), WithSeverity(guardy.SeverityLow))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -42,8 +42,8 @@ func TestTagSanitizer_NoTag_PassPreservesMetadata(t *testing.T) {
 	}
 }
 
-func TestTagSanitizer_SystemTag_Block(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("", WithCode("TAG_INJECTION"))
+func TestTagPattern_SystemTag_Block(t *testing.T) {
+	tag, err := NewTagPatternValidator("", WithCode("TAG_INJECTION"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestTagSanitizer_SystemTag_Block(t *testing.T) {
 	if rep.Action != guardy.ActionBlock {
 		t.Errorf("got Action=%v", rep.Action)
 	}
-	if rep.Validator != defaultTagSanitizerName || rep.Reason != "system tag pattern matched" {
+	if rep.Validator != defaultTagPatternName || rep.Reason != "system tag pattern matched" {
 		t.Errorf("got Validator=%s Reason=%v", rep.Validator, rep.Reason)
 	}
 	if rep.Code != "TAG_INJECTION" {
@@ -66,8 +66,8 @@ func TestTagSanitizer_SystemTag_Block(t *testing.T) {
 	}
 }
 
-func TestTagSanitizer_ClosingTag_Block(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("")
+func TestTagPattern_ClosingTag_Block(t *testing.T) {
+	tag, err := NewTagPatternValidator("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,36 +81,36 @@ func TestTagSanitizer_ClosingTag_Block(t *testing.T) {
 	}
 }
 
-func TestTagSanitizer_InvalidPattern(t *testing.T) {
-	_, err := NewTagSanitizerValidator(`[invalid`)
+func TestTagPattern_InvalidPattern(t *testing.T) {
+	_, err := NewTagPatternValidator(`[invalid`)
 	if err == nil {
 		t.Error("expected error for invalid pattern")
 	}
 }
 
-func TestMustTagSanitizerValidator_Panics(t *testing.T) {
+func TestMustTagPatternValidator_Panics(t *testing.T) {
 	defer func() {
 		if recover() == nil {
-			t.Error("MustTagSanitizerValidator should panic on invalid pattern")
+			t.Error("MustTagPatternValidator should panic on invalid pattern")
 		}
 	}()
-	MustTagSanitizerValidator(`[invalid`)
+	MustTagPatternValidator(`[invalid`)
 }
 
-func TestTagSanitizer_Name(t *testing.T) {
-	tag := MustTagSanitizerValidator("")
+func TestTagPattern_Name(t *testing.T) {
+	tag := MustTagPatternValidator("")
 	_, rep, err := tag.Validate(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rep.Validator != defaultTagSanitizerName {
-		t.Errorf("Validator = %q, want %s", rep.Validator, defaultTagSanitizerName)
+	if rep.Validator != defaultTagPatternName {
+		t.Errorf("Validator = %q, want %s", rep.Validator, defaultTagPatternName)
 	}
 }
 
-// TestTagSanitizer_SystemTagWithAttributes_Block prevents bypass via <system role="x"> etc.
-func TestTagSanitizer_SystemTagWithAttributes_Block(t *testing.T) {
-	tag, err := NewTagSanitizerValidator("")
+// TestTagPattern_SystemTagWithAttributes_Block prevents bypass via <system role="x"> etc.
+func TestTagPattern_SystemTagWithAttributes_Block(t *testing.T) {
+	tag, err := NewTagPatternValidator("")
 	if err != nil {
 		t.Fatal(err)
 	}

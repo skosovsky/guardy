@@ -1,8 +1,21 @@
 package ext
 
-import "github.com/skosovsky/guardy"
+import (
+	"fmt"
+	"reflect"
+
+	"github.com/skosovsky/guardy"
+)
 
 const defaultRedactionReplacement = "[REDACTED]"
+
+type ruleOptions uint8
+
+const (
+	ruleReplacement ruleOptions = 1 << iota
+	ruleLowercase
+	ruleVault
+)
 
 // RuleConfig contains shared policy metadata and behavior for built-in validators.
 type RuleConfig struct {
@@ -17,6 +30,7 @@ type RuleConfig struct {
 	Retryable            *bool
 	Fatal                bool
 	SafeUserMessage      string
+	specified            ruleOptions
 }
 
 // Option configures RuleConfig for built-in validators.
@@ -60,6 +74,7 @@ func WithName(name string) Option {
 // WithRedactionReplacement sets replacement text for redaction mode.
 func WithRedactionReplacement(replacement string) Option {
 	return func(c *RuleConfig) {
+		c.specified |= ruleReplacement
 		c.RedactionReplacement = replacement
 	}
 }
@@ -68,6 +83,7 @@ func WithRedactionReplacement(replacement string) Option {
 // It does not normalize Unicode or rewrite unmatched text.
 func WithLowercase(lower bool) Option {
 	return func(c *RuleConfig) {
+		c.specified |= ruleLowercase
 		c.Lowercase = lower
 	}
 }
@@ -76,6 +92,7 @@ func WithLowercase(lower bool) Option {
 // Built-in validators pass explicit namespaces (for example PII, WORDLIST).
 func WithTokenVault(vault TokenVault) Option {
 	return func(c *RuleConfig) {
+		c.specified |= ruleVault
 		c.TokenVault = vault
 	}
 }
@@ -102,12 +119,67 @@ func WithSafeUserMessage(msg string) Option {
 	}
 }
 
-func applyOptions(defaults RuleConfig, opts ...Option) RuleConfig {
+func applyOptions(component string, defaults RuleConfig, opts ...Option) (RuleConfig, error) {
 	cfg := defaults
-	for _, opt := range opts {
+	for i, opt := range opts {
+		if opt == nil {
+			return cfg, ruleConfigurationError(component, fmt.Sprintf("options[%d]", i), "required", nil)
+		}
 		opt(&cfg)
 	}
-	return cfg
+	return cfg, nil
+}
+
+func ruleConfigurationError(component, field, code string, cause error) error {
+	return &guardy.ConfigurationError{Component: component, Field: field, Code: code, Cause: cause}
+}
+
+func nilComponent(value any) bool {
+	if value == nil {
+		return true
+	}
+	v := reflect.ValueOf(value)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
+
+// validateRuleOptions keeps per-validator capabilities small and explicit.
+func validateRuleOptions(component string, cfg RuleConfig) error {
+	redactable := component == "regex" || component == wordlistComponent || component == "pii"
+	validAction := cfg.Action == guardy.ActionBlock || (redactable && cfg.Action == guardy.ActionRedact)
+	if component == "technical_json" {
+		validAction = cfg.Action == guardy.ActionPass
+	}
+	if !validAction {
+		return ruleConfigurationError(component, "action", "unsupported", nil)
+	}
+	if component != wordlistComponent && (cfg.specified&ruleLowercase != 0 || cfg.Lowercase) {
+		return ruleConfigurationError(component, "lowercase", "unsupported", nil)
+	}
+	defaultReplacement := ""
+	if redactable {
+		defaultReplacement = defaultRedactionReplacement
+	}
+	if (cfg.specified&ruleReplacement != 0 || cfg.RedactionReplacement != defaultReplacement) &&
+		(!redactable || cfg.Action != guardy.ActionRedact) {
+		return ruleConfigurationError(component, "replacement", "unsupported", nil)
+	}
+	if cfg.specified&ruleVault != 0 || cfg.TokenVault != nil {
+		if (component != wordlistComponent && component != "pii") || cfg.Action != guardy.ActionRedact {
+			return ruleConfigurationError(component, "vault", "unsupported", nil)
+		}
+		if cfg.specified&ruleReplacement != 0 || cfg.RedactionReplacement != defaultReplacement {
+			return ruleConfigurationError(component, "replacement", "unsupported_with_vault", nil)
+		}
+		if nilComponent(cfg.TokenVault) {
+			return ruleConfigurationError(component, "vault", "required", nil)
+		}
+	}
+	return nil
 }
 
 func passReport(cfg RuleConfig) *guardy.Report {
@@ -117,7 +189,7 @@ func passReport(cfg RuleConfig) *guardy.Report {
 		Code:      cfg.Code,
 		Severity:  cfg.Severity,
 	}
-	finalizeReport(rep, cfg, guardy.ActionPass)
+	guardy.FinishReport(rep, guardy.ControlSpec{Action: guardy.ActionPass})
 	return rep
 }
 

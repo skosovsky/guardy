@@ -132,7 +132,7 @@ func BenchmarkWordlist_Blocklist_Redact_BaselineComparison(b *testing.B) {
 }
 
 func BenchmarkLength_WithinRange(b *testing.B) {
-	l := NewLengthValidator(1, 10000, WithCode("LENGTH"))
+	l := MustLengthValidator(1, 10000, WithCode("LENGTH"))
 	ctx := context.Background()
 	text := "hello"
 	b.ResetTimer()
@@ -197,7 +197,7 @@ func frozenReplaceWordsInTextA16279e(
 }
 
 func BenchmarkLength_TooLong(b *testing.B) {
-	l := NewLengthValidator(0, 3, WithCode("LENGTH"))
+	l := MustLengthValidator(0, 3, WithCode("LENGTH"))
 	ctx := context.Background()
 	text := "hello world"
 	b.ResetTimer()

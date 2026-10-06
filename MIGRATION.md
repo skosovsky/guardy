@@ -35,3 +35,24 @@ with the previous migration notes before the candidate is verified.
   no fallback, typed nil is present and must assert to T; it still receives the
   same content/classification checks. Classifier faults never activate fallback.
 - Stream compilation validates its delivery policy and string fallback type.
+
+## Built-ins and semantic construction
+
+- NewLengthValidator, NewPIIValidator, NewTechnicalJSONClassifier and
+  NewSemanticValidator now return `(validator, error)`. Handle configuration errors
+  during setup; Must variants are available for known-valid static configuration.
+  SemanticFixture.Validator also returns `(Validator[string], error)`.
+- TagSanitizerValidator/NewTagSanitizerValidator/MustTagSanitizerValidator are
+  replaced by TagPatternValidator/NewTagPatternValidator/MustTagPatternValidator.
+  MLValidator/NewMLValidator are replaced by ClassifierValidator/NewClassifierValidator
+  with MustClassifierValidator for static setup. Old names are removed.
+- Built-ins reject nil options, unsupported option combinations and invalid actions
+  instead of coercing or ignoring them. Length bounds are nonnegative, zero disables
+  a side, and reversed enabled bounds fail. Nil detectors and nonfinite semantic
+  thresholds fail at construction; finite caller scales remain valid.
+- TokenVault.Store returns `(string, error)`; migrate host vaults and handle errors
+  on direct Store calls. Configured-vault failures, panic and empty/identity tokens
+  fault instead of falling back to irreversible text. Only an absent vault selects
+  irreversible replacement. Host lifecycle/ACL responsibilities remain unchanged.
+- Clean passes clear violation-only flags. Detected technical JSON still receives
+  configured hit flags. Regex identity and zero-width matches remain detections.

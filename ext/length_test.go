@@ -8,8 +8,8 @@ import (
 	"github.com/skosovsky/guardy"
 )
 
-func ExampleNewLengthValidator() {
-	l := NewLengthValidator(5, 10, WithCode("LENGTH"))
+func ExampleMustLengthValidator() {
+	l := MustLengthValidator(5, 10, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, _ := l.Validate(ctx, "hi")
 	if rep != nil && rep.Action == guardy.ActionBlock {
@@ -20,7 +20,7 @@ func ExampleNewLengthValidator() {
 }
 
 func TestLength_WithinRange_Pass(t *testing.T) {
-	l := NewLengthValidator(1, 10, WithCode("LENGTH"))
+	l := MustLengthValidator(1, 10, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
@@ -32,7 +32,7 @@ func TestLength_WithinRange_Pass(t *testing.T) {
 }
 
 func TestLength_WithinRange_PassPreservesMetadata(t *testing.T) {
-	l := NewLengthValidator(1, 10, WithCode("LENGTH_OK"), WithSeverity(guardy.SeverityLow))
+	l := MustLengthValidator(1, 10, WithCode("LENGTH_OK"), WithSeverity(guardy.SeverityLow))
 	_, rep, err := l.Validate(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +49,7 @@ func TestLength_WithinRange_PassPreservesMetadata(t *testing.T) {
 }
 
 func TestLength_TooShort_Block(t *testing.T) {
-	l := NewLengthValidator(5, 100, WithCode("LENGTH"))
+	l := MustLengthValidator(5, 100, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hi")
 	if err != nil {
@@ -67,7 +67,7 @@ func TestLength_TooShort_Block(t *testing.T) {
 }
 
 func TestLength_TooLong_Block(t *testing.T) {
-	l := NewLengthValidator(0, 3, WithCode("LENGTH"))
+	l := MustLengthValidator(0, 3, WithCode("LENGTH"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "hello")
 	if err != nil {
@@ -79,7 +79,7 @@ func TestLength_TooLong_Block(t *testing.T) {
 }
 
 func TestLength_ZeroMinMax_Pass(t *testing.T) {
-	l := NewLengthValidator(0, 0, WithCode("X"))
+	l := MustLengthValidator(0, 0, WithCode("X"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "anything")
 	if err != nil {
@@ -91,7 +91,7 @@ func TestLength_ZeroMinMax_Pass(t *testing.T) {
 }
 
 func TestLength_UnicodeRunes(t *testing.T) {
-	l := NewLengthValidator(2, 2, WithCode("X"))
+	l := MustLengthValidator(2, 2, WithCode("X"))
 	ctx := context.Background()
 	_, rep, err := l.Validate(ctx, "аб")
 	if err != nil {
@@ -107,7 +107,7 @@ func TestLength_UnicodeRunes(t *testing.T) {
 }
 
 func TestLength_WithName(t *testing.T) {
-	l := NewLengthValidator(0, 10, WithCode("X"), WithName("my-length"))
+	l := MustLengthValidator(0, 10, WithCode("X"), WithName("my-length"))
 	_, rep, err := l.Validate(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)

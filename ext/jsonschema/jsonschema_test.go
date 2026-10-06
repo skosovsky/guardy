@@ -283,3 +283,28 @@ func TestNewJSONSchemaValidatorFromStruct_InvalidInput(t *testing.T) {
 		})
 	}
 }
+
+func TestJSONSchemaCleanPassHasNoViolationFlags(t *testing.T) {
+	t.Parallel()
+	// Arrange.
+	validator, err := NewJSONSchemaValidator(
+		testNameSchema,
+		ext.WithFatal(true),
+		ext.WithRetryable(true),
+		ext.WithSafeUserMessage("notice"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Act.
+	_, clean, cleanErr := validator.Validate(t.Context(), `{"name":"alice"}`)
+	_, hit, hitErr := validator.Validate(t.Context(), `{}`)
+	// Assert.
+	if cleanErr != nil || hitErr != nil || clean.Fatal || clean.Retryable || clean.SafeUserMessage != "" ||
+		guardy.DecisionFromReport(clean).Disposition != guardy.DispositionNone {
+		t.Fatalf("clean=%+v errors=%v/%v", clean, cleanErr, hitErr)
+	}
+	if !hit.Fatal || !hit.Retryable || hit.SafeUserMessage != "notice" {
+		t.Fatalf("hit=%+v", hit)
+	}
+}

@@ -15,15 +15,19 @@ func (f fakeMatcher) Match(ctx context.Context, text string) (float64, error) {
 }
 
 func TestSemanticValidator_NilMatcher_ReturnsError(t *testing.T) {
-	v := NewSemanticValidator(nil, 0.5, false)
-	_, _, err := v.Validate(context.Background(), "x")
+	// Arrange / Act.
+	v, err := NewSemanticValidator(nil, 0.5, false)
+	// Assert.
+	if v != nil || !errors.Is(err, ErrConfiguration) {
+		t.Fatalf("v=%v err=%v", v, err)
+	}
 	if !errors.Is(err, errSemanticMatcherNil) {
 		t.Fatalf("err = %v, want errSemanticMatcherNil", err)
 	}
 }
 
 func TestSemanticValidator_BlocksAboveThreshold(t *testing.T) {
-	v := NewSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
+	v := MustSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
 		return 0.9, nil
 	}}, 0.5, false)
 	_, rep, err := v.Validate(context.Background(), "x")
@@ -36,7 +40,7 @@ func TestSemanticValidator_BlocksAboveThreshold(t *testing.T) {
 }
 
 func TestSemanticValidator_ShadowMarksBlock(t *testing.T) {
-	v := NewSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
+	v := MustSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
 		return 0.9, nil
 	}}, 0.5, true)
 	_, rep, err := v.Validate(context.Background(), "x")
@@ -49,7 +53,7 @@ func TestSemanticValidator_ShadowMarksBlock(t *testing.T) {
 }
 
 func TestSemanticValidator_PassAtOrBelowThreshold(t *testing.T) {
-	v := NewSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
+	v := MustSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
 		return 0.5, nil
 	}}, 0.5, false)
 	_, rep, err := v.Validate(context.Background(), "x")
@@ -63,7 +67,7 @@ func TestSemanticValidator_PassAtOrBelowThreshold(t *testing.T) {
 
 func TestSemanticValidator_PropagatesMatcherError(t *testing.T) {
 	want := errors.New("matcher down")
-	v := NewSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
+	v := MustSemanticValidator(fakeMatcher{match: func(context.Context, string) (float64, error) {
 		return 0, want
 	}}, 0.5, false)
 	_, _, err := v.Validate(context.Background(), "x")
@@ -75,7 +79,7 @@ func TestSemanticValidator_PropagatesMatcherError(t *testing.T) {
 func TestSemanticFiniteScoresPreservedOnCallerScale(t *testing.T) {
 	for _, score := range []float64{-2, 0, 0.5, 0.75, 7} {
 		// Arrange: caller scores need not be probabilities.
-		v := NewSemanticValidator(
+		v := MustSemanticValidator(
 			fakeMatcher{match: func(context.Context, string) (float64, error) { return score, nil }},
 			0.5,
 			false,

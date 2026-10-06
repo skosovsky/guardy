@@ -218,24 +218,19 @@ func TestWordlist_WithTokenVault(t *testing.T) {
 	}
 }
 
-func TestWordlist_WithTypedNilTokenVault_FallbackReplacement(t *testing.T) {
+func TestWordlistValidator_TypedNilVaultRejectedAtConstruction(t *testing.T) {
+	// Arrange.
 	var vault *InMemoryTokenVault
-	w := MustWordlistValidator(
+	// Act.
+	v, err := NewWordlistValidator(
 		[]string{"secret"},
 		Blocklist,
 		WithAction(guardy.ActionRedact),
 		WithTokenVault(vault),
-		WithRedactionReplacement("[X]"),
 	)
-	_, rep, err := w.Validate(context.Background(), "my secret text")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Action != guardy.ActionRedact {
-		t.Fatalf("action = %v", rep.Action)
-	}
-	if rep.MutatedText != "my [X] text" {
-		t.Fatalf("mutated = %q, want %q", rep.MutatedText, "my [X] text")
+	// Assert.
+	if v != nil || !errors.Is(err, guardy.ErrConfiguration) {
+		t.Fatalf("validator=%v error=%v", v, err)
 	}
 }
 

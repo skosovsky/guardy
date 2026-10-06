@@ -6,6 +6,8 @@ import (
 	"math"
 )
 
+const semanticComponent = "semantic"
+
 var errSemanticMatcherNil = errors.New("guardy: semantic matcher is nil")
 
 var (
@@ -29,11 +31,37 @@ type SemanticValidator struct {
 
 // NewSemanticValidator builds a validator that blocks when m.Match returns score > threshold.
 // If shadow is true, block reports are marked ShadowMode so the pipeline does not short-circuit.
-// Validate rejects non-finite thresholds/scores as faults; the matcher defines
+// Construction rejects non-finite thresholds; Validate rejects non-finite scores.
+// The matcher defines
 // its own finite score range. Pass/block reports preserve the score for caller
 // calibration; it is not a probability or an estimate of detector accuracy.
-func NewSemanticValidator(m Matcher, threshold float64, shadow bool) *SemanticValidator {
-	return &SemanticValidator{matcher: m, threshold: threshold, shadow: shadow, name: "semantic"}
+func NewSemanticValidator(m Matcher, threshold float64, shadow bool) (*SemanticValidator, error) {
+	if nilImplementation(m) {
+		return nil, &ConfigurationError{
+			Component: semanticComponent,
+			Field:     "matcher",
+			Code:      "required",
+			Cause:     errSemanticMatcherNil,
+		}
+	}
+	if math.IsNaN(threshold) || math.IsInf(threshold, 0) {
+		return nil, &ConfigurationError{
+			Component: semanticComponent,
+			Field:     "threshold",
+			Code:      "nonfinite",
+			Cause:     errSemanticThresholdInvalid,
+		}
+	}
+	return &SemanticValidator{matcher: m, threshold: threshold, shadow: shadow, name: semanticComponent}, nil
+}
+
+// MustSemanticValidator panics when NewSemanticValidator rejects configuration.
+func MustSemanticValidator(m Matcher, threshold float64, shadow bool) *SemanticValidator {
+	v, err := NewSemanticValidator(m, threshold, shadow)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // Validate runs the matcher and returns block when score > threshold.

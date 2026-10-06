@@ -302,3 +302,37 @@ the next version from origin's remote tags and asks for confirmation, then execu
 prepare/verify/publish internally against origin's explicit push URL. The source
 checkout must be clean and stays unchanged throughout the release train. Separate
 phase commands remain available for candidate-only CI verification.
+
+### Built-in detector construction and redaction
+
+All seven ext constructors return `(Validator[string], error)`; Must variants
+panic on the same configuration errors. Nil options, nil/typed-nil classifiers,
+negative length bounds, reversed positive bounds and unsupported actions/options
+are configuration errors before input processing. Length bound zero disables that
+side. Semantic construction rejects nil matchers and nonfinite thresholds; any
+finite score scale belongs to the caller.
+
+Clean passes have no violation-only Fatal, Retryable or SafeUserMessage fields.
+Detected hits retain these options. TechnicalJSONClassifier marks a detected hit
+as technical with ActionPass; Fatal on that hit still denies delivery. Retryable
+metadata alone on ActionPass does not request correction. Caller-authored fatal
+pass reports retain terminal-deny semantics.
+
+Regex redaction reports a detection on a match even when replacement leaves the
+bytes unchanged, including empty and zero-width matches. Replacement suitability
+belongs to the caller. TagPatternValidator blocks regex matches; it does not parse
+or sanitize markup. ClassifierValidator adapts a host TextClassifier and includes
+no trained model. Regex, ASCII PII patterns, token wordlists and the tool-like JSON
+heuristic do not establish statistical prompt-injection protection or exhaustive
+content detection.
+
+A configured TokenVault must return a nonempty token different from the original.
+Store error, panic, empty or identity token is a processing fault. The validator
+returns original input with no report; guarded delivery suppresses the value.
+Explicit replacement and a configured vault are mutually exclusive construction options.
+No configured-vault failure silently switches to irreversible replacement. An
+absent vault explicitly uses irreversible replacement. Completed Store side
+effects before a later failure are not rolled back: lifetime, isolation, cleanup,
+ACL and authorized restoration belong to the host. The in-memory reference is
+thread-safe and supports its zero value. An allowlist with no input tokens stores
+the entire rejected input when reversible redaction is configured.

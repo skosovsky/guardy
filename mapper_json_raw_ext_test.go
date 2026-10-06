@@ -15,7 +15,7 @@ type toolArgsDTO struct {
 
 func TestMapJSONRawMessage_Redact_ValidJSON_PII(t *testing.T) {
 	t.Parallel()
-	piiV := ext.NewPIIValidator(ext.WithRedactionReplacement("[REDACTED]"))
+	piiV := ext.MustPIIValidator(ext.WithRedactionReplacement("[REDACTED]"))
 	mapped := guardy.MapJSONRawMessage(
 		piiV,
 		func(d *toolArgsDTO) json.RawMessage { return d.ToolArgs },

@@ -24,7 +24,7 @@ func (v *piiArguments) ValidatePostBind(context.Context) error {
 func TestTypedAndDynamicPIICanonicalAuthoritativeArguments(t *testing.T) {
 	// Arrange.
 	raw := `{"name":"Ada","email":"alice@example.com"}`
-	guard := g.NewPipeline(g.WithFastPath(ext.NewPIIValidator()))
+	guard := g.NewPipeline(g.WithFastPath(ext.MustPIIValidator()))
 	typed := g.MustCompileArgs[piiArguments](guard)
 	typedCalls, dynamicCalls := 0, 0
 	typedHandler := g.WrapArgs(

@@ -13,8 +13,8 @@ import (
 )
 
 func main() {
-	piiV := ext.NewPIIValidator(ext.WithCode("PII_DETECTED"))
-	classifier := ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
+	piiV := ext.MustPIIValidator(ext.WithCode("PII_DETECTED"))
+	classifier := ext.MustTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
 	pipeline := guardy.NewPipeline(
 		guardy.WithUserChannel[string](),
 		guardy.WithUserChannelFallback[string]("Sorry, I can't show that response."),

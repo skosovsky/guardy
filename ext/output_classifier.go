@@ -22,19 +22,35 @@ var _ guardy.Validator[string] = (*technicalJSONClassifier)(nil)
 // [guardy.PayloadTechnicalPayload] for [guardy.WithUserChannel]. This signal may
 // have false positives/negatives; it is not trusted provenance or authorization.
 // Trusted classification must be supplied by a host adapter independently of text.
-func NewTechnicalJSONClassifier(opts ...Option) guardy.Validator[string] {
-	cfg := applyOptions(RuleConfig{
+func NewTechnicalJSONClassifier(opts ...Option) (guardy.Validator[string], error) {
+	cfg, err := applyOptions("technical_json", RuleConfig{
 		Name:     defaultTechnicalJSONClassifierName,
 		Code:     "TECHNICAL_JSON",
 		Action:   guardy.ActionPass,
 		Severity: guardy.SeverityMedium,
 	}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRuleOptions("technical_json", cfg); err != nil {
+		return nil, err
+	}
+
 	return &technicalJSONClassifier{
 		cfg: cfg,
 		toolKeys: append([]string(nil),
 			"tool", "function", "arguments", "tool_calls",
 		),
+	}, nil
+}
+
+// MustTechnicalJSONClassifier panics when NewTechnicalJSONClassifier rejects configuration.
+func MustTechnicalJSONClassifier(opts ...Option) guardy.Validator[string] {
+	v, err := NewTechnicalJSONClassifier(opts...)
+	if err != nil {
+		panic(err)
 	}
+	return v
 }
 
 func (v *technicalJSONClassifier) Validate(_ context.Context, input string) (string, *guardy.Report, error) {
@@ -45,7 +61,7 @@ func (v *technicalJSONClassifier) Validate(_ context.Context, input string) (str
 	if !hasToolLikeKeys(trimmed, v.toolKeys) {
 		return input, passReport(v.cfg), nil
 	}
-	rep := passReport(v.cfg)
+	rep := violationReport(v.cfg, guardy.ActionPass, "tool-like JSON detected")
 	rep.PayloadKind = guardy.PayloadTechnicalPayload
 	return input, rep, nil
 }

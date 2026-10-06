@@ -37,12 +37,12 @@ import (
 )
 
 func main() {
-	lengthV := ext.NewLengthValidator(0, 2048, ext.WithCode("TOO_LONG"))
+	lengthV := ext.MustLengthValidator(0, 2048, ext.WithCode("TOO_LONG"))
 	wordlistV := ext.MustWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
-	piiV := ext.NewPIIValidator()
+	piiV := ext.MustPIIValidator()
 
 	pipeline := guardy.NewPipeline(
-		guardy.WithFastPath(ext.MustTagSanitizerValidator(""), piiV, wordlistV, lengthV),
+		guardy.WithFastPath(ext.MustTagPatternValidator(""), piiV, wordlistV, lengthV),
 	)
 
 	ctx := context.Background()
@@ -92,7 +92,7 @@ Use `NewPipeline[MyDTO](...)` when the payload is a struct (tool calls, agent st
 type AgentCall struct {
     ToolArgs json.RawMessage `json:"tool_args"`
 }
-piiV := ext.NewPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
+piiV := ext.MustPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
 rawV := guardy.MapJSONRawMessage(piiV,
     func(c *AgentCall) json.RawMessage { return c.ToolArgs },
     func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
@@ -105,7 +105,7 @@ result, _ := pipeline.Run(ctx, nil, AgentCall{ToolArgs: json.RawMessage(`{"email
 For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + explicit `ExecutionScope` in `Run`.
 
 **Phase 1 — Fast path (sequential)**
-Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
+Validators that may **redact** or **block** run one after another. The text is passed along the chain; each redact step replaces it with `MutatedText`. On **block** (and not shadow), the pipeline returns immediately. Use for: TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
 
 **Phase 2 — Slow path (parallel)**
 Heavy validators that only **block** or **pass** run in parallel via `errgroup` on the final text from phase 1. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
@@ -362,11 +362,11 @@ types and supporting maps/slices. Core typed equality uses Go `==`.
 
 | Validator                   | Description                                                                                                                                                                                             |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TagSanitizerValidator**   | Matches XML-like system tags (e.g. `<system>`, `</system>`). `ext.NewTagSanitizerValidator(pattern)` or `ext.MustTagSanitizerValidator("")`.                                                          |
-| **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.NewPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
+| **TagPatternValidator**   | Matches XML-like system tags (e.g. `<system>`, `</system>`). `ext.NewTagPatternValidator(pattern)` or `ext.MustTagPatternValidator("")`.                                                          |
+| **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.MustPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
 | **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` returns `(Validator, error)`; `ext.MustWordlistValidator` is for static config. Use `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
 | **RegexValidator**          | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
-| **LengthValidator**         | Min/max rune length. `ext.NewLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
+| **LengthValidator**         | Min/max rune length. `ext.MustLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
 | **TechnicalJSONClassifier** | Heuristically marks tool-like JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
 | **JSON Schema**             | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
 | **JSON Redact**             | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
@@ -503,7 +503,7 @@ Use `TokenVault` when you need reversible redaction (`[GUARDY_TOKEN_...]`) and l
 
 ```go
 vault := ext.NewInMemoryTokenVault()
-piiV := ext.NewPIIValidator(
+piiV := ext.MustPIIValidator(
 	ext.WithAction(guardy.ActionRedact),
 	ext.WithTokenVault(vault),
 )
@@ -512,7 +512,7 @@ result, _ := guardy.NewPipeline(guardy.WithFastPath(piiV)).Run(ctx, nil, "email:
 // See examples/reversible_redaction for the complete delivery flow.
 ```
 
-Built-in validators write namespaced canonical tokens such as `[GUARDY_TOKEN_PII_1]` and `[GUARDY_TOKEN_WORDLIST_1]` through `TokenVault.Store(namespace, original)`.
+Built-in validators write namespaced canonical tokens such as `[GUARDY_TOKEN_PII_1]` and `[GUARDY_TOKEN_WORDLIST_1]` through `TokenVault.Store(namespace, original) (token, error)`.
 A token is a lookup key, not permission to disclose. The host owns recipient
 authorization, vault isolation/lifetime and a separate final delivery check after
 restoration. Do not share a request vault across recipients by default.
@@ -583,7 +583,7 @@ Use **MapJSONRawMessage** when a struct field holds opaque JSON (tool calling, s
 type AgentCall struct {
     ToolArgs json.RawMessage `json:"tool_args"`
 }
-piiV := ext.NewPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
+piiV := ext.MustPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
 v := guardy.MapJSONRawMessage(piiV,
     func(c *AgentCall) json.RawMessage { return c.ToolArgs },
     func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
@@ -638,7 +638,7 @@ Production `ext` validators should always set **`ext.WithCode(...)`** so hosts n
 
 - **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, StreamProcessor, BoundaryProfile, Guard middleware, errors.
 - **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
-- **guardy/ext** — TagSanitizerValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, MLValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
+- **guardy/ext** — TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, ClassifierValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
 - **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
 - **guardy/ext/guardyotel** — optional OTel middleware module (metrics + tracing).
 - **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact/MustRetry, MustTerminalDeny/MustRetryableCorrection/MustSystemFault, MustOutputKind, MustScopeIncomplete.

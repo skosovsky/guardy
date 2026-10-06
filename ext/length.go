@@ -18,27 +18,38 @@ var _ guardy.Validator[string] = (*lengthValidator)(nil)
 
 const defaultLengthValidatorName = "length_validator"
 
-// NewLengthValidator creates a validator that blocks when rune count is outside [minLen, maxLen].
-func NewLengthValidator(minLen, maxLen int, opts ...Option) guardy.Validator[string] {
-	cfg := applyOptions(RuleConfig{
+// NewLengthValidator blocks rune counts outside the enabled bounds.
+// Bounds must be nonnegative; zero disables that side. Positive min must not exceed max.
+func NewLengthValidator(minLen, maxLen int, opts ...Option) (guardy.Validator[string], error) {
+	if minLen < 0 || maxLen < 0 || (minLen > 0 && maxLen > 0 && minLen > maxLen) {
+		return nil, ruleConfigurationError("length", "bounds", "invalid", nil)
+	}
+	cfg, err := applyOptions("length", RuleConfig{
 		Action:   guardy.ActionBlock,
 		Severity: guardy.SeverityMedium,
 		Name:     defaultLengthValidatorName,
 	}, opts...)
-	cfg.Action = guardy.ActionBlock
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRuleOptions("length", cfg); err != nil {
+		return nil, err
+	}
+
 	return &lengthValidator{
 		min: minLen,
 		max: maxLen,
 		cfg: cfg,
-	}
+	}, nil
 }
 
-// MustLengthValidator is like NewLengthValidator but panics if minLen > maxLen (both > 0).
+// MustLengthValidator panics on any configuration rejected by NewLengthValidator.
 func MustLengthValidator(minLen, maxLen int, opts ...Option) guardy.Validator[string] {
-	if minLen > 0 && maxLen > 0 && minLen > maxLen {
-		panic("ext: length validator: minLen > maxLen")
+	v, err := NewLengthValidator(minLen, maxLen, opts...)
+	if err != nil {
+		panic(err)
 	}
-	return NewLengthValidator(minLen, maxLen, opts...)
+	return v
 }
 
 func (l *lengthValidator) Validate(_ context.Context, input string) (string, *guardy.Report, error) {

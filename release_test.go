@@ -32,7 +32,7 @@ func TestWholeResponseRedactsEverySplit(t *testing.T) {
 	value := "Привет alice@example.com!"
 	for split := 0; split <= len(value); split++ {
 		var sink bytes.Buffer
-		s, err := g.CompileStream(&sink, streamConfig(g.NewPipeline(g.WithFastPath(ext.NewPIIValidator()))))
+		s, err := g.CompileStream(&sink, streamConfig(g.NewPipeline(g.WithFastPath(ext.MustPIIValidator()))))
 		if err != nil {
 			t.Fatal(err)
 		}

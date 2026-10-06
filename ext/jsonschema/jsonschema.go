@@ -164,7 +164,15 @@ func buildConfig(opts ...Option) (ext.RuleConfig, error) {
 		Severity: guardy.SeverityMedium,
 		Name:     defaultJSONSchemaValidatorName,
 	}
-	for _, opt := range opts {
+	for i, opt := range opts {
+		if opt == nil {
+			return cfg, &guardy.ConfigurationError{
+				Component: "jsonschema",
+				Field:     fmt.Sprintf("options[%d]", i),
+				Code:      "required",
+				Cause:     nil,
+			}
+		}
 		opt(&cfg)
 	}
 	if cfg.Action != guardy.ActionRetry {
@@ -220,7 +228,7 @@ func (j *JSONSchemaValidator) Validate(ctx context.Context, input string) (strin
 			Code:      j.cfg.Code,
 			Severity:  j.cfg.Severity,
 		}
-		ext.FinalizeRuleReport(rep, j.cfg, guardy.ActionPass)
+		guardy.FinishReport(rep, guardy.ControlSpec{Action: guardy.ActionPass})
 		return input, rep, nil
 	}
 	feedback := validationErr.Error()

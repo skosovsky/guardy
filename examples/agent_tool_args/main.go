@@ -16,7 +16,7 @@ type agentCall struct {
 }
 
 func main() {
-	piiV := ext.NewPIIValidator(
+	piiV := ext.MustPIIValidator(
 		ext.WithAction(guardy.ActionRedact),
 		ext.WithCode("PII_IN_TOOL_ARGS"),
 	)

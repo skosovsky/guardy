@@ -2,6 +2,7 @@ package ext
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -9,7 +10,7 @@ import (
 )
 
 func TestPIIValidator_Block_WithCode_NotRetryable(t *testing.T) {
-	p := NewPIIValidator(
+	p := MustPIIValidator(
 		WithAction(guardy.ActionBlock),
 		WithCode("PII"),
 	)
@@ -29,7 +30,7 @@ func TestPIIValidator_Block_WithCode_NotRetryable(t *testing.T) {
 }
 
 func TestPIIValidator_DefaultConfig_EmptyCode(t *testing.T) {
-	p := NewPIIValidator()
+	p := MustPIIValidator()
 	_, rep, err := p.Validate(context.Background(), "Contact user@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -43,7 +44,7 @@ func TestPIIValidator_DefaultConfig_EmptyCode(t *testing.T) {
 }
 
 func TestPIIValidator_NoPII_Pass(t *testing.T) {
-	p := NewPIIValidator()
+	p := MustPIIValidator()
 	ctx := context.Background()
 	_, rep, err := p.Validate(ctx, "Hello world")
 	if err != nil {
@@ -55,7 +56,7 @@ func TestPIIValidator_NoPII_Pass(t *testing.T) {
 }
 
 func TestPIIValidator_NoPII_PassPreservesMetadata(t *testing.T) {
-	p := NewPIIValidator(WithCode("PII_RULE"), WithSeverity(guardy.SeverityMedium))
+	p := MustPIIValidator(WithCode("PII_RULE"), WithSeverity(guardy.SeverityMedium))
 	_, rep, err := p.Validate(context.Background(), "Hello world")
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +73,7 @@ func TestPIIValidator_NoPII_PassPreservesMetadata(t *testing.T) {
 }
 
 func TestPIIValidator_Email_Redact(t *testing.T) {
-	p := NewPIIValidator()
+	p := MustPIIValidator()
 	ctx := context.Background()
 	_, rep, err := p.Validate(ctx, "Contact me at user@example.com please")
 	if err != nil {
@@ -90,7 +91,7 @@ func TestPIIValidator_Email_Redact(t *testing.T) {
 }
 
 func TestPIIValidator_Phone_Redact(t *testing.T) {
-	p := NewPIIValidator()
+	p := MustPIIValidator()
 	ctx := context.Background()
 	_, rep, err := p.Validate(ctx, "Call 555-123-4567")
 	if err != nil {
@@ -105,7 +106,7 @@ func TestPIIValidator_Phone_Redact(t *testing.T) {
 }
 
 func TestPIIValidator_CustomReplacement(t *testing.T) {
-	p := NewPIIValidator(WithRedactionReplacement("[PII]"))
+	p := MustPIIValidator(WithRedactionReplacement("[PII]"))
 	ctx := context.Background()
 	_, rep, err := p.Validate(ctx, "Email: a@b.co")
 	if err != nil {
@@ -120,7 +121,7 @@ func TestPIIValidator_CustomReplacement(t *testing.T) {
 }
 
 func TestPIIValidator_WithName(t *testing.T) {
-	p := NewPIIValidator(WithName("custom-pii"))
+	p := MustPIIValidator(WithName("custom-pii"))
 	_, rep, err := p.Validate(context.Background(), "Email: a@b.co")
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func TestPIIValidator_WithName(t *testing.T) {
 
 func TestPIIValidator_WithTokenVault(t *testing.T) {
 	vault := NewInMemoryTokenVault()
-	p := NewPIIValidator(WithTokenVault(vault))
+	p := MustPIIValidator(WithTokenVault(vault))
 	_, rep, err := p.Validate(context.Background(), "Email: user@example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -149,23 +150,13 @@ func TestPIIValidator_WithTokenVault(t *testing.T) {
 	}
 }
 
-func TestPIIValidator_WithTypedNilTokenVault_FallbackReplacement(t *testing.T) {
+func TestPIIValidator_TypedNilVaultRejectedAtConstruction(t *testing.T) {
+	// Arrange.
 	var vault *InMemoryTokenVault
-	p := NewPIIValidator(
-		WithTokenVault(vault),
-		WithRedactionReplacement("[X]"),
-	)
-	_, rep, err := p.Validate(context.Background(), "Email: user@example.com")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rep.Action != guardy.ActionRedact {
-		t.Fatalf("action = %v", rep.Action)
-	}
-	if strings.Contains(rep.MutatedText, "user@example.com") {
-		t.Fatalf("expected fallback replacement redaction, got %q", rep.MutatedText)
-	}
-	if !strings.Contains(rep.MutatedText, "[X]") {
-		t.Fatalf("expected replacement marker, got %q", rep.MutatedText)
+	// Act.
+	v, err := NewPIIValidator(WithTokenVault(vault))
+	// Assert.
+	if v != nil || !errors.Is(err, guardy.ErrConfiguration) {
+		t.Fatalf("validator=%v error=%v", v, err)
 	}
 }

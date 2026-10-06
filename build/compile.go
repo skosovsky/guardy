@@ -106,7 +106,11 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 	var fast []guardy.Validator[string]
 
 	if spec.PIIRedact {
-		fast = append(fast, ext.NewPIIValidator(ext.WithCode("PII_DETECTED")))
+		v, err := ext.NewPIIValidator(ext.WithCode("PII_DETECTED"))
+		if err != nil {
+			return nil, configError("PIIRedact", "invalid", err)
+		}
+		fast = append(fast, v)
 	}
 	if len(spec.WordlistBlock) > 0 {
 		v, err := ext.NewWordlistValidator(spec.WordlistBlock, ext.Blocklist, ext.WithCode("WORDLIST_BLOCK"))
@@ -116,7 +120,11 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		fast = append(fast, v)
 	}
 	if spec.LengthMax > 0 {
-		fast = append(fast, ext.NewLengthValidator(0, spec.LengthMax, ext.WithCode("LENGTH_EXCEEDED")))
+		v, err := ext.NewLengthValidator(0, spec.LengthMax, ext.WithCode("LENGTH_EXCEEDED"))
+		if err != nil {
+			return nil, configError("LengthMax", "invalid", err)
+		}
+		fast = append(fast, v)
 	}
 	if cfg.schemaSet {
 		schemaV, err := jsonschemaext.NewJSONSchemaValidator(
@@ -129,7 +137,11 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		fast = append(fast, schemaV)
 	}
 	if cfg.outputClassifier {
-		fast = append(fast, ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON")))
+		v, err := ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
+		if err != nil {
+			return nil, configError("OutputClassifier", "invalid", err)
+		}
+		fast = append(fast, v)
 	}
 
 	var policy []guardy.PolicyValidator[string]

@@ -8,8 +8,8 @@ import (
 
 func TestInMemoryTokenVault_StoreReuseAndRestore(t *testing.T) {
 	vault := NewInMemoryTokenVault()
-	token1 := vault.Store(TokenNamespacePII, "alice@example.com")
-	token2 := vault.Store(TokenNamespacePII, "alice@example.com")
+	token1 := storeForTest(t, vault, TokenNamespacePII, "alice@example.com")
+	token2 := storeForTest(t, vault, TokenNamespacePII, "alice@example.com")
 	if token1 != token2 {
 		t.Fatalf("expected stable token reuse, got %q vs %q", token1, token2)
 	}
@@ -29,8 +29,8 @@ func TestInMemoryTokenVault_StoreReuseAndRestore(t *testing.T) {
 
 func TestInMemoryTokenVault_NamespaceSeparation(t *testing.T) {
 	vault := NewInMemoryTokenVault()
-	piiToken := vault.Store(TokenNamespacePII, "secret")
-	wordToken := vault.Store(TokenNamespaceWordlist, "secret")
+	piiToken := storeForTest(t, vault, TokenNamespacePII, "secret")
+	wordToken := storeForTest(t, vault, TokenNamespaceWordlist, "secret")
 	if piiToken == wordToken {
 		t.Fatalf("tokens must differ across namespaces: %q", piiToken)
 	}
@@ -43,7 +43,7 @@ func TestInMemoryTokenVault_ConcurrentStore(t *testing.T) {
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Go(func() {
-			results <- vault.Store(TokenNamespacePII, "bob@example.com")
+			results <- storeForTest(t, vault, TokenNamespacePII, "bob@example.com")
 		})
 	}
 	wg.Wait()
@@ -63,7 +63,7 @@ func TestInMemoryTokenVault_ConcurrentStore(t *testing.T) {
 
 func TestUnredactText(t *testing.T) {
 	vault := NewInMemoryTokenVault()
-	tok := vault.Store(TokenNamespacePII, "charlie@example.com")
+	tok := storeForTest(t, vault, TokenNamespacePII, "charlie@example.com")
 	got := UnredactText("email: "+tok, vault)
 	if got != "email: charlie@example.com" {
 		t.Fatalf("got = %q", got)
@@ -79,8 +79,8 @@ type alphaTokenVault struct {
 	value string
 }
 
-func (v alphaTokenVault) Store(_, _ string) string {
-	return v.token
+func (v alphaTokenVault) Store(_, _ string) (string, error) {
+	return v.token, nil
 }
 
 func (v alphaTokenVault) Restore(token string) (string, bool) {
@@ -99,4 +99,13 @@ func TestUnredactText_AlphanumericTokenID(t *testing.T) {
 	if got != "email: delta@example.com" {
 		t.Fatalf("got = %q", got)
 	}
+}
+
+func storeForTest(t *testing.T, vault TokenVault, namespace, original string) string {
+	t.Helper()
+	token, err := vault.Store(namespace, original)
+	if err != nil {
+		t.Errorf("Store error: %v", err)
+	}
+	return token
 }

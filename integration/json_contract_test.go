@@ -15,7 +15,7 @@ import (
 
 func TestJSONNumberSurvivesActualPIIPipelineAndArgs(t *testing.T) {
 	// Arrange.
-	redactor := jsonredact.NewJSONRedactValidator(ext.NewPIIValidator(), "pii-json")
+	redactor := jsonredact.NewJSONRedactValidator(ext.MustPIIValidator(), "pii-json")
 	raw := `{"id":9007199254740993,"profile":{"email":"alice@example.com"}}`
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(redactor))
 	typed := guardy.MustCompileArgs[map[string]any](pipeline)

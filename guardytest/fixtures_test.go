@@ -59,7 +59,15 @@ func TestReferenceSemanticFixturesActualBoundary(t *testing.T) {
 		t.Run(fixture.Name, func(t *testing.T) {
 			// Arrange.
 			observations, calls := 0, 0
-			pipeline := g.NewPipeline(g.WithSlowPath(fixture.Validator()), g.WithPipelineName[string](fixture.Identity),
+			validator, configErr := fixture.Validator()
+			if configErr != nil {
+				if validator != nil || !errors.Is(configErr, g.ErrConfiguration) ||
+					fixture.Disposition != g.DispositionSystemFault {
+					t.Fatalf("fixture config=%v expected=%v", configErr, fixture.Disposition)
+				}
+				return
+			}
+			pipeline := g.NewPipeline(g.WithSlowPath(validator), g.WithPipelineName[string](fixture.Identity),
 				g.WithObserver[string](func(_ context.Context, event g.GuardEvent) {
 					observations++
 					if event.PipelineName != fixture.Identity {

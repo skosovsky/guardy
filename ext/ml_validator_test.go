@@ -17,8 +17,8 @@ func (s stubClassifier) Classify(_ context.Context, _ string) (ClassifierResult,
 	return s.result, s.err
 }
 
-func TestMLValidator_Pass(t *testing.T) {
-	v := NewMLValidator(stubClassifier{
+func TestClassifierValidator_Pass(t *testing.T) {
+	v := MustClassifierValidator(stubClassifier{
 		result: ClassifierResult{IsViolation: false},
 	}, WithCode("PROMPT_INJECTION_ML"))
 
@@ -31,8 +31,8 @@ func TestMLValidator_Pass(t *testing.T) {
 	}
 }
 
-func TestMLValidator_Block(t *testing.T) {
-	v := NewMLValidator(stubClassifier{
+func TestClassifierValidator_Block(t *testing.T) {
+	v := MustClassifierValidator(stubClassifier{
 		result: ClassifierResult{
 			IsViolation: true,
 			Score:       0.93,
@@ -56,22 +56,22 @@ func TestMLValidator_Block(t *testing.T) {
 	if rep.Severity != guardy.SeverityCritical {
 		t.Fatalf("severity = %q", rep.Severity)
 	}
-	if rep.Reason != "ml violation: prompt_injection" {
+	if rep.Reason != "classifier violation: prompt_injection" {
 		t.Fatalf("reason = %q", rep.Reason)
 	}
 }
 
-func TestMLValidator_Error(t *testing.T) {
+func TestClassifierValidator_Error(t *testing.T) {
 	want := errors.New("classifier down")
-	v := NewMLValidator(stubClassifier{err: want})
+	v := MustClassifierValidator(stubClassifier{err: want})
 	_, _, err := v.Validate(context.Background(), "x")
 	if !errors.Is(err, want) {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-func TestMLValidator_Block_CustomReasonOverridesLabel(t *testing.T) {
-	v := NewMLValidator(
+func TestClassifierValidator_Block_CustomReasonOverridesLabel(t *testing.T) {
+	v := MustClassifierValidator(
 		stubClassifier{
 			result: ClassifierResult{
 				IsViolation: true,

@@ -47,7 +47,7 @@ func streamExample(profile guardy.ReleaseProfile) (string, error) {
 	const unitBudget = 8
 	var sink bytes.Buffer
 	rule := guardy.WithStreamingCapabilities(
-		ext.NewLengthValidator(0, totalBudget),
+		ext.MustLengthValidator(0, totalBudget),
 		guardy.StreamCapabilities{Partial: true, Unit: true, Final: true, Lookbehind: 0, Lookahead: 0},
 	)
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(rule)).Use(guardyotel.NewMiddleware[string]())

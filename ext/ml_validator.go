@@ -24,33 +24,52 @@ type ClassifierResult struct {
 	Label       string
 }
 
-type mlValidator struct {
+// ClassifierValidator adapts a caller-owned detector; it contains no trained model.
+type ClassifierValidator struct {
 	classifier TextClassifier
 	cfg        RuleConfig
 }
 
-// Ensure ML validator implements guardy.Validator[string].
-var _ guardy.Validator[string] = (*mlValidator)(nil)
+// Ensure ClassifierValidator implements guardy.Validator[string].
+var _ guardy.Validator[string] = (*ClassifierValidator)(nil)
 
-const defaultMLValidatorName = "ml_validator"
+const defaultClassifierValidatorName = "classifier_validator"
 
-// NewMLValidator adapts TextClassifier to guardy.Validator[string].
-func NewMLValidator(classifier TextClassifier, opts ...Option) guardy.Validator[string] {
-	cfg := applyOptions(RuleConfig{
+// NewClassifierValidator adapts TextClassifier to guardy.Validator[string].
+func NewClassifierValidator(classifier TextClassifier, opts ...Option) (guardy.Validator[string], error) {
+	if nilComponent(classifier) {
+		return nil, ruleConfigurationError("classifier", "detector", "required", nil)
+	}
+	cfg, err := applyOptions("classifier", RuleConfig{
 		Action:   guardy.ActionBlock,
 		Severity: guardy.SeverityHigh,
-		Name:     defaultMLValidatorName,
+		Name:     defaultClassifierValidatorName,
 	}, opts...)
-	cfg.Action = guardy.ActionBlock
-	return &mlValidator{classifier: classifier, cfg: cfg}
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRuleOptions("classifier", cfg); err != nil {
+		return nil, err
+	}
+
+	return &ClassifierValidator{classifier: classifier, cfg: cfg}, nil
 }
 
-func (m *mlValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
+// MustClassifierValidator panics when NewClassifierValidator rejects configuration.
+func MustClassifierValidator(classifier TextClassifier, opts ...Option) guardy.Validator[string] {
+	v, err := NewClassifierValidator(classifier, opts...)
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func (m *ClassifierValidator) Validate(ctx context.Context, input string) (string, *guardy.Report, error) {
 	if err := ctx.Err(); err != nil {
 		return input, nil, err
 	}
 	if m.classifier == nil {
-		return input, nil, errors.New("ext: ml validator classifier is nil")
+		return input, nil, errors.New("ext: classifier validator detector is nil")
 	}
 	result, err := m.classifier.Classify(ctx, input)
 	if ctxErr := ctx.Err(); ctxErr != nil {
@@ -67,9 +86,9 @@ func (m *mlValidator) Validate(ctx context.Context, input string) (string, *guar
 		rep.Score = result.Score
 		return input, rep, nil
 	}
-	reason := "ml violation detected"
+	reason := "classifier violation detected"
 	if result.Label != "" {
-		reason = "ml violation: " + result.Label
+		reason = "classifier violation: " + result.Label
 	}
 	rep := violationReport(m.cfg, guardy.ActionBlock, reason)
 	rep.Score = result.Score

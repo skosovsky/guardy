@@ -25,7 +25,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "regex:", err)
 		os.Exit(1)
 	}
-	lengthV := ext.NewLengthValidator(1, maxPromptLen, ext.WithCode("TOO_LONG"))
+	lengthV := ext.MustLengthValidator(1, maxPromptLen, ext.WithCode("TOO_LONG"))
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(regexV, lengthV))
 
 	scanner := bufio.NewScanner(os.Stdin)

@@ -93,7 +93,7 @@ func TestPIIFiniteFormatsAndNoTails(t *testing.T) {
 	} {
 		t.Run(raw, func(t *testing.T) {
 			// Arrange.
-			validator := NewPIIValidator(WithRedactionReplacement(`$1\literal`))
+			validator := MustPIIValidator(WithRedactionReplacement(`$1\literal`))
 			// Act.
 			out, report, err := validator.Validate(context.Background(), raw)
 			// Assert: entire recognized span replaced once, with no expansion or leftover digits.
@@ -104,7 +104,7 @@ func TestPIIFiniteFormatsAndNoTails(t *testing.T) {
 	}
 	for _, benign := range []string{"Привет, 42!", "12345", "9007199254740993", "order4111111111111111", "41111111111111111111", "6111111111111111", "5611111111111111", "+44 20 1234 5678", "用户@example.com"} {
 		// Arrange / Act.
-		out, report, err := NewPIIValidator().Validate(context.Background(), benign)
+		out, report, err := MustPIIValidator().Validate(context.Background(), benign)
 		// Assert.
 		if err != nil || report.Action != guardy.ActionPass || out != benign {
 			t.Fatalf("%q: %q %+v %v", benign, out, report, err)
@@ -114,16 +114,16 @@ func TestPIIFiniteFormatsAndNoTails(t *testing.T) {
 
 type countingPIIVault struct{ originals []string }
 
-func (v *countingPIIVault) Store(_ string, original string) string {
+func (v *countingPIIVault) Store(_ string, original string) (string, error) {
 	v.originals = append(v.originals, original)
-	return "replacement@example.com"
+	return "replacement@example.com", nil
 }
 func (*countingPIIVault) Restore(_ string) (string, bool) { return "", false }
 
 func TestPIIOverlapUsesOriginalSpansAndNeverRescansTokens(t *testing.T) {
 	// Arrange.
 	vault := &countingPIIVault{}
-	validator := NewPIIValidator(WithTokenVault(vault))
+	validator := MustPIIValidator(WithTokenVault(vault))
 	// Act.
 	out, report, err := validator.Validate(context.Background(), "4111111111111111@example.com and 5551234567")
 	// Assert.
@@ -148,9 +148,11 @@ func TestClassifierContextFaultAndNoLateDelivery(t *testing.T) {
 	for _, score := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
 		for _, violation := range []bool{false, true} {
 			// Arrange.
-			validator := NewMLValidator(classifierFunc(func(context.Context, string) (ClassifierResult, error) {
-				return ClassifierResult{IsViolation: violation, Score: score}, nil
-			}))
+			validator := MustClassifierValidator(
+				classifierFunc(func(context.Context, string) (ClassifierResult, error) {
+					return ClassifierResult{IsViolation: violation, Score: score}, nil
+				}),
+			)
 			pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
 			// Act.
 			result, err := pipeline.GuardOutput(context.Background(), nil, "payload")
@@ -165,7 +167,7 @@ func TestClassifierContextFaultAndNoLateDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), classifierContextKey{}, "caller"))
 	defer cancel()
 	called := false
-	validator := NewMLValidator(classifierFunc(func(got context.Context, _ string) (ClassifierResult, error) {
+	validator := MustClassifierValidator(classifierFunc(func(got context.Context, _ string) (ClassifierResult, error) {
 		if got.Value(classifierContextKey{}) != "caller" {
 			t.Fatal("caller context values lost")
 		}
@@ -206,7 +208,7 @@ func TestPIIOverlappingCandidatesAfterRejectedBoundary(t *testing.T) {
 		{"4111 4111 1111 1111 1111", "[REDACTED]"},
 	} {
 		// Arrange / Act.
-		out, report, err := NewPIIValidator().Validate(context.Background(), tc.raw)
+		out, report, err := MustPIIValidator().Validate(context.Background(), tc.raw)
 		// Assert: a rejected earlier candidate must not hide later qualified spans.
 		if err != nil || report.Action != guardy.ActionRedact || out != tc.want {
 			t.Fatalf("%q: %q %+v %v", tc.raw, out, report, err)
@@ -225,7 +227,7 @@ func TestUnsupportedPIIFormatsHaveNoWholeValueGuarantee(t *testing.T) {
 		{"+49 5551234567", "+49 [REDACTED]"},
 	} {
 		// Arrange / Act.
-		out, _, err := NewPIIValidator().Validate(context.Background(), tc.raw)
+		out, _, err := MustPIIValidator().Validate(context.Background(), tc.raw)
 		// Assert: supported substrings may match inside unsupported overall formats.
 		if err != nil || out != tc.want {
 			t.Fatalf("%q: %q %v", tc.raw, out, err)
@@ -236,7 +238,7 @@ func TestUnsupportedPIIFormatsHaveNoWholeValueGuarantee(t *testing.T) {
 func TestClassifierErrorIsPipelineFault(t *testing.T) {
 	// Arrange.
 	want := errors.New("detector unavailable")
-	validator := NewMLValidator(
+	validator := MustClassifierValidator(
 		classifierFunc(func(context.Context, string) (ClassifierResult, error) { return ClassifierResult{}, want }),
 	)
 	pipeline := guardy.NewPipeline(guardy.WithFastPath(validator))
@@ -251,7 +253,7 @@ func TestClassifierErrorIsPipelineFault(t *testing.T) {
 
 func TestPIIOverlappingEmailsMergeWholeOriginalSpans(t *testing.T) {
 	// Arrange.
-	validator := NewPIIValidator()
+	validator := MustPIIValidator()
 	// Act.
 	out, report, err := validator.Validate(context.Background(), "a@b.com.cc@d.org")
 	// Assert.
@@ -269,7 +271,7 @@ func TestEmailSupportedPrefixesBeforeUnsupportedSuffixes(t *testing.T) {
 		{"alice@example.comé", "alice@example.comé"},
 	} {
 		// Arrange / Act.
-		out, _, err := NewPIIValidator().Validate(context.Background(), tc.raw)
+		out, _, err := MustPIIValidator().Validate(context.Background(), tc.raw)
 		// Assert.
 		if err != nil || out != tc.want {
 			t.Fatalf("%q: %q %v", tc.raw, out, err)

@@ -212,7 +212,7 @@ func ReferenceSemanticFixtures() []SemanticFixture {
 
 // Validator uses the real threshold/shadow implementation around a deterministic
 // mock. Timeout fixtures need a caller deadline; they wait cooperatively.
-func (f SemanticFixture) Validator() guardy.Validator[string] {
+func (f SemanticFixture) Validator() (guardy.Validator[string], error) {
 	matcher := MatcherFunc(func(ctx context.Context, _ string) (float64, error) {
 		if f.Timeout {
 			<-ctx.Done()
@@ -220,5 +220,9 @@ func (f SemanticFixture) Validator() guardy.Validator[string] {
 		}
 		return f.Score, f.Err
 	})
-	return guardy.NewSemanticValidator(matcher, f.Threshold, f.Shadow)
+	validator, err := guardy.NewSemanticValidator(matcher, f.Threshold, f.Shadow)
+	if err != nil {
+		return nil, err
+	}
+	return validator, nil
 }

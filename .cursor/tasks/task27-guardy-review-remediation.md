@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T02 приняты; T03 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T03 приняты; T04 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -243,7 +243,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 | D10 | Low-level Run сохраняет report-only SystemFault с nil error, явно описывает оба канала; high-level boundaries exhaustive и fail-closed, сохраняют cause/kind. | T08/T11 |
 | D11 | Validate callbacks всех фаз panic → безопасный validator SystemFault; original panic detail только explicit cause inspection, не public Error. Middleware construction panic остаётся явным construction panic; runtime observer/host sink panic contract описывается отдельно, не выдаётся за Validate recovery. | T08 |
 | D12 | Fallible pipeline/built-in construction с явными Must wrappers; nil rules/options и deterministic invalid combinations отвергаются до processing. Неиспользуемые options отвергаются для соответствующего validator, без silent coercion. Custom option и middleware construction callbacks должны быть корректны; framework не строится. | T03/T08 |
-| D13 | NewLength и Must используют один validation: min/max >= 0, 0 отключает сторону, положительные min>max invalid. Nil classifier/nonfinite или out-of-range threshold — construction error. | T03 |
+| D13 | NewLength и Must используют один validation: min/max >= 0, 0 отключает сторону, положительные min>max invalid. Nil classifier/nonfinite threshold — construction error; любая конечная шкала caller остаётся допустимой. | T03 |
 | D14 | TokenVault.Store возвращает (token,error); configured vault error/panic/empty/identity — fault и zero delivery. Без vault redaction явно irreversible; скрытого degradation при настроенном vault нет. Lifecycle/ACL host-owned. | T03 |
 | D15 | Regex outcome определяется match, включая identity/empty/zero-width; изменение bytes не является detection predicate. Replacement safety остаётся caller contract. | T03 |
 | D16 | TagPatternValidator/ClassifierValidator и соответствующие constructors; старые misleading names удаляются. Detector limits и отсутствие trained model описываются. | T03 |
@@ -279,7 +279,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Configuration validation до callbacks, mismatch fallback/typed nil documented и tested; separately checked fallback, no fault masking, kind/cause/Projection согласованы.
 4. Core/integration/examples tests и API migration актуальны.
 
-**T03 — built-ins** (ожидает T02; commit `fix: validators`; R03, D12–D16).
+**T03 — built-ins** (принят: полнота 100%, correctness PASS; commit `fix: validators`; R03, D12–D16).
 1. Все семь affected built-ins clean-pass/violation Fatal, Retryable, SafeUserMessage matrix; manual fatal-pass deny не ослаблен; baseline regression.
 2. Fallible constructors + Must, nil options/detectors/threshold/length/unsupported option combinations deterministic validation; no silent Action coercion.
 3. Error-returning vault и failure matrix (error/panic/empty/identity), no implicit irreversible degradation; успешные token/restore consumers migrated.
@@ -345,3 +345,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 | T00 | PASS 100% (3/3) | PASS, подтверждённых ошибок нет | [полнота](task27-evidence/t00-completeness.md), [корректность](task27-evidence/t00-correctness.md) | `a581a1c` — `docs: remediation plan` |
 | T01 | PASS 100% (4/4) | PASS, подтверждённых ошибок нет | [проверки](task27-evidence/t01-implementation.md), [полнота](task27-evidence/t01-completeness.md), [корректность](task27-evidence/t01-correctness.md) | `0bd3903` — `fix: scope types` |
 | T02 | PASS 100% (4/4), повторная приёмка | PASS после исправления64-depth boundary | [проверки](task27-evidence/t02-implementation.md), [полнота](task27-evidence/t02-completeness.md), [корректность](task27-evidence/t02-correctness.md) | `refactor: delivery` (hash в следующем этапе) |
+
+### T03 acceptance
+
+Независимые повторные приёмки после всех исправлений: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t03-*`. Все 19 modules race PASS, final root/schema race PASS, make lint всех 19 modules PASS. Commit: `fix: validators`.

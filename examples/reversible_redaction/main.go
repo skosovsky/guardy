@@ -16,7 +16,7 @@ const maxRecipientOutputLength = 500
 func main() {
 	vault := ext.NewInMemoryTokenVault()
 
-	piiValidator := ext.NewPIIValidator(
+	piiValidator := ext.MustPIIValidator(
 		ext.WithAction(guardy.ActionRedact),
 		ext.WithTokenVault(vault),
 		ext.WithCode("PII_DETECTED"),
@@ -43,7 +43,7 @@ func main() {
 	llmAnswer := "Approved summary: " + redacted
 	// Caller-owned facts/decision: a token never grants permission to disclose.
 	const ownerID = "customer-42"
-	final := guardy.NewPipeline(guardy.WithFastPath(ext.NewLengthValidator(0, maxRecipientOutputLength)))
+	final := guardy.NewPipeline(guardy.WithFastPath(ext.MustLengthValidator(0, maxRecipientOutputLength)))
 
 	for _, recipientID := range []string{"external-reader", ownerID} {
 		checked, err := restoreForRecipient(context.Background(), recipientID, ownerID, llmAnswer, vault, final)

@@ -39,7 +39,7 @@ func runExample(writer io.Writer) {
 		)),
 	)
 
-	classifier := ext.NewTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
+	classifier := ext.MustTechnicalJSONClassifier(ext.WithCode("TECHNICAL_JSON"))
 	outPipe := guardy.NewPipeline(
 		guardy.WithUserChannel[string](),
 		guardy.WithUserChannelFallback[string]("Output blocked for user safety."),

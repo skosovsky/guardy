@@ -2,6 +2,7 @@ package ext
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -44,24 +45,17 @@ func NewWordlistValidator(words []string, mode WordlistMode, opts ...Option) (gu
 	if mode != Blocklist && mode != Allowlist {
 		return nil, &guardy.ConfigurationError{Component: wordlistComponent, Field: "mode", Code: "invalid", Cause: nil}
 	}
-	for i, opt := range opts {
-		if opt == nil {
-			return nil, &guardy.ConfigurationError{
-				Component: wordlistComponent,
-				Field:     fmt.Sprintf("options[%d]", i),
-				Code:      "required",
-				Cause:     nil,
-			}
-		}
-	}
-	cfg := applyOptions(RuleConfig{
+	cfg, err := applyOptions("wordlist", RuleConfig{
 		Action:               guardy.ActionBlock,
 		Severity:             guardy.SeverityHigh,
 		Name:                 defaultWordlistValidatorName,
 		RedactionReplacement: defaultRedactionReplacement,
 	}, opts...)
-	if cfg.Action != guardy.ActionRedact {
-		cfg.Action = guardy.ActionBlock
+	if err != nil {
+		return nil, err
+	}
+	if err := validateRuleOptions("wordlist", cfg); err != nil {
+		return nil, err
 	}
 
 	set := make(map[string]struct{}, len(words))
@@ -122,14 +116,17 @@ func (w *wordlistValidator) Validate(ctx context.Context, input string) (string,
 	if w.cfg.Action == guardy.ActionBlock {
 		return input, violationReport(w.cfg, guardy.ActionBlock, reason), nil
 	}
-	clean := w.cfg.RedactionReplacement
-	if len(matches) > 0 {
-		clean = replaceSpans(input, spans, func(original string) string {
-			return storeTokenOrFallback(w.cfg.TokenVault, TokenNamespaceWordlist, original, w.cfg.RedactionReplacement)
+	var clean string
+	var err error
+	if len(matches) == 0 {
+		clean, err = storeRedaction(w.cfg.TokenVault, TokenNamespaceWordlist, input, w.cfg.RedactionReplacement)
+	} else {
+		clean, err = replaceSpans(input, spans, func(original string) (string, error) {
+			return storeRedaction(w.cfg.TokenVault, TokenNamespaceWordlist, original, w.cfg.RedactionReplacement)
 		})
 	}
-	if err := ctx.Err(); err != nil {
-		return input, nil, err
+	if fault := errors.Join(err, ctx.Err()); fault != nil {
+		return input, nil, fault
 	}
 	report := violationReport(w.cfg, guardy.ActionRedact, reason)
 	report.MutatedText = clean
