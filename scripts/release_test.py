@@ -310,6 +310,53 @@ class ReleaseConformance(unittest.TestCase):
         self.assertEqual(release.run(["git", "for-each-ref", "--format=%(refname)"], remote), "")
         self.assert_source_unchanged()
 
+    def test_standard_release_train_patch_break_and_cancel(self):
+        # Arrange: a clean checkout and an existing version on a disposable origin.
+        release.run(["git", "add", "--all"], self.source)
+        release.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Fixture",
+                     "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "ready"], self.source)
+        remote = self.base / "train.git"
+        release.run(["git", "init", "--quiet", "--bare", str(remote)], self.base)
+        release.run(["git", "remote", "add", "origin", str(remote)], self.source)
+        release.run(["git", "push", str(remote), "HEAD:refs/tags/v0.11.1"], self.source)
+        self.original = self.source_state()
+        # Act: both public release modes execute all three internal phases.
+        for kind, expected in (("break", "v0.12.0"), ("patch", "v0.12.1")):
+            manifest = release.release_train(self.source, kind, ". ./alpha ./beta",
+                                             self.external_url, "true", confirm=lambda _prompt: "y")
+            # Assert: only the intended release tags exist at the exact commit.
+            self.assertEqual(manifest["version"], expected)
+            refs = release.run(["git", "show-ref"], remote)
+            for item in manifest["modules"]:
+                self.assertIn(manifest["candidateRevision"] + " refs/tags/" + item["tag"], refs)
+            self.assertNotIn("unrelated-local-tag", refs)
+            self.assert_source_unchanged()
+        before = release.run(["git", "show-ref"], remote)
+        with self.assertRaises(release.ReleaseError):
+            release.release_train(self.source, "patch", ". alpha beta", self.external_url,
+                                  "true", confirm=lambda _prompt: "n")
+        self.assertEqual(release.run(["git", "show-ref"], remote), before)
+        self.assert_source_unchanged()
+
+    def test_standard_release_train_rejects_dirty_checkout(self):
+        # Arrange: setUp deliberately left caller work staged and untracked.
+        # Act / Assert: reject before any remote request or confirmation.
+        with self.assertRaises(release.ReleaseError):
+            release.release_train(self.source, "break", ". alpha beta")
+        self.assert_source_unchanged()
+
+
+class VersionSelection(unittest.TestCase):
+    def test_versions_use_root_numeric_tags(self):
+        # Arrange.
+        tags = ["v0.9.9", "v0.11.1", "alpha/v9.9.9", "v0.12.0-rc.1"]
+        # Act / Assert.
+        self.assertEqual(release.next_version(tags, "patch"), "v0.11.2")
+        self.assertEqual(release.next_version(tags, "break"), "v0.12.0")
+        self.assertEqual(release.next_version([], "break"), "v0.1.0")
+        with self.assertRaises(release.ReleaseError):
+            release.next_version(["v1.2.3"], "break")
+
 
 if __name__ == "__main__":
     unittest.main()

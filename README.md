@@ -834,14 +834,20 @@ accounted for and terminal outcomes stay sticky.
 Release preparation uses Python 3.9+, Git and the same Go 1.27.1+ toolchain.
 Cross-module tests live in `integration`; core tests have no optional engine
 requirements. `make test` discovers integration and every nested module and runs
-release tooling fixtures as well. No legacy patch/break publishing target remains.
+release tooling fixtures as well. The standard release entry points are unchanged:
+lint and tests run first, followed by scripts/release.sh and version confirmation.
 
 ```sh
-make release-prepare VERSION=v0.12.0 CANDIDATE=/tmp/guardy-candidate
-make release-verify CANDIDATE=/tmp/guardy-candidate
-# Separate explicit publication, only when the verified release is intended:
-# make release-publish CANDIDATE=/tmp/guardy-candidate REMOTE=<explicit-remote-url>
+make release-patch # v0.11.0 -> v0.11.1
+make release-break # v0.11.1 -> v0.12.0
 ```
+
+The script selects the next version from the configured origin's remote tags,
+requires a clean checkout and confirmation, then prepares, verifies and publishes
+an isolated candidate to origin's push URL. It publishes only the candidate's tags.
+For CI or candidate-only checks, release-prepare VERSION=... CANDIDATE=... and
+release-verify CANDIDATE=... remain available; release-publish requires an explicit
+REMOTE=... URL. Internal phases do not change the standard release workflow.
 
 Prepare snapshots the current tracked and non-ignored source files, including
 uncommitted work, into an isolated Git candidate. It leaves the source checkout,
@@ -859,6 +865,6 @@ Every module runs readonly graph/test/race/lint checks, including executable exa
 a separate smoke consumer imports core, build and available optional extensions.
 Verification does not publish tags or module artifacts. Publish requires the same
 verified candidate bytes and uses an atomic explicit tag set, with candidate ref
-cleanup. It has no implicit `origin`, never pushes unrelated tags and does not
+cleanup. The low-level publish phase requires a remote URL, never pushes unrelated tags and does not
 change the user's checkout. The integration/release conformance checks are local;
 they do not imply a production release was published.

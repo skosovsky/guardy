@@ -260,3 +260,10 @@ candidate bytes. It creates release refs only in the isolated candidate and push
 an explicit atomic set of tag refspecs to a supplied remote. Source refs and unrelated
 tags stay unchanged. Failure/interrupt cleanup removes transient candidate refs; no
 push --tags or hidden origin default is used. Publication is outside this task.
+
+The standard make release-patch/release-break workflow runs lint and tests, then
+scripts/release.sh with patch/break and the discovered modules. The script selects
+the next version from origin's remote tags and asks for confirmation, then executes
+prepare/verify/publish internally against origin's explicit push URL. The source
+checkout must be clean and stays unchanged throughout the release train. Separate
+phase commands remain available for candidate-only CI verification.

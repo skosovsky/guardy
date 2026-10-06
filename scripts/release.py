@@ -419,6 +419,48 @@ def publish(candidate, remote):
                 run(["git", "tag", "--delete", tag], root)
 
 
+def next_version(tags, kind):
+    if kind not in ("patch", "break"):
+        raise ReleaseError("expected patch or break release")
+    versions = [tuple(map(int, match.groups())) for tag in tags
+                if (match := re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", tag))]
+    major, minor, patch = max(versions, default=(0, 0, 0))
+    if kind == "patch":
+        patch += 1
+    elif major == 0:
+        minor, patch = minor + 1, 0
+    else:
+        major, minor, patch = major + 1, 0, 0
+    version = "v%d.%d.%d" % (major, minor, patch)
+    validate_version(version)
+    return version
+
+
+def release_train(source, kind, module_dirs, external="https://proxy.golang.org",
+                  linter="golangci-lint", confirm=input):
+    source = Path(source).resolve()
+    if run(["git", "status", "--porcelain"], source).strip():
+        raise ReleaseError("commit source changes before release")
+    modules = inventory(source)
+    supplied = {str(Path(name)) for name in module_dirs.split()}
+    if supplied != {item["dir"] for item in modules}:
+        raise ReleaseError("Makefile module inventory differs from source")
+    remote = run(["git", "remote", "get-url", "--push", "origin"], source).strip()
+    refs = run(["git", "ls-remote", "--tags", "--refs", remote], source)
+    tags = [line.split()[1].removeprefix("refs/tags/") for line in refs.splitlines()]
+    version = next_version(tags, kind)
+    print("Release " + version + " (" + kind + "), " + str(len(modules)) + " modules", flush=True)
+    if confirm("Proceed with release " + version + "? [y/N] ").strip().lower() != "y":
+        raise ReleaseError("release cancelled")
+    with tempfile.TemporaryDirectory(prefix="guardy-release-train-") as temporary:
+        candidate = Path(temporary) / "candidate"
+        manifest = prepare(source, candidate, version, external)
+        verify(candidate, external, linter)
+        publish(candidate, remote)
+    print("Released " + version + ": " + manifest["candidateRevision"], flush=True)
+    return manifest
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     phases = parser.add_subparsers(dest="phase", required=True)
@@ -432,6 +474,9 @@ def main():
     publish_args = phases.add_parser("publish")
     publish_args.add_argument("candidate")
     publish_args.add_argument("--remote", required=True)
+    release_args = phases.add_parser("release")
+    release_args.add_argument("kind", choices=("patch", "break"))
+    release_args.add_argument("--modules", required=True)
     args = parser.parse_args()
     try:
         if args.phase == "prepare":
@@ -439,10 +484,14 @@ def main():
         elif args.phase == "verify":
             verify(args.candidate, linter=args.linter)
             print("candidate verified; nothing published")
-        else:
+        elif args.phase == "publish":
             publish(args.candidate, args.remote)
+        else:
+            release_train(".", args.kind, args.modules,
+                          linter=os.environ.get("GOLANGCI_LINT", "golangci-lint"))
     except (ReleaseError, subprocess.CalledProcessError, OSError, ValueError) as error:
         if isinstance(error, subprocess.CalledProcessError):
+            print(error.stdout.decode(), file=os.sys.stderr)
             print(error.stderr.decode(), file=os.sys.stderr)
         parser.exit(1, str(error) + "\n")
 
