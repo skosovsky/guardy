@@ -479,7 +479,11 @@ The JSON redactor applies its leaf validator to string **values**, preserving ke
 and all other JSON values. A nil or typed-nil leaf panics at construction. A mandatory
 leaf decision or error returns the original document; partial redaction is never
 released as an allowed result. Output is re-encoded as valid JSON; formatting is not
-preserved. Cancellation is checked throughout traversal and after leaf callbacks.
+preserved. Object keys are visited in lexicographic Go string order, arrays in
+index order. Traversal continues after correction/deny to detect stronger outcomes;
+system fault, error or cancellation stops it. Equal-priority diagnostics use the
+last visited report, matching ComposeReports. Unvisited siblings are not inferred
+to have passed. Cancellation is checked throughout traversal and after leaf callbacks.
 
 Syntax checks, schema validation and business policy are separate obligations.
 `build.WithJSONSchema` uses the same optional schema validator. Shape metadata is

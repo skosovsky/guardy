@@ -1,0 +1,39 @@
+package jsonredact_test
+
+import (
+ "context"
+ "errors"
+ "reflect"
+ "testing"
+ g "github.com/skosovsky/guardy"
+ j "github.com/skosovsky/guardy/ext/jsonredact"
+)
+
+func TestReviewTieAndStop(t *testing.T) {
+ for _, fault := range []bool{false,true} {
+  var visits []string
+  leaf := g.ValidatorFunc[string](func(_ context.Context,s string)(string,*g.Report,error){
+   visits=append(visits,s)
+   if s=="first" || s=="second" {return s,&g.Report{Action:g.ActionBlock,Code:s},nil}
+   if s=="fault" && fault {return "unsafe",&g.Report{Action:g.Action(255),Code:"invalid",MutatedText:"unsafe"},nil}
+   return "redacted",&g.Report{Action:g.ActionRedact,PayloadKind:g.PayloadInternalControlSignal},nil
+  })
+  doc := ` {"a":["first","second"],"b":"fault","c":[{"d":"late"}]} `
+  out,rep,err:=j.NewJSONRedactValidator(leaf,"").Validate(t.Context(),doc)
+  want:=[]string{"first","second","fault","late"}; code:="second"
+  if fault {want=want[:3];code="invalid"}
+  if err!=nil || out!=doc || rep.MutatedText!="" || rep.Code!=code || !reflect.DeepEqual(visits,want) {t.Fatalf("fault=%v visits=%v rep=%+v out=%s err=%v",fault,visits,rep,out,err)}
+  if g.DecisionFromReport(rep).IsSystemFault()!=fault {t.Fatalf("disposition %+v",rep)}
+ }
+}
+
+func TestReviewNestedEvidence(t *testing.T) {
+ cause:=errors.New("underlying")
+ leaf:=g.ValidatorFunc[string](func(_ context.Context,s string)(string,*g.Report,error){
+  if s=="prior" {return "redacted",&g.Report{Action:g.ActionRedact,PayloadKind:g.PayloadInternalControlSignal},nil}
+  return "unsafe",&g.Report{Action:g.ActionPass},g.WithCompletedObservations(cause,&g.Report{Action:g.ActionPass,PayloadKind:g.PayloadTechnicalPayload})
+ })
+ doc:=`["prior",{"a":"fault"}]`
+ out,rep,err:=j.NewJSONRedactValidator(leaf,"").Validate(t.Context(),doc)
+ if out!=doc || rep.PayloadKind!=g.PayloadTechnicalPayload || rep.MutatedText!="" || !errors.Is(err,cause) {t.Fatalf("out=%s rep=%+v err=%v",out,rep,err)}
+}

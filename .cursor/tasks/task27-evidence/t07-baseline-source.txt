@@ -1,0 +1,102 @@
+package jsonredact
+
+import (
+	"context"
+	"errors"
+	"reflect"
+	"testing"
+
+	g "github.com/skosovsky/guardy"
+)
+
+func aggregationLeaf(_ context.Context, input string) (string, *g.Report, error) {
+	switch input {
+	case "retry":
+		return input, g.FinishReport(&g.Report{Action: g.ActionRetry, Code: "RETRY"}, g.ControlSpec{Action: g.ActionRetry}), nil
+	case "deny":
+		return input, g.FinishReport(&g.Report{Action: g.ActionBlock, Code: "DENY"}, g.ControlSpec{Action: g.ActionBlock}), nil
+	case "fault":
+		return input, &g.Report{Code: "FAULT", Disposition: g.DispositionSystemFault}, nil
+	default:
+		return input, &g.Report{Action: g.ActionPass}, nil
+	}
+}
+
+func TestJSONAggregationFindsStrongestCompletedOutcome(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		documents []string
+		fault     bool
+	}{
+		{"retry_deny", []string{`{"a":"retry","b":"deny"}`, `{"b":"deny","a":"retry"}`}, false},
+		{"nested", []string{`{"a":["retry",{"x":"deny"}],"z":"pass"}`, `{"z":"pass","a":["retry",{"x":"deny"}]}`}, false},
+		{"retry_deny_fault", []string{`{"a":"retry","b":"deny","c":"fault"}`, `{"c":"fault","b":"deny","a":"retry"}`}, true},
+		{"nested_fault", []string{`{"a":["retry",{"x":"deny","z":"fault"}],"z":"pass"}`}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			for _, input := range tc.documents {
+				for range 100 {
+					// Arrange.
+					adapter := NewJSONRedactValidator(g.ValidatorFunc[string](aggregationLeaf), "")
+					// Act.
+					output, report, err := adapter.Validate(t.Context(), input)
+					// Assert: later deny/fault is not hidden by an earlier correction.
+					disposition, code := g.DispositionTerminalDeny, "DENY"
+					if tc.fault {
+						disposition, code = g.DispositionSystemFault, "FAULT"
+					}
+					decision := g.DecisionFromReport(report)
+					if err != nil || output != input || decision.Disposition != disposition || decision.Code != code {
+						t.Fatalf("input=%s output=%s report=%+v error=%v", input, output, report, err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestJSONAggregationTraversalAndDiagnosticTieOrder(t *testing.T) {
+	t.Parallel()
+	for _, input := range []string{`{"z":["z0","z1"],"a":{"y":"ay","x":"ax"}}`, `{"a":{"x":"ax","y":"ay"},"z":["z0","z1"]}`} {
+		// Arrange.
+		var visited []string
+		adapter := NewJSONRedactValidator(g.ValidatorFunc[string](func(_ context.Context, value string) (string, *g.Report, error) {
+			visited = append(visited, value)
+			return value, g.FinishReport(&g.Report{Action: g.ActionRetry, Code: value}, g.ControlSpec{Action: g.ActionRetry}), nil
+		}), "")
+		// Act.
+		output, report, err := adapter.Validate(t.Context(), input)
+		// Assert: source ordering is irrelevant; shared equal-priority composition chooses the last visited.
+		if err != nil || output != input || !reflect.DeepEqual(visited, []string{"ax", "ay", "z0", "z1"}) || report.Code != "z1" {
+			t.Fatalf("visited=%v report=%+v error=%v", visited, report, err)
+		}
+	}
+}
+
+func TestJSONPriorKindSurvivesDenyThenGoFault(t *testing.T) {
+	t.Parallel()
+	// Arrange.
+	cause := errors.New("late fault")
+	var visited []string
+	adapter := NewJSONRedactValidator(g.ValidatorFunc[string](func(_ context.Context, value string) (string, *g.Report, error) {
+		visited = append(visited, value)
+		switch value {
+		case "classified":
+			return "redacted", &g.Report{Action: g.ActionRedact, PayloadKind: g.PayloadTechnicalPayload}, nil
+		case "deny":
+			return value, g.FinishReport(&g.Report{Action: g.ActionBlock, Code: "DENY"}, g.ControlSpec{Action: g.ActionBlock}), nil
+		default:
+			return "failed output", &g.Report{PayloadKind: g.PayloadInternalControlSignal}, cause
+		}
+	}), "")
+	input := `{"c":"fault","b":"deny","a":"classified","z":"unvisited"}`
+	// Act.
+	output, report, err := adapter.Validate(t.Context(), input)
+	// Assert.
+	if !errors.Is(err, cause) || output != input || report == nil || report.PayloadKind != g.PayloadTechnicalPayload || report.MutatedText != "" ||
+		!reflect.DeepEqual(visited, []string{"classified", "deny", "fault"}) {
+		t.Fatalf("output=%s report=%+v visited=%v error=%v", output, report, visited, err)
+	}
+}

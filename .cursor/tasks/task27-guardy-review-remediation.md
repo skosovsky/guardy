@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T06 приняты; T07 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T07 приняты; T08 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -302,12 +302,12 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 2. Technical/internal + error/wrapped cancellation согласованы direct/RunResult/boundary/PolicyFailure; first fault default; transformed output suppress; AAA baseline repro.
 3. Все фазы pipeline и recursive adapters проверены, failure/cancellation cause сохранён; contracts/tests актуальны.
 
-**T07 — JSON aggregation** (ожидает T06; commit `fix: json decisions`; R06, R07).
+**T07 — JSON aggregation** (принят: полнота 100%, correctness PASS; commit `fix: json decisions`; R06, R07).
 1. Sorted keys/index traversal и strongest completed outcome; mixed retry/deny/fault nested/source order/repeated evaluations deterministic, including diagnostic code.
 2. Mandatory fault/cancel сохраняют исходный документ и prior kind через T06 evidence; shadow не скрывает fault; AAA baseline repro.
 3. Optional adapter tests, contracts и examples PASS; no domain dependencies.
 
-**T08 — core API/config/faults** (ожидает T07; commit `refactor: pipeline`; D04–D06, D10–D12).
+**T08 — core API/config/faults** (следующий; commit `refactor: pipeline`; D04–D06, D10–D12).
 1. Fallible construction/Must и nil config validation; consumers migrated; invalid report combinations fail-closed, сохранение Report обосновано контрактом.
 2. Sequential/policy/parallel API/labels едины, Fast/Slow legacy удалён; migration включает serialized/telemetry labels.
 3. Validate panic all-phase → safe SystemFault, cause explicit, no pass; runtime/construction callback boundaries documented и tested.
@@ -361,3 +361,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T06 acceptance
 
 После исправления simultaneous cancellation cause loss обе независимые приёмки повторены на окончательном diff: полнота 100% (3/3), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t06-*`. Final all19modules race и make lint PASS, независимые focused race ×10 и direct cancellation probe PASS. Архив baseline HEAD `98a52c2` подтвердил R07 во всех фазах. T07 aggregation и T08 panic handling остаются отдельными задачами. Предыдущий принятый commit T05: `98a52c2 fix: stream framing`. Commit T06: `fix: fault evidence`.
+
+### T07 acceptance
+
+Независимые приёмки окончательного diff: полнота 100% (3/3), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t07-*`. Все 19 modules race и make lint завершились с exit 0; независимые optional race ×5/×10, external probe ×10 и fuzz 89 558 executions PASS. Архив baseline HEAD `5dda01b` воспроизвёл R06/R07. Предыдущий принятый commit T06: `5dda01b fix: fault evidence`. Commit T07: `fix: json decisions`.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/skosovsky/guardy"
 	"github.com/skosovsky/guardy/internal/jsondoc"
@@ -15,7 +16,8 @@ import (
 // LeafValidator validates or redacts individual string leaves during JSON traversal.
 type LeafValidator = guardy.Validator[string]
 
-// JSONRedactValidator walks JSON and applies leafValidator to each string value.
+// JSONRedactValidator walks sorted object keys and array indices, composing independent
+// string-leaf checks. Correction/deny do not stop traversal; fault/error/cancel do.
 //
 //nolint:revive // JSONRedactValidator is the public name in this submodule API.
 type JSONRedactValidator struct {
@@ -53,7 +55,7 @@ func (v *JSONRedactValidator) Validate(ctx context.Context, input string) (strin
 		return jsonFault(input, lastRep, walkErr)
 	}
 	if guardy.DecisionFromReport(lastRep).Disposition != guardy.DispositionNone {
-		return input, lastRep, nil
+		return input, lastRep.CloneWithoutState(), nil
 	}
 	out, err := json.Marshal(root)
 	if err != nil {
@@ -88,13 +90,18 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if guardy.DecisionFromReport(*lastRep).Disposition != guardy.DispositionNone {
+	if guardy.DecisionFromReport(*lastRep).IsSystemFault() {
 		return nil
 	}
 	switch val := (*node).(type) {
 	case map[string]any:
-		for k, child := range val {
-			c := child
+		keys := make([]string, 0, len(val))
+		for key := range val {
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		for _, k := range keys {
+			c := val[k]
 			if err := v.walk(ctx, &c, changed, lastRep); err != nil {
 				return err
 			}
@@ -118,19 +125,10 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 		}
 		if rep != nil {
 			*lastRep = guardy.ComposeReports(*lastRep, rep)
-			if guardy.DecisionFromReport(*lastRep).Disposition != guardy.DispositionNone {
-				return nil
-			}
-			switch rep.Action {
-			case guardy.ActionBlock, guardy.ActionRetry:
-				return nil
-			case guardy.ActionRedact:
+			if guardy.DecisionFromReport(rep).Disposition == guardy.DispositionNone &&
+				rep.Action == guardy.ActionRedact {
 				*changed = true
 				*node = out
-			case guardy.ActionPass:
-				// no-op
-			default:
-				return fmt.Errorf("jsonredact: unsupported leaf action %s", rep.Action)
 			}
 		}
 	}

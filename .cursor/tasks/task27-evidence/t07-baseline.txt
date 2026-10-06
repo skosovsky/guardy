@@ -1,0 +1,16 @@
+--- FAIL: TestJSONAggregationTraversalAndDiagnosticTieOrder (0.00s)
+    aggregation_contract_test.go:73: visited=[z0] report=&{Action:retry Validator: Code:z0 Severity: Reason: Feedback: Score:0 ShadowMode:false MutatedText: Retryable:true Fatal:false SafeUserMessage: Disposition:retryable_correction PayloadKind:safe_user_text} error=<nil>
+--- FAIL: TestJSONAggregationFindsStrongestCompletedOutcome (0.00s)
+    --- FAIL: TestJSONAggregationFindsStrongestCompletedOutcome/retry_deny (0.00s)
+        aggregation_contract_test.go:52: input={"a":"retry","b":"deny"} output={"a":"retry","b":"deny"} report=&{Action:retry Validator: Code:RETRY Severity: Reason: Feedback: Score:0 ShadowMode:false MutatedText: Retryable:true Fatal:false SafeUserMessage: Disposition:retryable_correction PayloadKind:safe_user_text} error=<nil>
+    --- FAIL: TestJSONAggregationFindsStrongestCompletedOutcome/retry_deny_fault (0.00s)
+        aggregation_contract_test.go:52: input={"a":"retry","b":"deny","c":"fault"} output={"a":"retry","b":"deny","c":"fault"} report=&{Action:retry Validator: Code:RETRY Severity: Reason: Feedback: Score:0 ShadowMode:false MutatedText: Retryable:true Fatal:false SafeUserMessage: Disposition:retryable_correction PayloadKind:safe_user_text} error=<nil>
+    --- FAIL: TestJSONAggregationFindsStrongestCompletedOutcome/nested (0.00s)
+        aggregation_contract_test.go:52: input={"a":["retry",{"x":"deny"}],"z":"pass"} output={"a":["retry",{"x":"deny"}],"z":"pass"} report=&{Action:retry Validator: Code:RETRY Severity: Reason: Feedback: Score:0 ShadowMode:false MutatedText: Retryable:true Fatal:false SafeUserMessage: Disposition:retryable_correction PayloadKind:safe_user_text} error=<nil>
+    --- FAIL: TestJSONAggregationFindsStrongestCompletedOutcome/nested_fault (0.00s)
+        aggregation_contract_test.go:52: input={"a":["retry",{"x":"deny","z":"fault"}],"z":"pass"} output={"a":["retry",{"x":"deny","z":"fault"}],"z":"pass"} report=&{Action:retry Validator: Code:RETRY Severity: Reason: Feedback: Score:0 ShadowMode:false MutatedText: Retryable:true Fatal:false SafeUserMessage: Disposition:retryable_correction PayloadKind:safe_user_text} error=<nil>
+--- FAIL: TestJSONPriorKindSurvivesDenyThenGoFault (0.00s)
+    aggregation_contract_test.go:100: output={"c":"fault","b":"deny","a":"classified","z":"unvisited"} report=<nil> visited=[fault] error=late fault
+FAIL
+FAIL	github.com/skosovsky/guardy/ext/jsonredact	0.411s
+FAIL

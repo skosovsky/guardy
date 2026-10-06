@@ -66,3 +66,13 @@ with CompletedReportFromError or errors.As into *CompletedObservationsError.
 Snapshots clear MutatedText and retain causes through errors.Is/errors.As. MapSlice
 and JSONRedact now preserve prior classification on faults; Map/MapJSONRawMessage
 error reports project only attested inner history. Fault delivery remains suppressed.
+
+
+## Recursive JSON decisions
+
+JSONRedact uses sorted object keys and array index order. It continues after
+correction/deny to find stronger outcomes and stops on fault/error/cancellation.
+Equal-priority diagnostics select the last visited report; source key order no
+longer changes decisions. Any mandatory outcome returns the original document,
+with MutatedText cleared; success remains re-encoded JSON. Leaf checks must be
+independent and cooperative: later checks now run after earlier corrections/denies.

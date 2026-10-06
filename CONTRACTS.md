@@ -397,3 +397,22 @@ attestation, not proof that arbitrary host detector claims are true. It exposes 
 transformed value, grants no declassification and never activates fallback. This
 error/cancellation contract does not add callback termination or panic recovery;
 central panic handling remains a separate core configuration/fault task.
+
+### Recursive JSON aggregation
+
+JSONRedact visits object keys in lexicographic Go string order and arrays in index
+order, recursively; JSON source key order does not alter traversal. Leaf checks
+are independent and receive original string values. Traversal continues after
+correction and terminal deny to discover stronger outcomes. Completed reports
+compose with the shared enforcement priority and aggregate payload classification.
+The last visited report wins equal-priority diagnostics, matching ComposeReports;
+the first report-only system fault stops further leaf checks, as do Go error and
+cancellation. Unvisited siblings are never inferred to have passed.
+
+Any enforced correction/deny/fault returns the exact original document, including
+original formatting; partial redaction remains private to the traversal. Successful
+output is re-encoded JSON. Shadow policy block remains an observation and cannot
+hide a subsequent fault, including invalid reports. Go error/cancellation preserves
+only prior completed classification through the T06 evidence carrier; failed leaf
+report/output is discarded. Host leaf callbacks must be independent, cooperative,
+and free of input alias mutation or irreversible validation side effects.
