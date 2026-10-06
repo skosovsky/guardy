@@ -115,3 +115,34 @@ retry counters for every decision. A zero retry budget remains exhausted. The ho
 owns counter updates and scheduling. `GuardRouteFallbackDelivery` proposes a value;
 check the proposed value for its destination with GuardDelivery before sending it.
 System faults never use this fallback route.
+
+### OTel setup errors
+
+`guardyotel.NewMiddleware` now returns `(ValidatorMiddleware[T], error)`. Handle
+counter/histogram creation failures before installing it; use `MustMiddleware` for
+static configuration. Provider causes remain in the ConfigurationError chain, not
+its public text. Nil options, typed-nil providers and absent/typed-nil instruments are rejected;
+plain `WithMeter(nil)` and `WithTracer(nil)` intentionally disable their channels.
+Setup no longer silently degrades telemetry. Runtime delegated decisions/errors
+and metadata/payload privacy stay unchanged. Provider lifecycle remains host-owned.
+
+### HTTP middleware and output adapters
+
+`Guard` now returns `(func(http.Handler) http.Handler, error)`; handle setup errors,
+or use `MustGuard` for static configuration. Nil dependencies/options and
+nonpositive `WithGuardMaxBodyBytes` are rejected. The consumed-input cap defaults
+to 1 MiB; oversized input now returns 413 instead of 400. Pass restores original
+bytes; redaction sends the authoritative returned `T` to the injector.
+
+Guard closes the original consumed wrapper before replacement. Extractors and
+injectors borrow replay bodies; their current replacement transfers ownership to
+Guard. Next borrows its handed-off body, which Guard closes on return. Callbacks
+own any intermediate replacements they remove; handlers own their own replacements.
+Independent GetBody readers are caller-owned. Close errors before next suppress
+execution with 500; post-handler close errors cannot rewrite a committed response.
+See CONTRACTS.md for the full ownership/status matrix and cooperative cancellation.
+
+Prefer `WrapGuardedOutput` and deliver only its approved `Projection`. It suppresses
+partial handler results, validation faults and cancellation. `WrapOutput` remains
+a low-level API that returns the unvalidated partial result alongside a handler
+error. Neither wrapper retries execution or undoes completed host side effects.

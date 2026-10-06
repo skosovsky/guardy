@@ -299,7 +299,7 @@ func TestHTTPReportFaultStopsHandler(t *testing.T) {
 	})
 	p := g.MustNewPipeline(g.WithSequential(leaf))
 	calls := 0
-	handler := g.Guard(p, func(*http.Request) (string, error) { return "secret", nil }, g.PlainTextInjector())(
+	handler := g.MustGuard(p, func(*http.Request) (string, error) { return "secret", nil }, g.PlainTextInjector())(
 		http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }),
 	)
 	response := httptest.NewRecorder()

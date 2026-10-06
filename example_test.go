@@ -91,7 +91,7 @@ func ExampleGuard() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(next)
+	handler := guardy.MustGuard(pipeline, extractor, guardy.PlainTextInjector())(next)
 
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
 	rec := httptest.NewRecorder()

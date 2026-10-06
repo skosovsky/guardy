@@ -532,3 +532,45 @@ locates active assertions/references rather than silently weakening them. Inacti
 annotations must not be mistaken for assertions. Core has no schema-engine import.
 Dependency upgrades require the probes documented in ext/jsonschema/UPGRADE.md;
 a shorter graph walk or a pin update without these checks is not equivalent safety.
+
+## OTel setup errors (T10)
+
+Optional guardyotel.NewMiddleware returns (middleware, error). Counter/histogram
+creation errors fail setup with nil middleware and a safe ConfigurationError;
+errors.Is/As retain the provider cause for explicit operator diagnostics. Nil options,
+absent/typed-nil instruments and typed-nil providers are configuration errors. MustMiddleware is the explicit static setup wrapper.
+WithMeter(nil)/WithTracer(nil) intentionally disable their telemetry channels.
+Provider construction panics remain caller/provider failures, not Validate faults.
+
+A failed setup never silently installs partially working metrics or changes a
+business validation outcome. The host chooses whether setup failure blocks startup
+or explicitly disables a channel and retries construction. Runtime middleware
+still preserves delegated reports/errors and existing payload/metadata privacy.
+Instrument/provider lifecycle and any already created instrument stay provider-owned;
+setup cannot roll back provider effects. Per-call telemetry is not delivery approval.
+
+## HTTP request limits and body ownership (T10)
+
+Guard returns (middleware, error); MustGuard is the explicit static wrapper. Nil
+pipeline/extractor/injector/options and nonpositive WithGuardMaxBodyBytes values
+are configuration errors. DefaultMaxBodyBytes is 1 MiB; the positive configurable
+cap applies to consumed input bytes, not declared ContentLength or injected output.
+Exactly the cap is allowed; one extra byte is 413. Read/extraction errors are 400,
+missing scope remains 400, policy deny/retry is 422; validation, cancellation,
+consumed-body Close errors and injection faults are 500 with safe public text.
+Callbacks remain cooperative; no goroutine timeout or side-effect rollback.
+
+| Body | Owner and close point |
+| --- | --- |
+| Incoming body/custom wrapper | Guard consumes under cap and calls Close once before replacement, including read/size/cancel errors; net/http retains its own server lifecycle obligations. |
+| Buffered extraction body | Borrowed by extractor. Guard closes it and the callback's currently installed replacement after extraction on success/error/cancel. |
+| Buffered injection body | Borrowed by injector; if replaced, Guard closes the previous body before handoff. On injection error/cancel Guard also closes current replacement. |
+| Body handed to next | Borrowed by handler. Guard closes the captured handed-off body when handler returns. Close failure after a response cannot rewrite already delivered bytes/status. |
+| Bodies removed/replaced inside a callback or handler | The replacing code owns any intermediate bodies Guard cannot observe. Do not close borrowed bodies; callback-installed current bodies transfer to Guard. Handler-created replacements remain handler-owned. |
+| GetBody replay | Independent body owned/closed by its caller; no shared cursor. |
+
+Pass restores original bytes with synchronized length/header/GetBody. Redaction
+injects authoritative returned T; the format-aware injector owns representation
+correctness. Framework Close calls are idempotent per owned wrapper. A callback's
+replacement does not authorize bypassing the cap on original input or invoking next
+on fault. This contract concerns wrappers/resources, not a universal socket leak.

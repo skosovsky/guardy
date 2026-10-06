@@ -165,14 +165,19 @@ See `examples/streaming_filter`, `examples/json_streaming`, and [CONTRACTS.md](C
 
 ### HTTP Guard (`http_guard.go`)
 
-**Guard** wraps an HTTP handler: the request body is read once; the extractor turns it into text for the pipeline. On **terminal deny** or **retryable correction** — 422 JSON response. On **Redact** — replaces body with `MutatedText` and calls next. On **Pass** — restores the **original** request body (not the extractor’s return value) and calls next. For host-boundary routing, use `Decision`, `PolicyFailure`, typed guard events, or the generic wrapper APIs instead of request-context report state.
+**Guard** returns HTTP middleware and a configuration error; `MustGuard` is its static-configuration counterpart. The extractor receives a replay of the consumed request body. On **Redact**, the injector receives the authoritative pipeline output `T`; on **Pass**, next receives the original bytes. The positive `WithGuardMaxBodyBytes` cap defaults to 1 MiB: excess input returns 413, read/extraction errors 400, missing scope 400, deny/correction 422, and faults/cancellation/body-close/injection errors 500. Guard closes consumed bodies before replacing them and closes the handed-off body when next returns. Callbacks borrow their current body; replacement transfers ownership to Guard. See the ownership table in CONTRACTS.md. For host-boundary routing, use `Decision`, `PolicyFailure`, typed guard events, or the generic wrapper APIs instead of request-context report state.
 
 ```go
 extractor := func(r *http.Request) (string, error) {
-	body, _ := io.ReadAll(r.Body)
-	return string(body), nil
+	body, err := io.ReadAll(r.Body)
+	return string(body), err
 }
-handler := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector())(yourHandler)
+middleware, err := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector(),
+    guardy.WithGuardMaxBodyBytes(2 << 20))
+if err != nil {
+    return err
+}
+handler := middleware(yourHandler)
 ```
 
 ### Policy validators (scope-aware)
@@ -362,7 +367,7 @@ types and supporting maps/slices. Core typed equality uses Go `==`.
 
 ### Generic decorators (`interceptor.go`)
 
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapOutput** runs after your function on the result. Both take a `ScopeFactory` (use `nil` when no policy keys are required). Input facts are resolved before validation; output facts are resolved after a successful handler. The host owns coherent snapshots and execution authorization. Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
+**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapGuardedOutput** runs after your function and suppresses partial results on handler errors. Deliver only its approved `DeliveryProjection` to the sink. **WrapOutput** is a low-level wrapper: it returns an unvalidated partial result alongside a handler error; callers must not deliver that value. Neither wrapper retries the handler or undoes its side effects. Both take a `ScopeFactory` (use `nil` when no policy keys are required). Input facts are resolved before validation; output facts are resolved after a successful handler. The host owns coherent snapshots and execution authorization. Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
 
 ## Built-in validators (ext)
 
@@ -551,10 +556,15 @@ For OpenTelemetry integration without adding heavy deps to root module, use `git
 import "github.com/skosovsky/guardy/ext/guardyotel"
 
 pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
-pipeline = pipeline.MustUse(guardyotel.NewMiddleware[string](
+pipeline = pipeline.MustUse(guardyotel.MustMiddleware[string](
 	guardyotel.WithIncludePayloads(false), // default secure mode
 ))
 ```
+
+`guardyotel.NewMiddleware` returns middleware and setup error when instrument creation
+fails; `MustMiddleware` is the explicit static configuration wrapper. Causes remain
+available through errors.Is/As, while public setup errors omit provider diagnostics.
+`WithMeter(nil)`/`WithTracer(nil)` explicitly disable a channel.
 
 Sequential phase exports counters/histograms; parallel phase emits spans. Raw payload capture is opt-in.
 Arbitrary validator/code labels are omitted by default; `WithAllowedMetadata` permits

@@ -53,7 +53,7 @@ func TestExporterCanonicalDecisionsAndTransparentMiddleware(t *testing.T) {
 			)
 			base, expectedSpans := testCallPipeline(rule, tc.report)
 			traced := base.MustUse(
-				NewMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(metricsProvider.Meter("test"))),
+				MustMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(metricsProvider.Meter("test"))),
 			)
 			// Act.
 			original, originalErr := base.Run(t.Context(), nil, "raw")

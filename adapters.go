@@ -114,6 +114,8 @@ func WrapGuardedJSONArgs[Res any](
 // WrapGuardedOutput validates next's output and returns a guarded output contract.
 // ScopeFactory obtains current facts after next succeeds, immediately before validation.
 // Handler errors suppress the partial value and do not call the scope factory.
+// Deliver only an approved Projection. Neither validation nor errors can undo
+// handler side effects; this wrapper never retries next.
 func WrapGuardedOutput[Req, Res any](
 	p *Pipeline[Res],
 	scopeFactory ScopeFactory,

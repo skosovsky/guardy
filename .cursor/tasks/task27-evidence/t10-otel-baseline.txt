@@ -1,0 +1,6 @@
+--- FAIL: TestT10MeterSetupErrorCannotBeIgnored (0.00s)
+    setup_baseline_test.go:24: failed instrument setup silently admitted middleware
+    setup_baseline_test.go:24: failed instrument setup silently admitted middleware
+FAIL
+FAIL	github.com/skosovsky/guardy/ext/guardyotel	0.433s
+FAIL

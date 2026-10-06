@@ -47,7 +47,9 @@ func WrapInput[Req, Res any](
 // WrapOutput runs next first, then constructs current caller-owned facts through
 // scopeFactory and validates the result. Facts are refreshed after handler execution,
 // including any host-controlled pause. Nil factories mean empty scope.
-// If next returns a non-nil error, the result is (res, err) with res as returned by next (possibly a zero value, e.g. nil for pointer types).
+// This is a low-level partial-result API. If next returns an error, res is returned
+// unvalidated and must not reach a sink. Prefer [WrapGuardedOutput] for delivery.
+// Neither wrapper retries next or undoes its side effects.
 // Deadlines for the output pipeline use the same ctx as for next.
 //
 // On ActionRedact, the returned value is the pipeline Output (mutated).

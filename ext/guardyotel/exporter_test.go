@@ -38,7 +38,7 @@ func TestExporterSafeModeOmitsPayloadReportAndErrors(t *testing.T) {
 		}, errors.New(secret)
 	})
 	pipeline := guardy.MustNewPipeline(guardy.WithParallel(validator)).
-		MustUse(NewMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(meterProvider.Meter("test"))))
+		MustUse(MustMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(meterProvider.Meter("test"))))
 	// Act: traverse the real pipeline and collect actual exported spans and metric points.
 	_, _ = pipeline.Run(context.Background(), nil, secret)
 	spans := exporter.GetSpans()
@@ -85,7 +85,7 @@ func TestExporterExplicitPayloadAndApprovedMetadata(t *testing.T) {
 		}, nil
 	})
 	pipeline := guardy.MustNewPipeline(guardy.WithParallel(validator)).
-		MustUse(NewMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(nil), WithIncludePayloads(true), WithAllowedMetadata([]string{"approved-rule"}, []string{"APPROVED"})))
+		MustUse(MustMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(nil), WithIncludePayloads(true), WithAllowedMetadata([]string{"approved-rule"}, []string{"APPROVED"})))
 	// Act.
 	_, err := pipeline.Run(context.Background(), nil, "explicit payload")
 	if err != nil {

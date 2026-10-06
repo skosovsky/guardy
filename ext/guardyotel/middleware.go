@@ -2,6 +2,7 @@ package guardyotel
 
 import (
 	"context"
+	"reflect"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -78,7 +79,10 @@ type recorder[T any] struct {
 // NewMiddleware builds ValidatorMiddleware with sequential phase metrics and parallel phase tracing.
 // It exports canonical per-call decisions, not final delivery or an authorization ledger.
 // Its own partial/unit/final support never upgrades delegate or inner middleware capabilities.
-func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
+// Instrument setup errors return nil middleware and a safe ConfigurationError with
+// the original cause. Nil meter/tracer explicitly disable a channel; typed-nil
+// providers and instruments are invalid. Provider construction panics are not recovered.
+func NewMiddleware[T any](opts ...Option) (guardy.ValidatorMiddleware[T], error) {
 	cfg := Config{
 		Tracer:            otel.Tracer("guardy/ext/guardyotel"),
 		Meter:             otel.Meter("guardy/ext/guardyotel"),
@@ -87,12 +91,37 @@ func NewMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
 		AllowedCodes:      nil,
 	}
 	for _, opt := range opts {
+		if opt == nil {
+			return nil, setupError("options", "nil", nil)
+		}
 		opt(&cfg)
 	}
-	rec := newRecorder[T](cfg)
+	if cfg.Meter != nil && nilTelemetryObject(cfg.Meter) {
+		return nil, setupError("meter", "nil_provider", nil)
+	}
+	if cfg.Tracer != nil && nilTelemetryObject(cfg.Tracer) {
+		return nil, setupError("tracer", "nil_provider", nil)
+	}
+	rec, err := newRecorder[T](cfg)
+	if err != nil {
+		return nil, err
+	}
 	return func(next guardy.Validator[T]) guardy.Validator[T] {
 		return telemetryValidator[T]{next: next, recorder: rec}
+	}, nil
+}
+
+// MustMiddleware builds telemetry middleware or panics on NewMiddleware's setup error.
+func MustMiddleware[T any](opts ...Option) guardy.ValidatorMiddleware[T] {
+	middleware, err := NewMiddleware[T](opts...)
+	if err != nil {
+		panic(err)
 	}
+	return middleware
+}
+
+func setupError(field, code string, cause error) error {
+	return &guardy.ConfigurationError{Component: "guardyotel", Field: field, Code: code, Cause: cause}
 }
 
 // telemetryValidator declares this wrapper's own stage support. Core independently
@@ -110,21 +139,39 @@ func (telemetryValidator[T]) StreamCapabilities() guardy.StreamCapabilities {
 	return guardy.StreamCapabilities{Partial: true, Unit: true, Final: true, Lookbehind: 0, Lookahead: 0}
 }
 
-func newRecorder[T any](cfg Config) *recorder[T] {
-	r := &recorder[T]{
-		cfg:     cfg,
-		calls:   nil,
-		latency: nil,
+func nilTelemetryObject(value any) bool {
+	if value == nil {
+		return true
 	}
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Pointer, reflect.Func, reflect.Map, reflect.Slice, reflect.Interface, reflect.Chan:
+		return reflected.IsNil()
+	default:
+		return false
+	}
+}
+
+func newRecorder[T any](cfg Config) (*recorder[T], error) {
+	r := &recorder[T]{cfg: cfg, calls: nil, latency: nil}
 	if cfg.Meter != nil {
-		if c, err := cfg.Meter.Int64Counter("guardy.validator.calls"); err == nil {
-			r.calls = c
+		calls, err := cfg.Meter.Int64Counter("guardy.validator.calls")
+		if err != nil {
+			return nil, setupError("counter", "creation_failed", err)
 		}
-		if h, err := cfg.Meter.Float64Histogram("guardy.validator.latency_ms"); err == nil {
-			r.latency = h
+		if nilTelemetryObject(calls) {
+			return nil, setupError("counter", "nil_instrument", nil)
 		}
+		latency, err := cfg.Meter.Float64Histogram("guardy.validator.latency_ms")
+		if err != nil {
+			return nil, setupError("histogram", "creation_failed", err)
+		}
+		if nilTelemetryObject(latency) {
+			return nil, setupError("histogram", "nil_instrument", nil)
+		}
+		r.calls, r.latency = calls, latency
 	}
-	return r
+	return r, nil
 }
 
 func (r *recorder[T]) validate(ctx context.Context, next guardy.Validator[T], input T) (T, *guardy.Report, error) {

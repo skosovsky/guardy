@@ -23,7 +23,7 @@ func main() {
 	}
 
 	pipeline := guardy.MustNewPipeline(guardy.WithSequential(regexValidator))
-	pipeline = pipeline.MustUse(guardyotel.NewMiddleware[string](
+	pipeline = pipeline.MustUse(guardyotel.MustMiddleware[string](
 		guardyotel.WithIncludePayloads(false), // secure-by-default; keep payloads disabled
 	))
 
@@ -50,7 +50,7 @@ func streamExample(profile guardy.ReleaseProfile) (string, error) {
 		ext.MustLengthValidator(0, totalBudget),
 		guardy.StreamCapabilities{Partial: true, Unit: true, Final: true, Lookbehind: 0, Lookahead: 0},
 	)
-	pipeline := guardy.MustNewPipeline(guardy.WithSequential(rule)).MustUse(guardyotel.NewMiddleware[string]())
+	pipeline := guardy.MustNewPipeline(guardy.WithSequential(rule)).MustUse(guardyotel.MustMiddleware[string]())
 	cfg := guardy.StreamConfig{
 		Delivery:          guardy.NewUserTextPolicy("external"),
 		Identity:          "otel-example",

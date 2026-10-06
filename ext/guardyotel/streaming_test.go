@@ -62,7 +62,7 @@ func verifyOTelStream(
 			return guardy.ValidatorFunc[string](next.Validate)
 		})
 	}
-	p = p.MustUse(NewMiddleware[string](WithTracer(nil), WithMeter(nil)))
+	p = p.MustUse(MustMiddleware[string](WithTracer(nil), WithMeter(nil)))
 	cfg := otelStreamConfig(p, profile)
 	if profile == guardy.ReleaseWholeResponse {
 		cfg.MaxUnitBytes = 64

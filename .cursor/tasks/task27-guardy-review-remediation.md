@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T09 приняты; T10 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T10 приняты; T11 — в работе**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -320,13 +320,13 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. JSON-schema pinned optional exact-number/overflow contract и upgrade probes сохранены; BoundaryProfile declared-only и fixture enforcement различены.
 4. Build/schema/core relevant tests PASS; конкретные consumer причины сохранения D23/D24 задокументированы.
 
-**T10 — integrations/setup** (следующий; commit `fix: adapters`; D20–D22, D24).
+**T10 — integrations/setup** (принята; commit `fix: adapters`; D20–D22, D24).
 1. Fake meter sentinel creation error обнаруживается setup, cause сохранён, бизнес-validation/telemetry privacy не меняется скрыто.
 2. HTTP configurable validated cap/default/status 413/ownership table, tracking ReadCloser и extractor/injector/cancel/error/replace matrix.
 3. Safe guarded wrappers/sinks integration fixtures suppress fault/partial result; WrapOutput low-level contract explicit, no side-effect undo.
 4. Integration/OTel/HTTP tests PASS, migration актуальна.
 
-**T11 — consumer docs** (ожидает T10; commit `docs: contracts`; R08–R09, D10, D21 + весь исходный docs checklist).
+**T11 — consumer docs** (в работе; commit `docs: contracts`; R08–R09, D10, D21 + весь исходный docs checklist).
 1. Исполняемые pass/redact/deny/retry/report-only fault/Go error consumer examples: только approved value reaches sink; redactor authoritative T/struct/Map/HTTP bytes проверены.
 2. README текущий guide и единая versioned MIGRATION, legacy/v2-style removed или объяснён; все изменённые APIs/labels/serialized contracts отражены.
 3. Inventory включает jsonredact, optional install/import и root-only dependency сценарий; honest detector/telemetry/benchmark limitations сохранены.
@@ -373,3 +373,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T09 acceptance
 
 Независимые приёмки итогового diff: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t09-*`. Relevant root/build/schema/integration race и all19 make lint завершились с exit 0; независимые root/build focused race ×5, schema ×3 и полные reviewer root/build/schema race ×3 PASS. Архив HEAD `6e79068` с preservation probes PASS ожидаемо: borrowed runtime contract сохранён, исправлены Godoc/ownership claims. Core dependency graph не содержит optional schema/engine packages. Предыдущий принятый commit T08: `6e79068 refactor: pipeline`. Commit T09: `docs: ownership`. T10–T12 остаются обязательными.
+
+### T10 — принято
+
+Независимые приёмки финального diff: completeness100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: task27-evidence/t10-*. OTel fallible setup сохраняет creation causes и privacy/runtime contracts; HTTP fallible Guard/configurable cap/default413/consumed body ownership и tracking callback/cancel/error matrix; guarded actual sink suppresses partial/fault/cancel, low-level WrapOutput явно сохраняет unvalidated partial без retry/undo. Финальные all19race (63079) и plain all19make lint (46982) завершились exit0; независимые root/integration/OTel race ×2, correctness HTTP/integration/OTel ×5 PASS. Старые API runtime baselines OTel/HTTP exit1 воспроизводят исправленные нарушения. Последние lint directive-only изменения повторно проверены обоими ревьюерами. Предыдущий commit T09 be2d8c7. Commit T10: fix: adapters. T11/T12 остаются обязательными.
