@@ -1,0 +1,33 @@
+--- FAIL: TestStreamOutputUnitBudgetBeforeWriter (0.00s)
+    --- FAIL: TestStreamOutputUnitBudgetBeforeWriter/transformed (0.00s)
+        stream_output_contract_test.go:119: output="0123456789" error=<nil>
+    --- FAIL: TestStreamOutputUnitBudgetBeforeWriter/fallback_transformed (0.00s)
+        stream_output_contract_test.go:119: output="0123456789" error=<nil>
+--- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths (0.00s)
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback/number (0.00s)
+        stream_output_contract_test.go:75: scalar output="123" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/transformed/string (0.00s)
+        stream_output_contract_test.go:75: scalar output="\"hello\"" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback_transformed/number (0.00s)
+        stream_output_contract_test.go:75: scalar output="123" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/transformed/null (0.00s)
+        stream_output_contract_test.go:75: scalar output="null" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/transformed/bool (0.00s)
+        stream_output_contract_test.go:75: scalar output="true" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/transformed/number (0.00s)
+        stream_output_contract_test.go:75: scalar output="123" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback_transformed/null (0.00s)
+        stream_output_contract_test.go:75: scalar output="null" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback/string (0.00s)
+        stream_output_contract_test.go:75: scalar output="\"hello\"" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback_transformed/bool (0.00s)
+        stream_output_contract_test.go:75: scalar output="true" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback/null (0.00s)
+        stream_output_contract_test.go:75: scalar output="null" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback/bool (0.00s)
+        stream_output_contract_test.go:75: scalar output="true" error=<nil>
+    --- FAIL: TestStreamJSONRepresentationAcrossDeliveryPaths/validated_units/fallback_transformed/string (0.00s)
+        stream_output_contract_test.go:75: scalar output="\"hello\"" error=<nil>
+FAIL
+FAIL	github.com/skosovsky/guardy	0.583s
+FAIL

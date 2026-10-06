@@ -897,3 +897,13 @@ irreversible prefixes. Scope factory, validators, writer and observer run under 
 processor mutex and must return without reentering it. Abort/Outcome can wait for
 these callbacks; cancellation cannot forcibly terminate them or interrupt lock
 acquisition. No detached timeout workers are started.
+
+
+JSON validated units use the same object/array framing for source, transformed and
+fallback values; scalar unit output is rejected before transport. Whole-response
+JSON accepts any single valid JSON value. Newline transformed/fallback output must
+remain one unit. For unit and best-effort release, `MaxUnitBytes` bounds both input
+and approved expanded output, including UTF-8 bytes and framing whitespace.
+Whole-response expanded output uses its overall `MaxOutputBytes` budget. Framing
+and unit-budget failures emit no bytes from the failing unit; earlier prefixes
+remain irreversible, and processing faults never activate fallback.

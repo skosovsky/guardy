@@ -347,3 +347,25 @@ effects before a later failure are not rolled back: lifetime, isolation, cleanup
 ACL and authorized restoration belong to the host. The in-memory reference is
 thread-safe and supports its zero value. An allowlist with no input tokens stores
 the entire rejected input when reversible redaction is configured.
+
+
+### Stream wire units and transformed budgets
+
+ReleaseValidatedUnits with JSONValues frames exactly one object or array per unit,
+including surrounding framing whitespace. Scalars are unsupported as unit input,
+transformed output and fallback candidate/output; all are checked before the writer.
+Whole-response JSONValues accepts any single valid JSON value, including scalars.
+Newline transformed/fallback output must remain one self-contained newline unit or
+unterminated final tail. Invalid transformed framing is a processing fault and
+cannot activate fallback. Invalid fallback candidate is rejected before its rules.
+
+MaxUnitBytes bounds source units and each approved transformed/fallback unit for
+validated-unit and best-effort partial release. UTF-8 bytes and JSON whitespace
+count toward the bound. Expansion beyond it faults with StreamLimit and
+ErrStreamUnitLimit before writing that unit, even when total output budget permits
+it. Whole-response retains its bounded source/final-buffer contract and uses
+MaxOutputBytes for approved expanded output, with no artificial unit boundary.
+MaxOutputBytes also bounds cumulative actual release plus any separate fallback.
+Previously released prefixes remain irreversible; no failing unit is partially
+written for framing or budget errors. A mandatory processing fault makes separate
+fallback unavailable; fallback cannot turn the original terminal outcome to success.

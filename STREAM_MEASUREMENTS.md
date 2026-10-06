@@ -152,3 +152,19 @@ admission can yield different irreversible prefixes for overbudget partitions.
 All processor callbacks (scope, validation, writer, observer) execute under its
 mutex, must return and must not reenter. Abort/Outcome wait for blocked callbacks;
 cooperative cancellation supplies no forced termination or detached timeout worker.
+
+## Task 27 T05 output framing
+
+Before source: `f07f82b`; after: T05 working diff, measured 2026-10-06 on the same
+Apple M1 Max/darwin-arm64, default GOMAXPROCS=10. Both adversarial/component
+matrices used `-benchtime=1x` with the command above. Raw runs are retained in
+`task27-evidence/t05-bench-before.txt` and `t05-bench-after.txt`. Both matrices
+passed their actual-release/work/buffer checks. Timings are individual local
+samples, not evidence of a throughput improvement or an acceptance threshold.
+
+Approved output now receives the same profile-aware representation check as
+source/fallback: JSON unit output must be one object/array, newline output one
+unit. Unit/partial expanded output receives the unit byte budget before writer
+calls; whole-response expansion uses the overall output budget. Framing state
+and admission limits remain unchanged by T05. JSON validity and representation
+checks are processing work separate from incremental scanner visit counters.

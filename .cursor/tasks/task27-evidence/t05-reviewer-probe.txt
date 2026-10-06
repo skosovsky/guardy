@@ -1,0 +1,2 @@
+prefix: err=guardy stream: buffer_limit sink="{}" outcome={Identity:probe Category:buffer_limit Decision:{Action:redact Disposition:system_fault Code: SafeMessage:validation failed RetryFeedback: PayloadKind:internal_control_signal Validator: Severity:} Sequence:1 ReleasedBytes:2 ReceivedBytes:11 PeakPendingBytes:9 Terminal:true Fallback:false}
+PASS: prefix unit budget and prior classification; limit forbids fallback; cancelled fallback zero writes; fallback short transport at-most-once and original outcome sticky

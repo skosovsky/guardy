@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T04 приняты; T05 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T05 приняты; T06 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -291,7 +291,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Partition guarantee только допустимым inputs, irreversible overbudget prefixes и mutex/cooperative cancellation/reentry contract согласованы в StreamConfig/README/CONTRACTS/STREAM_MEASUREMENTS.
 4. Targeted race/partition/work tests, baseline и changed partition/work benchmarks сохранены без недоказанного perf claim.
 
-**T05 — stream output/framing** (ожидает T04; commit `fix: stream framing`; R05, D17).
+**T05 — stream output/framing** (принят: полнота 100%, correctness PASS; commit `fix: stream framing`; R05, D17).
 1. Number/bool/null/string/object/array normal/transformed/fallback matrix, одинаковый unit object/array framing, invalid zero writes; baseline repro.
 2. Input+output MaxUnitBytes проверен для expansion/fallback до writer; budget docs согласованы.
 3. Mandatory faults не становятся fallback, whole-response JSON отдельный contract не повреждён.
@@ -353,3 +353,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T04 acceptance
 
 После strengthening tests и исправления formatter defect обе независимые приёмки повторены: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t04-*`. Root/targeted/optional OTel race PASS, root lint PASS, before/after adversarial/components benchmarks PASS. Предыдущий принятый commit T03: `f221001 fix: validators`. Commit T04: `fix: stream limits`.
+
+### T05 acceptance
+
+Независимые приёмки итогового diff: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t05-*`. Root/optional OTel race, root lint, before/after adversarial/component benchmarks PASS. Независимый public API probe проверил irreversible prefix, expansion с retained classification, cancellation и short fallback transport. Предыдущий принятый commit T04: `f07f82b fix: stream limits`. Commit T05: `fix: stream framing`.

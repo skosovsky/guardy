@@ -138,13 +138,13 @@ type StreamEvent struct {
 type StreamConfig struct {
 	Identity          string
 	Profile           ReleaseProfile
-	JSONValues        bool // Frame and validate complete JSON objects/arrays, not transport chunks.
+	JSONValues        bool // Unit mode frames objects/arrays; whole-response accepts any valid JSON value.
 	Pipeline          *Pipeline[string]
 	ScopeFactory      ScopeFactory
 	Delivery          DeliveryPolicy
 	MaxInputBytes     int64
 	MaxPendingBytes   int
-	MaxUnitBytes      int
+	MaxUnitBytes      int // Input bound for all profiles; also transformed/fallback output bound for unit/partial release.
 	MaxOutputBytes    int64
 	ValidationTimeout time.Duration
 	Observer          func(StreamEvent)
@@ -517,19 +517,18 @@ func (s *StreamProcessor) DeliverFallback(ctx context.Context) (StreamOutcome, e
 	outcome.Fallback = true
 	outcome.Terminal = true
 	outcome.Decision = DecisionFromReport(nil)
-	if len(candidate) > s.cfg.MaxUnitBytes || int64(len(candidate)) > s.cfg.MaxInputBytes {
+	if len(candidate) > s.cfg.MaxUnitBytes {
+		return s.fallbackFailure(outcome, StreamLimit, ErrStreamUnitLimit)
+	}
+	if int64(len(candidate)) > s.cfg.MaxInputBytes {
 		return s.fallbackFailure(outcome, StreamLimit, errors.New("guardy: fallback input limit"))
 	}
-	if !utf8.ValidString(candidate) || (s.cfg.JSONValues && !json.Valid([]byte(candidate))) {
-		return s.fallbackFailure(outcome, StreamMalformed, ErrInvalidStreamUnit)
-	}
-	if s.cfg.Profile == ReleaseValidatedUnits && !s.cfg.JSONValues &&
-		newlineUnitBoundary([]byte(candidate), true) != len(candidate) {
-		return s.fallbackFailure(
-			outcome,
-			StreamUnsupported,
-			errors.New("guardy: fallback must be one self-contained release unit"),
-		)
+	if !s.validRepresentation(candidate) {
+		category := StreamMalformed
+		if s.cfg.Profile == ReleaseValidatedUnits && !s.cfg.JSONValues && utf8.ValidString(candidate) {
+			category = StreamUnsupported // Valid text containing more than one release unit.
+		}
+		return s.fallbackFailure(outcome, category, ErrInvalidStreamUnit)
 	}
 	outcome.ReceivedBytes = int64(len(candidate))
 	stage := StreamFinal
@@ -568,8 +567,11 @@ func (s *StreamProcessor) DeliverFallback(ctx context.Context) (StreamOutcome, e
 	if !ok {
 		return s.fallbackFailure(outcome, StreamBlocked, ErrBlocked)
 	}
-	if !utf8.ValidString(value) || (s.cfg.JSONValues && !json.Valid([]byte(value))) {
-		return s.fallbackFailure(outcome, StreamFault, errors.New("guardy: invalid sanitized fallback"))
+	if !s.validRepresentation(value) {
+		return s.fallbackFailure(outcome, StreamFault, ErrInvalidStreamUnit)
+	}
+	if s.cfg.Profile != ReleaseWholeResponse && len(value) > s.cfg.MaxUnitBytes {
+		return s.fallbackFailure(outcome, StreamLimit, ErrStreamUnitLimit)
 	}
 	if int64(len(value)) > s.cfg.MaxOutputBytes-s.outcome.ReleasedBytes {
 		return s.fallbackFailure(outcome, StreamLimit, errors.New("guardy: fallback output limit"))
@@ -611,11 +613,34 @@ func (s *StreamProcessor) fallbackFailure(
 	}
 }
 
+// validRepresentation applies the same wire-unit shape to source, transformed
+// output and separately checked fallback. Whole-response has no unit framing.
+func (s *StreamProcessor) validRepresentation(value string) bool {
+	if !utf8.ValidString(value) {
+		return false
+	}
+	if s.cfg.JSONValues {
+		if !json.Valid([]byte(value)) {
+			return false
+		}
+		if s.cfg.Profile == ReleaseValidatedUnits {
+			for i := range len(value) {
+				if !isJSONSpace(value[i]) {
+					return value[i] == '{' || value[i] == '['
+				}
+			}
+			return false
+		}
+		return true
+	}
+	return s.cfg.Profile != ReleaseValidatedUnits || newlineUnitBoundary([]byte(value), true) == len(value)
+}
+
 func (s *StreamProcessor) validateAndRelease(parent context.Context, value string, stage StreamStage) error {
 	if !utf8.ValidString(value) {
 		return s.fail(StreamIncomplete, errors.New("guardy: invalid UTF-8"), DecisionFromReport(nil))
 	}
-	if s.cfg.JSONValues && !json.Valid([]byte(value)) {
+	if !s.validRepresentation(value) {
 		return s.fail(StreamMalformed, ErrInvalidStreamUnit, DecisionFromReport(nil))
 	}
 	ctx, cancel := context.WithTimeout(context.WithValue(parent, streamStageKey{}, stage), s.cfg.ValidationTimeout)
@@ -642,11 +667,11 @@ func (s *StreamProcessor) validateAndRelease(parent context.Context, value strin
 	if !ok {
 		return s.fail(StreamBlocked, ErrBlocked, delivery.Decision)
 	}
-	if !utf8.ValidString(approved) {
-		return s.fail(StreamFault, errors.New("guardy: redaction corrupted UTF-8"), DecisionFromReport(nil))
+	if !s.validRepresentation(approved) {
+		return s.fail(StreamFault, ErrInvalidStreamUnit, delivery.Decision)
 	}
-	if s.cfg.JSONValues && !json.Valid([]byte(approved)) {
-		return s.fail(StreamFault, errors.New("guardy: redaction corrupted JSON"), DecisionFromReport(nil))
+	if s.cfg.Profile != ReleaseWholeResponse && len(approved) > s.cfg.MaxUnitBytes {
+		return s.fail(StreamLimit, ErrStreamUnitLimit, delivery.Decision)
 	}
 	if int64(len(approved)) > s.cfg.MaxOutputBytes-s.outcome.ReleasedBytes {
 		return s.fail(StreamLimit, errors.New("guardy: output limit"), DecisionFromReport(nil))
