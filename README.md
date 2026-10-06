@@ -886,3 +886,14 @@ verified candidate bytes and uses an atomic explicit tag set, with candidate ref
 cleanup. The low-level publish phase requires a remote URL, never pushes unrelated tags and does not
 change the user's checkout. The integration/release conformance checks are local;
 they do not imply a production release was published.
+
+
+Streaming newline limits include the delimiter. An exact-limit tail waits for
+`Complete`; a further byte or newline faults before buffering it. Newline pending
+capacity is bounded by the smaller pending/unit limit. Partition independence
+applies to admissible inputs. Each Write is checked atomically against the remaining
+input budget; overbudget partitions can have different previously delivered,
+irreversible prefixes. Scope factory, validators, writer and observer run under the
+processor mutex and must return without reentering it. Abort/Outcome can wait for
+these callbacks; cancellation cannot forcibly terminate them or interrupt lock
+acquisition. No detached timeout workers are started.

@@ -130,6 +130,11 @@ type StreamEvent struct {
 
 // StreamConfig owns bounded release configuration; all limits count bytes and
 // must be positive. Policy and pipeline remain immutable after compilation.
+// Newline delimiters count toward MaxUnitBytes. An exact-limit unterminated tail
+// waits for Complete; any following byte overflows before appending that byte.
+// Input admission checks each Write atomically against MaxInputBytes. Partition
+// independence applies to admissible input; overbudget partitions may have
+// different irreversible prefixes already delivered by earlier calls.
 type StreamConfig struct {
 	Identity          string
 	Profile           ReleaseProfile
@@ -147,6 +152,9 @@ type StreamConfig struct {
 
 // StreamProcessor serializes all operations. A trusted Complete is required;
 // Close aborts unfinished input. Processor owns pending bytes; caller owns transport.
+// Scope factory, validators, writer and observer run under the mutex. They must
+// return and must not reenter this processor. Cancellation is cooperative;
+// Abort, Outcome and later calls can wait for a blocked callback to return.
 type StreamProcessor struct {
 	mu                sync.Mutex
 	writer            io.Writer
@@ -298,11 +306,22 @@ func (s *StreamProcessor) WriteContext(ctx context.Context, p []byte) (int, erro
 	accepted := 0
 	for len(p) > 0 {
 		room := s.cfg.MaxPendingBytes - s.pending.size
+		if s.cfg.Profile == ReleaseValidatedUnits && !s.cfg.JSONValues {
+			unitRoom := s.cfg.MaxUnitBytes - s.pending.size
+			if unitRoom <= 0 {
+				return accepted, s.fail(StreamLimit, ErrStreamUnitLimit, DecisionFromReport(nil))
+			}
+			room = min(room, unitRoom)
+		}
 		if room <= 0 {
 			return accepted, s.fail(StreamLimit, errors.New("guardy: pending limit"), DecisionFromReport(nil))
 		}
 		n := min(room, len(p))
-		s.pending.append(p[:n], s.cfg.MaxPendingBytes)
+		pendingBudget := s.cfg.MaxPendingBytes
+		if s.cfg.Profile == ReleaseValidatedUnits && !s.cfg.JSONValues {
+			pendingBudget = min(pendingBudget, s.cfg.MaxUnitBytes)
+		}
+		s.pending.append(p[:n], pendingBudget)
 		p = p[n:]
 		accepted += n
 		s.outcome.ReceivedBytes += int64(n)
@@ -344,7 +363,7 @@ func (s *StreamProcessor) nextUnit(final bool) (int, StreamStage, error) {
 	}
 	if s.cfg.Profile == ReleaseValidatedUnits {
 		n := s.framer.newline(&s.pending, final)
-		if n == 0 && s.pending.size >= s.cfg.MaxUnitBytes {
+		if n == 0 && s.pending.size > s.cfg.MaxUnitBytes {
 			return 0, StreamUnit, s.fail(
 				StreamLimit,
 				ErrStreamUnitLimit,

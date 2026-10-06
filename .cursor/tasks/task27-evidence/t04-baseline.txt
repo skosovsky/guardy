@@ -1,0 +1,6 @@
+--- FAIL: TestStreamNewlineTailBudgetAcrossPartitions (0.00s)
+    --- FAIL: TestStreamNewlineTailBudgetAcrossPartitions/exact_tail (0.00s)
+        stream_unit_boundary_test.go:41: chunks=["abcd"] outcome={Identity:contract Category:buffer_limit Decision:{Action:pass Disposition:system_fault Code: SafeMessage: RetryFeedback: PayloadKind:safe_user_text Validator: Severity:} Sequence:0 ReleasedBytes:0 ReceivedBytes:4 PeakPendingBytes:4 Terminal:true Fallback:false} error=guardy stream: buffer_limit sink=""
+FAIL
+FAIL	github.com/skosovsky/guardy	0.419s
+FAIL

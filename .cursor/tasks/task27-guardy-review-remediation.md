@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T03 приняты; T04 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T04 приняты; T05 — следующий**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -285,7 +285,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Error-returning vault и failure matrix (error/panic/empty/identity), no implicit irreversible degradation; успешные token/restore consumers migrated.
 4. Regex match-based identity/empty/zero-width, names TagPattern/Classifier и detector limitation docs; ext/examples checks PASS.
 
-**T04 — stream input/liveness** (ожидает T03; commit `fix: stream limits`; R04, D18–D19).
+**T04 — stream input/liveness** (принят: полнота 100%, correctness PASS; commit `fix: stream limits`; R04, D18–D19).
 1. Exact-limit tail во всех разбиениях Complete → одна выдача; следующий byte/newline overflow → zero writes, pending==unit bound; baseline regression.
 2. Меньший tail/newline unit/JSON exact-limit и bounded buffering regressions проходят.
 3. Partition guarantee только допустимым inputs, irreversible overbudget prefixes и mutex/cooperative cancellation/reentry contract согласованы в StreamConfig/README/CONTRACTS/STREAM_MEASUREMENTS.
@@ -349,3 +349,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T03 acceptance
 
 Независимые повторные приёмки после всех исправлений: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t03-*`. Все 19 modules race PASS, final root/schema race PASS, make lint всех 19 modules PASS. Commit: `fix: validators`.
+
+### T04 acceptance
+
+После strengthening tests и исправления formatter defect обе независимые приёмки повторены: полнота 100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: `task27-evidence/t04-*`. Root/targeted/optional OTel race PASS, root lint PASS, before/after adversarial/components benchmarks PASS. Предыдущий принятый commit T03: `f221001 fix: validators`. Commit T04: `fix: stream limits`.

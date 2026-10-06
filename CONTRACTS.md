@@ -109,7 +109,10 @@ deterministic, because its chain is reconstructed with each invocation's scope.
 Completion is a trusted method call; payload fields never control termination.
 Close without Complete means abort/incomplete, not flush. All terminal operations
 are sticky and writes after terminal are rejected. One processor owns state; calls
-are serialized. Validation and delivery run under its lock and must not reenter it.
+are serialized. Scope factory, validation, writer and observer run under its lock.
+They must return and must not reenter the processor. Abort/Outcome and subsequent
+calls wait for a running callback; context cancellation cannot interrupt mutex
+acquisition or forcibly stop a non-cooperative writer/observer/validator.
 
 Whole-response buffers at most MaxPendingBytes and checks final value/channel before
 release. Unit mode validates complete newline-delimited units with unit-local rules;
@@ -270,7 +273,15 @@ base rule and every wrapper separately and never upgrades delegate capabilities.
 Malformed/unsupported JSON units use StreamMalformed/ErrInvalidStreamUnit,
 incomplete units use StreamIncomplete/ErrIncompleteStreamUnit and budget exhaustion
 uses StreamLimit/ErrStreamUnitLimit. Causes are typed categories, not parsed text.
-Actual released bytes and terminal state remain sticky across transport partitions.
+For admissible inputs, framing and delivered units are independent of transport
+partitions. Each Write is admitted atomically against the remaining MaxInputBytes;
+an oversized Write is rejected before accepting any of its bytes. Overbudget input
+can release different prefixes depending on partitioning: prior delivery is
+irreversible. Released-byte accounting and terminal state remain sticky.
+Newline delimiters count toward MaxUnitBytes. An unterminated tail exactly at the
+limit waits for Complete, which validates it once; the next byte/newline overflows
+before buffering it. Newline pending capacity never exceeds min(MaxPendingBytes,
+MaxUnitBytes). JSON keeps its separate bounded lookahead capacity.
 Finite matcher scores survive both semantic pass and block reports on the caller
 scale; they are not probabilities and are not exported automatically. Caller
 reports can support external calibration under the existing evaluation protocol.

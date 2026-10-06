@@ -128,3 +128,27 @@ Component after-run sample: scope 2.208 µs / 48 B / 1 allocation; empty-pipelin
 validation 15.541 µs / 512 B / 8 allocations; discard writer 0.625 µs / 0 B /
 0 allocations. One-operation measurements include cold effects and are illustrative.
 The full raw before/after matrix is retained with the task acceptance logs.
+
+## Task 27 T04 boundary checks
+
+Measured 2026-10-06 on the same Apple M1 Max, darwin/arm64, default
+GOMAXPROCS=10. Before source: `f221001`; after: T04 working diff.
+The reproducible adversarial/component command above was run with `-benchtime=1x`
+before and after; complete raw matrices are in `task27-evidence/t04-bench-*.txt`.
+These are single-operation samples under concurrent local work; they do not
+establish a throughput improvement or callback latency guarantee.
+
+For the processor long-newline 1,024-byte / split-17 case, reserved pending
+capacity was 1,026 bytes before and 1,025 after, matching its configured
+MaxUnitBytes=1,025. Framing visits stayed 1,024 and copied bytes stayed 3,119.
+The isolated framing benchmark bypasses processor admission and retains its
+separate MaxPendingBytes budget; it does not measure the new newline admission
+cap. Deterministic work/race tests remain the algorithmic acceptance evidence.
+
+Newline tails exactly at the unit limit await trusted Complete; a following byte
+or newline faults before buffering it. The unit budget includes delimiters.
+Partition equivalence applies to admissible inputs. Atomic per-Write input-budget
+admission can yield different irreversible prefixes for overbudget partitions.
+All processor callbacks (scope, validation, writer, observer) execute under its
+mutex, must return and must not reenter. Abort/Outcome wait for blocked callbacks;
+cooperative cancellation supplies no forced termination or detached timeout worker.
