@@ -1,0 +1,125 @@
+{
+  "format": 1,
+  "version": "v0.12.0",
+  "sourceRevision": "e5038d22c70aac5bcbde1212a79b8a8fe4ee5de6",
+  "sourceDigest": "7a8d56562c370e4da25f4641b38786f21168c57df93c168e79a93d2bb00e107d",
+  "modules": [
+    {
+      "dir": ".",
+      "path": "github.com/skosovsky/guardy",
+      "version": "v0.12.0",
+      "tag": "v0.12.0"
+    },
+    {
+      "dir": "build",
+      "path": "github.com/skosovsky/guardy/build",
+      "version": "v0.12.0",
+      "tag": "build/v0.12.0"
+    },
+    {
+      "dir": "examples/agent_tool_args",
+      "path": "github.com/skosovsky/guardy/examples/agent_tool_args",
+      "version": "v0.12.0",
+      "tag": "examples/agent_tool_args/v0.12.0"
+    },
+    {
+      "dir": "examples/custom_validator",
+      "path": "github.com/skosovsky/guardy/examples/custom_validator",
+      "version": "v0.12.0",
+      "tag": "examples/custom_validator/v0.12.0"
+    },
+    {
+      "dir": "examples/declarative_guard",
+      "path": "github.com/skosovsky/guardy/examples/declarative_guard",
+      "version": "v0.12.0",
+      "tag": "examples/declarative_guard/v0.12.0"
+    },
+    {
+      "dir": "examples/generic_decorator",
+      "path": "github.com/skosovsky/guardy/examples/generic_decorator",
+      "version": "v0.12.0",
+      "tag": "examples/generic_decorator/v0.12.0"
+    },
+    {
+      "dir": "examples/input_guard",
+      "path": "github.com/skosovsky/guardy/examples/input_guard",
+      "version": "v0.12.0",
+      "tag": "examples/input_guard/v0.12.0"
+    },
+    {
+      "dir": "examples/json_streaming",
+      "path": "github.com/skosovsky/guardy/examples/json_streaming",
+      "version": "v0.12.0",
+      "tag": "examples/json_streaming/v0.12.0"
+    },
+    {
+      "dir": "examples/multi_turn",
+      "path": "github.com/skosovsky/guardy/examples/multi_turn",
+      "version": "v0.12.0",
+      "tag": "examples/multi_turn/v0.12.0"
+    },
+    {
+      "dir": "examples/otel_integration",
+      "path": "github.com/skosovsky/guardy/examples/otel_integration",
+      "version": "v0.12.0",
+      "tag": "examples/otel_integration/v0.12.0"
+    },
+    {
+      "dir": "examples/output_guard",
+      "path": "github.com/skosovsky/guardy/examples/output_guard",
+      "version": "v0.12.0",
+      "tag": "examples/output_guard/v0.12.0"
+    },
+    {
+      "dir": "examples/policy_attributes",
+      "path": "github.com/skosovsky/guardy/examples/policy_attributes",
+      "version": "v0.12.0",
+      "tag": "examples/policy_attributes/v0.12.0"
+    },
+    {
+      "dir": "examples/reversible_redaction",
+      "path": "github.com/skosovsky/guardy/examples/reversible_redaction",
+      "version": "v0.12.0",
+      "tag": "examples/reversible_redaction/v0.12.0"
+    },
+    {
+      "dir": "examples/streaming_filter",
+      "path": "github.com/skosovsky/guardy/examples/streaming_filter",
+      "version": "v0.12.0",
+      "tag": "examples/streaming_filter/v0.12.0"
+    },
+    {
+      "dir": "examples/struct_validation",
+      "path": "github.com/skosovsky/guardy/examples/struct_validation",
+      "version": "v0.12.0",
+      "tag": "examples/struct_validation/v0.12.0"
+    },
+    {
+      "dir": "ext/guardyotel",
+      "path": "github.com/skosovsky/guardy/ext/guardyotel",
+      "version": "v0.12.0",
+      "tag": "ext/guardyotel/v0.12.0"
+    },
+    {
+      "dir": "ext/jsonredact",
+      "path": "github.com/skosovsky/guardy/ext/jsonredact",
+      "version": "v0.12.0",
+      "tag": "ext/jsonredact/v0.12.0"
+    },
+    {
+      "dir": "ext/jsonschema",
+      "path": "github.com/skosovsky/guardy/ext/jsonschema",
+      "version": "v0.12.0",
+      "tag": "ext/jsonschema/v0.12.0"
+    },
+    {
+      "dir": "integration",
+      "path": "github.com/skosovsky/guardy/integration",
+      "version": "v0.12.0",
+      "tag": "integration/v0.12.0"
+    }
+  ],
+  "candidateRevision": "d1811492ed195916f596952fea37e8404e714ea8",
+  "treeDigest": "33a323bbddb4dd3e94097cfc3f04e6c5c3f9d75fb178b1403bfd747fe39a2242",
+  "artifactDigest": "84ed3e795dc41100382471f8dd7d76f01ca7017d5233d0d20388cc75fd4fa561"
+}

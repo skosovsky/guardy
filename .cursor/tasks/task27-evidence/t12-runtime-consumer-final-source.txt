@@ -1,0 +1,89 @@
+import importlib.util,json,os,subprocess,tempfile
+from pathlib import Path
+source=Path.cwd()
+spec=importlib.util.spec_from_file_location('guardy_release',source/'scripts/release.py')
+r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+candidate=Path('/tmp/guardy-task27/t12-candidate-reviewed')
+manifest=r.validate_candidate(candidate)
+assert (candidate/'verified.json').exists()
+with tempfile.TemporaryDirectory(prefix='guardy-task27-consumer-') as tmp:
+ root=Path(tmp);consumer=root/'consumer';consumer.mkdir()
+ requirements='\n'.join(' '+m['path']+' '+m['version'] for m in manifest['modules'])
+ (consumer/'go.mod').write_text('module guardy.task27/consumer\n\ngo 1.27.1\n\nrequire (\n'+requirements+'\n)\n')
+ (consumer/'consumer_test.go').write_text(r'''package consumer
+import (
+ "bytes"
+ "context"
+ "errors"
+ "net/http"
+ "testing"
+ "time"
+ g "github.com/skosovsky/guardy"
+ "github.com/skosovsky/guardy/build"
+ "github.com/skosovsky/guardy/ext/guardyotel"
+ "github.com/skosovsky/guardy/ext/jsonredact"
+ "github.com/skosovsky/guardy/ext/jsonschema"
+)
+func TestReleasedConsumer(t *testing.T) {
+ // Arrange.
+ leaf:=g.ValidatorFunc[string](func(context.Context,string)(string,*g.Report,error){return "clean", &g.Report{Action:g.ActionRedact,MutatedText:"wrong mirror"},nil})
+ p,err:=g.NewPipeline(g.WithSequential(leaf));if err!=nil{t.Fatal(err)}
+ middleware,err:=guardyotel.NewMiddleware[string](guardyotel.WithMeter(nil),guardyotel.WithTracer(nil));if err!=nil{t.Fatal(err)}
+ p,err=p.Use(middleware);if err!=nil{t.Fatal(err)}
+ // Act.
+ delivery,err:=p.GuardOutput(context.Background(),nil,"secret")
+ projection,ok:=delivery.Projection()
+ // Assert.
+ if err!=nil||!ok||projection.Value!="clean"{t.Fatal("authoritative projection failed")}
+ // Arrange.
+ fail:=g.ValidatorFunc[string](func(_ context.Context,v string)(string,*g.Report,error){return v,&g.Report{Disposition:g.DispositionSystemFault},nil})
+ fault,err:=g.NewPipeline(g.WithSequential(fail));if err!=nil{t.Fatal(err)}
+ // Act.
+ blocked,err:=fault.GuardOutput(context.Background(),nil,"secret")
+ _,ok=blocked.Projection()
+ // Assert.
+ var failure *g.PolicyFailure
+ if err==nil||ok||!errors.As(err,&failure)||!failure.Decision.IsSystemFault(){t.Fatal("report-only fault delivered")}
+ // Arrange.
+ schema,err:=jsonschema.NewJSONSchemaValidator(`{"type":"object","properties":{"n":{"const":9007199254740993}},"required":["n"]}`);if err!=nil{t.Fatal(err)}
+ jsonLeaf:=jsonredact.NewJSONRedactValidator(leaf,"redact")
+ compiled,err:=build.CompileStringGuard(build.GuardSpec{});if err!=nil{t.Fatal(err)}
+ httpGuard,err:=g.Guard(compiled,func(*http.Request)(string,error){return "safe",nil},g.PlainTextInjector(),g.WithGuardMaxBodyBytes(3));if err!=nil||httpGuard==nil{t.Fatal(err)}
+ // Act.
+ _,report,err:=schema.Validate(context.Background(),`{"n":9007199254740993}`)
+ clean,redaction,redactErr:=jsonLeaf.Validate(context.Background(),`{"email":"secret"}`)
+ // Assert.
+ if err!=nil||g.DecisionFromReport(report).IsTerminal()||redactErr!=nil||clean!=`{"email":"clean"}`||g.DecisionFromReport(redaction).Action!=g.ActionRedact{t.Fatalf("optional contracts failed: %v %s %v",err,clean,redactErr)}
+ // Arrange: stream must preserve completed kind and simultaneous causes.
+ streamCtx,cancel:=context.WithCancel(context.Background());defer cancel()
+ sentinel:=errors.New("independent detector failure")
+ caps:=g.StreamCapabilities{Unit:true,Final:true}
+ first:=g.WithStreamingCapabilities(g.ValidatorFunc[string](func(_ context.Context,v string)(string,*g.Report,error){return v,&g.Report{PayloadKind:g.PayloadTechnicalPayload},nil}),caps)
+ second:=g.WithStreamingCapabilities(g.ValidatorFunc[string](func(_ context.Context,v string)(string,*g.Report,error){cancel();return v,nil,sentinel}),caps)
+ streamPipeline,err:=g.NewPipeline(g.WithSequential(first,second));if err!=nil{t.Fatal(err)}
+ var sink bytes.Buffer
+ stream,err:=g.CompileStream(&sink,g.StreamConfig{Identity:"consumer-stream",Pipeline:streamPipeline,Profile:g.ReleaseValidatedUnits,MaxInputBytes:100,MaxOutputBytes:100,MaxUnitBytes:20,MaxPendingBytes:20,ValidationTimeout:time.Second,Delivery:g.NewUserTextPolicy("internal",g.WithDeliveryAllowedKinds(g.PayloadTechnicalPayload))});if err!=nil{t.Fatal(err)}
+ // Act.
+ _,err=stream.WriteContext(streamCtx,[]byte("hello\n"))
+ outcome:=stream.Outcome()
+ // Assert.
+ if !errors.Is(err,sentinel)||!errors.Is(err,context.Canceled)||outcome.Decision.PayloadKind!=g.PayloadTechnicalPayload||!outcome.Decision.IsSystemFault()||sink.Len()!=0{t.Fatal("stream evidence projection failed")}
+}
+''')
+ with r.module_proxy(candidate/'proxy',manifest['modules']) as endpoint:
+  env=r.go_environment(GOPROXY=endpoint,GOMODCACHE=str(root/'cache'),GOCACHE='/tmp/guardy-task27-gocache')
+  for args in [['go','mod','tidy'],['go','list','-m','-json','all'],['go','test','-mod=readonly','-race','-count=3','./...']]:
+   print('COMMAND '+' '.join(args),flush=True)
+   done=subprocess.run(args,cwd=consumer,env=env,text=True,stdout=subprocess.PIPE,stderr=subprocess.STDOUT)
+   if args[1]!='list' or done.returncode:print(done.stdout,flush=True)
+   if done.returncode:raise SystemExit(done.returncode)
+   if args[1]=='list':
+    decoder=json.JSONDecoder();text=done.stdout;modules=[]
+    while text.strip():
+     item,end=decoder.raw_decode(text.lstrip());modules.append(item);text=text.lstrip()[end:]
+    expected={m['path']:m['version'] for m in manifest['modules']}
+    for m in modules:
+     if m['Path'] in expected:assert m['Version']==expected[m['Path']] and 'Replace' not in m
+    print('Exact staged module versions, no source replacements.',flush=True)
+ r.validate_candidate(candidate)
+ print('Independent runtime consumer PASS; candidate unchanged; nothing published.',flush=True)

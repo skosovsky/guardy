@@ -1,0 +1,8 @@
+--- FAIL: TestStreamTimeoutOutranksCompletedPolicyDecision (0.00s)
+    stream_evidence_contract_test.go:124: disposition=terminal_deny fallback=false outcome={Identity: Category:validation_timeout Decision:{Action:pass Disposition:terminal_deny Code: SafeMessage:validation failed RetryFeedback: PayloadKind:technical_payload Validator: Severity:} Sequence:0 ReleasedBytes:0 ReceivedBytes:0 PeakPendingBytes:0 Terminal:true Fallback:false} failure=guardy: policy failure err=guardy stream: validation_timeout
+FAIL
+FAIL	github.com/skosovsky/guardy	0.431s
+ok  	github.com/skosovsky/guardy/ext	0.416s [no tests to run]
+ok  	github.com/skosovsky/guardy/guardytest	0.412s [no tests to run]
+ok  	github.com/skosovsky/guardy/internal/jsondoc	0.164s [no tests to run]
+FAIL

@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T11 приняты; T12 — в работе**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **завершено; T00–T12 приняты**. Исходное независимое ревью: 2026-10-06. Baseline исходного ревью: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -332,7 +332,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Inventory включает jsonredact, optional install/import и root-only dependency сценарий; honest detector/telemetry/benchmark limitations сохранены.
 4. Все исходные docs checklist пункты сверены с API и отмечены только по доказательствам; runnable examples/test checks PASS.
 
-**T12 — итоговая верификация** (в работе; commit `test: remediation`; все R/D/DoD).
+**T12 — итоговая верификация** (принята; commit `test: remediation`; все R/D/DoD).
 1. make test/make lint всего текущего module inventory (baseline 19), необходимые race/finite watchdog и stream benchmarks against baseline, logs сохранены.
 2. Изолированный prepare/verify реального candidate из финального API, exact refs/module graph и independent consumer; release tooling fixture tests PASS, origin не публикуется.
 3. Requirement-by-requirement audit всех R/D/DoD/docs checklist: результат→доказательство→commit, каждое сохранение обосновано; no hidden fallback/coercion/domain dependencies.
@@ -381,3 +381,9 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T11 — принято
 
 Независимые приёмки финального diff: completeness100% (4/4), все восемь исходных docs checklist сверены, correctness PASS без нерешённых подтверждённых ошибок. Evidence task27-evidence/t11-*. README current guide321lines, root-only guarded Projection Quick Start и exhaustive low-level Run fault channels, authoritative returned T; MIGRATION единая unreleased candidate/earlier transitions, никакого утверждения о опубликованном /v2. Новый executable six-outcome sink matrix, struct Map и literal Quick Start PASS; HTTP authoritative bytes matrix T10 сохранена. Архив b98ede2 с исходными скопированными R08/R09 patterns воспроизводит runtime assertion failures exit1. Финальные all19race59283/plainmake lint54478/diffcheck exit0; независимые root/integration race×3 и root examples/HTTP×5 PASS. Предыдущий T10 commit b98ede2 fix: adapters. Commit T11 docs: contracts. T12 release/bench/RD/DoD/final acceptance остаётся обязательной.
+
+### T12 — принято; финальный аудит
+
+Повторные независимые приёмки финального diff: полнота100% (54/54: 4T12+9R+25D+8docs+8DoD), correctness PASS без нерешённых подтверждённых ошибок. Первое итоговое ревью выявило три потери stream evidence (timeout normal/fallback causes, completed kind/output budget); AAA baseline assertions FAIL сохранены, контракт исправлен первым, release.go сохраняет checked Decision/bothcauses и timeout SystemFault при none/deny/retry race. Оба ревьюера повторили приёмку финальных source/tests/docs и corrected candidate.
+
+Final terminal exit0: make test65218 всех19modules race+15 release fixtures, plain all19make lint41787, finite watchdog/partition/work/cancel/evidence race8258×5, stream benchmarks36780 count3, corrected candidate prepare3214/verify6671, independent runtime consumer47238×3 exactversions/no replacements. Bench84cases work/capacity match T04after/T05;3 ожидаемых одно-байтовых отличия против T04before, без performance improvement claim. Candidate-reviewed d1811492ed195916f596952fea37e8404e714ea8 содержит final implementation byte-for-byte; v0.12.0 только локальный candidate, ничего не опубликовано. Все исходныеR/D/DoD/docs→result/evidence/commit в task27-evidence/t12-audit.md; полноценные отчёты t12-completeness.md/t12-correctness.md, финальные логи t12-final-*. Предыдущий T11 commit e5038d2 docs: contracts; финальный T12 commit test: remediation, hash в итоговом ответе без self-reference. После коммита обязательная проверка cleanworktree и только затем goalcomplete.

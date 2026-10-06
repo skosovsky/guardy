@@ -1,0 +1,9 @@
+# T12 final repeated acceptance
+
+Completeness100%54/54 (R9/D25/docs8/DoD8/T12criteria4); correctness PASS, no unresolved confirmed defects. Independent fresh T12 reviewers did not implement source or exchange verdicts. First-round confirmed stream evidence defects are preserved as resolved history, not hidden by old green tests. Both repeated final immutable source/test/docs acceptance; equivalent split assertions did not weaken conditions.
+
+Final gates all terminal0: make test65218 all19race+15 synthetic release fixtures; plain all19lint41787; finite focused race8258×5; stream benchmarks36780 count3; corrected prepare3214, verify6671, runtime consumer47238×3. Candidate v0.12.0 d1811492ed195916f596952fea37e8404e714ea8 exact19 graphs/readonly race/lint/compileconsumer and separate exact-version runtime consumer no replacements, completed-kind+simultaneous-cause assertion. Final four changed source/doc/test files match candidate byte-for-byte; artifact/stamp digest independently checked by both reviewers. Final evidence-only task/audit/report updates do not change verified Go/API/docs implementation.
+
+Audit t12-audit.md maps every original requirement and every retained decision to executable evidence/consumer reason/short commit. No origin push/publish; release tests use disposable local remotes. Bench comparisons work/capacity only, not statistical performance. Live-provider quality, arbitrary uncooperative/alias-mutating/custom serializer callbacks, execution authorization, rollback and provider/vault lifecycle remain documented host obligations.
+
+Post-verdict finalization: stage accepted source/evidence/status, short commit test: remediation, confirm clean worktree and then mark goal complete. No claim that this pre-commit document knows its self-referential hash; actual hash reported in final answer. Historical pre-correction candidate/gate logs explicitly do not certify final corrected source.

@@ -595,3 +595,14 @@ and earlier API transitions separately, without implying a published major versi
 Root-only consumers need no optional JSON/schema/OTel engine; nested modules require
 their own go get/import. Precise matcher, ownership, stream and telemetry limits
 remain part of the public contract even where the guide links to detailed evidence.
+
+## Stream fault evidence after validation (T12)
+
+After GuardDelivery completes, stream timeout and output-budget failures retain
+its canonical Decision and completed payload classification. When context expires
+alongside an independent validator error, ReleaseError/PolicyFailure retain both
+causes through errors.Is/As; StreamTimeout remains the stream category and always
+projects SystemFault, even if cancellation raced with a completed deny/correction. Checked
+fallback follows the same cause rule and remains separate from the original
+terminal outcome. No normal/fallback bytes are written on these faults. These
+projections do not attest a failed callback's arbitrary report or output.

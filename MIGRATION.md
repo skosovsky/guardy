@@ -150,6 +150,15 @@ partial handler results, validation faults and cancellation. `WrapOutput` remain
 a low-level API that returns the unvalidated partial result alongside a handler
 error. Neither wrapper retries execution or undoes completed host side effects.
 
+### Stream error evidence
+
+Timeout projection now retains completed payload classification and both context
+and independent validator causes. Normal and checked-fallback timeouts remain
+StreamTimeout with canonical SystemFault, including cancellation racing with an
+already completed policy decision. Post-validation output-limit faults also retain
+checked classification. These corrections do not permit delivery or attest failed
+callback output/reports.
+
 ## Earlier API transitions
 
 These notes consolidate transitions previously repeated in README. Examples of

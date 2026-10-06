@@ -554,7 +554,7 @@ func (s *StreamProcessor) DeliverFallback(ctx context.Context) (StreamOutcome, e
 	checked, err := s.cfg.Pipeline.GuardDelivery(guardCtx, scope, policy, candidate)
 	outcome.Decision = checked.Decision
 	if guardCtx.Err() != nil {
-		return s.fallbackFailure(outcome, StreamTimeout, guardCtx.Err())
+		return s.fallbackFailure(outcome, StreamTimeout, errors.Join(err, guardCtx.Err()))
 	}
 	if err != nil {
 		category := StreamBlocked
@@ -601,7 +601,7 @@ func (s *StreamProcessor) fallbackFailure(
 	if failure, ok := errors.AsType[*PolicyFailure](cause); ok {
 		outcome.Decision = failure.Decision
 	}
-	if outcome.Decision.Disposition == DispositionNone && category != StreamTransport {
+	if category == StreamTimeout || (outcome.Decision.Disposition == DispositionNone && category != StreamTransport) {
 		outcome.Decision.Disposition = DispositionSystemFault
 	}
 	outcome.Category = category
@@ -654,7 +654,7 @@ func (s *StreamProcessor) validateAndRelease(parent context.Context, value strin
 	policy.Fallback = nil
 	delivery, err := s.cfg.Pipeline.GuardDelivery(ctx, scope, policy, value)
 	if ctx.Err() != nil {
-		return s.fail(StreamTimeout, ctx.Err(), DecisionFromReport(nil))
+		return s.fail(StreamTimeout, errors.Join(err, ctx.Err()), delivery.Decision)
 	}
 	if err != nil {
 		category := StreamBlocked
@@ -674,7 +674,7 @@ func (s *StreamProcessor) validateAndRelease(parent context.Context, value strin
 		return s.fail(StreamLimit, ErrStreamUnitLimit, delivery.Decision)
 	}
 	if int64(len(approved)) > s.cfg.MaxOutputBytes-s.outcome.ReleasedBytes {
-		return s.fail(StreamLimit, errors.New("guardy: output limit"), DecisionFromReport(nil))
+		return s.fail(StreamLimit, errors.New("guardy: output limit"), delivery.Decision)
 	}
 	s.outcome.Decision = delivery.Decision
 	s.outcome.Sequence++
@@ -697,7 +697,7 @@ func (s *StreamProcessor) fail(category StreamCategory, cause error, decision De
 	if pf, ok := errors.AsType[*PolicyFailure](cause); ok {
 		decision = pf.Decision
 	}
-	if decision.Disposition == DispositionNone {
+	if category == StreamTimeout || decision.Disposition == DispositionNone {
 		decision.Disposition = DispositionSystemFault
 	}
 	s.pending.clear()
