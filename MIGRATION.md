@@ -1,7 +1,10 @@
-# Migration: task27 remediation (unreleased)
+# Migration guide
 
-This guide records the current remediation API changes. It will be consolidated
-with the previous migration notes before the candidate is verified.
+## Unreleased candidate: task27 remediation
+
+These changes are not a published release or a Go `/v2` module transition.
+The candidate keeps the existing module paths; release version selection belongs
+to the host release workflow. Earlier transitions are recorded once below.
 
 ## Typed scope
 
@@ -146,3 +149,129 @@ Prefer `WrapGuardedOutput` and deliver only its approved `Projection`. It suppre
 partial handler results, validation faults and cancellation. `WrapOutput` remains
 a low-level API that returns the unvalidated partial result alongside a handler
 error. Neither wrapper retries execution or undoes completed host side effects.
+
+## Earlier API transitions
+
+These notes consolidate transitions previously repeated in README. Examples of
+retained APIs use current candidate signatures; where changes overlap, the
+unreleased candidate section above gives the final replacement.
+The previous “v2” label described an internal redesign; no `/v2` module was published
+by these changes.
+
+## Migration: streaming release and canonical boundaries
+
+- Removed `NewGuardWriter`, `GuardWriterOption`, chunk/timeout/scope options and
+  `StreamError`. Use `CompileStream`, an explicit profile, bounds and
+  `ReleaseError`. Replace successful `Close` flushes with `Complete(ctx)`;
+  disconnects use `Abort`. Whole-response PII guarding no longer exposes a prefix.
+- `WrapInput`, `WrapOutput`, `WrapArgs`, `WrapGuardedArgs`,
+  `WrapGuardedJSONArgs`, `WrapGuardedOutput` take `ScopeFactory`, called on every invocation/resume. Use
+  `func(ctx context.Context) (guardy.ExecutionScope, error)` to project current
+  policy facts. Low-level `Run` still accepts an explicit scope.
+- Typed args are canonically encoded after post-bind hooks, including pointer
+  types. Add `WithArgsFinalGuard[T](schemaAndPolicyPipeline)` to require final
+  schema/policy checking after mutations; `ShapeProvider` is metadata only.
+  Final checks are read-only. `WithArgsCodec` accepts caller-owned bind/encode.
+- Dynamic schema callbacks get deeply isolated JSON. They check the sanitized
+  decoded object, not the original payload. Use `WithJSONArgsFinalGuard` for
+  mandatory policy checks on canonical JSON after all transformations.
+  `JSONArgsValidator` and `JSONArgsValidatorFunc` supply checks; `JSONArgsMetadata`
+  supplies only ID/shape. Nil built-in checker functions and explicitly nil final
+  guards fail compilation with `ErrConfiguration`. A custom checker’s rules remain
+  caller-owned. Ordinary flows can omit schema and final options.
+- Dispatch only guarded sanitized arguments. For every consumer use a separate
+  destination policy and serialize `GuardedDelivery.Projection()`, never the
+  wrapper with original raw values or reports. Replacement/fallback content is
+  checked by its destination pipeline; a forbidden fallback is suppressed.
+- Decision aggregation prioritizes effective disposition. Fatal pass/redact can
+  no longer disappear behind an earlier mutation. Report-only system faults block
+  stream release. Map errors using `errors.As`, not text.
+- `MaxRetries == 0` means no retries. Caller owns retry counters and external
+  approval binding; resume must rebuild current scope and revalidate arguments.
+- Fault/retry `Error()` text no longer includes diagnostic causes/correction
+  feedback. Read these explicitly through `PolicyFailure`; do not expose them
+  as external response text. Semantic scores and thresholds must be finite;
+  NaN/infinity is a system fault, not a benign detector result.
+- `CompileBoundaryProfile` declares caller-reported supported/mandatory coverage; it does
+  not intercept remote backends automatically. Use reusable
+  `guardytest.CheckBoundaryCases` in optional integrations.
+
+Caller-owned facts examples in `policy_facts_example_test.go` show source linkage,
+separate confirmed/claimed trust, missing destination rejection and redaction.
+The executable recipe in `policy_recipe_test.go` connects untrusted source,
+transformation, typed arguments and destination. Its caller-owned facts preserve
+all references and confirmed trust; returned evidence is at most two opaque
+references, each at most 64 bytes. Unknown/missing sources fail closed. Host
+declassification and the restricted no-provenance profile require explicit choices.
+Guardy creates no permission grant, trust registry, provenance store or workflow.
+
+`guardytest.ReferenceBoundaryFixtures` and `StringBoundaryCases` provide fresh
+benign/adversarial cases for real handler/consumer wiring; configure their stated
+synthetic test policy. `ReferenceSemanticFixtures` exercises real threshold/shadow
+behavior with deterministic mock scores, detector identity, errors and cooperative
+timeouts. Keep deterministic and semantic suites separate: mock conformance does
+not measure detector false positives/negatives or live-provider safety.
+
+## Migration: typed scope, boundary contracts and delivery routing
+
+- **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
+- **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before sequential phase.
+- **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
+- **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedDelivery[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
+- **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
+- **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
+- **Observer telemetry:** `WithObserver` receives `GuardEvent` for non-fatal shadow blocks, with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata. It is not an all-events audit ledger.
+- **Decision routing:** `Decision.Route(RemediationPolicy)` and `RouteDecision` return `(GuardRoute, error)`; negative host counters are configuration errors. A fallback route is only a proposal: check its value with `GuardDelivery` before sending.
+- **HTTP report context:** `ReportFromContext` was removed; report context side channels are replaced by explicit decisions, policy failures, guard events, and boundary values.
+- **WrapInput/WrapOutput:** take `ScopeFactory` (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
+- **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
+- **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
+
+## Migration: policy and safety decisions
+
+Use `ArgsPipeline`, `Map` and `MapJSONRawMessage` for type-safe argument validation and redaction.
+
+- **Decision control flow:** use `Decision` / `PolicyFailure`; `Report` remains validator telemetry.
+- **Policy phase:** `WithPolicyValidators` + typed `ScopeKey[T]` requirements + explicit `ExecutionScope` in `Run`.
+- **Typed arguments:** `ArgsPipeline` + `GuardedArgs[T]` replaces raw pipeline plus local decode.
+- **Streaming:** `errors.As(err, &failure)` where `failure` is `*PolicyFailure`.
+- **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
+- **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.
+
+## Migration: streaming, policy shadow and post-bind validation
+
+- **Stream migration:** use explicit `CompileStream` profiles and trusted `Complete`; `Close` aborts.
+- **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
+- **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`;
+  cancellation/deadline errors are system faults with their cause preserved through `errors.Is`.
+- **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).
+
+## Migration: `MapJSONRawMessage`
+
+- **Broken JSON after redact:** branch on `CodeJSONRedactCorrupted`, not `CodeJSONInvalid` (parse/bind errors).
+- **Struct tool args:** `NewPipeline[MyDTO]` + `MapJSONRawMessage`; see `examples/agent_tool_args`.
+
+### Earlier redesign highlights
+
+- `Pipeline.Use(...)` returns a new pipeline and a configuration error; `MustUse` is the explicit panic wrapper.
+- `Report` includes `Code` and typed `Severity`.
+- Legacy streaming constructors/options are removed; use `StreamConfig`.
+- `PIIMasking` APIs were renamed to `PIIValidator` / `NewPIIValidator`.
+- `ext/jsonschema.NewValidatorFromStruct` was renamed to `NewJSONSchemaValidatorFromStruct`.
+- Built-in `ext` validators use options for common rule metadata (`WithAction`, `WithCode`, `WithSeverity`, `WithReason`, ...).
+
+
+## Migration: report composition
+
+Decision routing now uses Disposition alone: use IsTerminal, IsRetryable and
+IsSystemFault instead of the removed Terminal, Retryable, SystemFault and
+UserCorrectable fields. Report flags remain construction inputs and telemetry.
+FinishReport initializes new reports; adapters must preserve completed reports,
+including explicit non-retryability. JSONArgsValidator callbacks follow the same
+contract as Validator; raw ActionRetry is terminal unless retryability is explicit.
+ComposeReports preserves the strongest enforcement and aggregated PayloadKind.
+Unknown enums and non-finite report scores are faults; fatal escalation wins over
+correction. Shadow observes only non-fatal policy blocks. The shadow observer's
+Decision describes the violation without suppression; its Report retains ShadowMode.
+ShouldStop/ShouldRetry, ApplyControlDefaults and ext.ValidatorOption were removed;
+use disposition methods, FinishReport and ext.Option.

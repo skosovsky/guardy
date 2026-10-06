@@ -1,0 +1,10 @@
+--- FAIL: TestOldQuickStartRoutingSuppressesFault (0.00s)
+    docs_baseline_test.go:11: old copied routing delivered "secret" despite systemFault=true err=<nil>
+--- FAIL: TestOldDiagnosticMirrorClaimMatchesOutput (0.00s)
+    docs_baseline_test.go:19: actual authoritative output="secret"; diagnostic mirror did not transform it, err=<nil>
+FAIL
+FAIL	github.com/skosovsky/guardy	0.462s
+ok  	github.com/skosovsky/guardy/ext	0.445s [no tests to run]
+ok  	github.com/skosovsky/guardy/guardytest	0.445s [no tests to run]
+ok  	github.com/skosovsky/guardy/internal/jsondoc	0.436s [no tests to run]
+FAIL

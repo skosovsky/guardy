@@ -1,0 +1,20 @@
+package guardy_test
+import("context";"testing";g "github.com/skosovsky/guardy")
+func TestOldQuickStartRoutingSuppressesFault(t *testing.T){
+ // Arrange: original R08 copied routing omits system-fault branch.
+ p:=g.MustNewPipeline(g.WithSequential(g.ValidatorFunc[string](func(_ context.Context,v string)(string,*g.Report,error){return v,&g.Report{Action:g.Action(255)},nil})))
+ delivered:=""
+ // Act.
+ result,err:=p.Run(context.Background(),nil,"secret")
+ if err==nil{d:=result.PolicyDecision();if !d.IsTerminal()&&!d.IsRetryable(){delivered=result.Output}}
+ // Assert.
+ if delivered!=""{t.Fatalf("old copied routing delivered %q despite systemFault=%v err=%v",delivered,result.PolicyDecision().IsSystemFault(),err)}
+}
+func TestOldDiagnosticMirrorClaimMatchesOutput(t *testing.T){
+ // Arrange: original R09 claim says MutatedText changes the value.
+ p:=g.MustNewPipeline(g.WithSequential(g.ValidatorFunc[string](func(_ context.Context,v string)(string,*g.Report,error){return v,&g.Report{Action:g.ActionRedact,MutatedText:"clean"},nil})))
+ // Act.
+ result,err:=p.Run(context.Background(),nil,"secret")
+ // Assert: failed documentation claim, not a requested runtime behavior change.
+ if err!=nil||result.Output!="clean"{t.Fatalf("actual authoritative output=%q; diagnostic mirror did not transform it, err=%v",result.Output,err)}
+}

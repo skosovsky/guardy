@@ -1,950 +1,321 @@
 # Guardy
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/skosovsky/guardy.svg)](https://pkg.go.dev/github.com/skosovsky/guardy)
-[![Build](https://img.shields.io/badge/build-go%20build-blue)](https://github.com/skosovsky/guardy)
-[![Coverage](https://img.shields.io/badge/coverage-go%20test-green)](https://github.com/skosovsky/guardy)
+[Go reference](https://pkg.go.dev/github.com/skosovsky/guardy)
 
-Guardy validates, transforms and controls delivery of caller-owned data through
-`Pipeline[T]`. It supports sequential fast checks, caller policies and parallel
-read-only slow checks. Optional matchers and detector adapters can be used in LLM
-applications; the library supplies no trained model or agent runtime.
+Guardy validates, transforms and controls delivery of caller-owned values through
+`Pipeline[T]`. It runs sequential transformations, caller policies and parallel
+read-only checks. Bring your own Go types, facts and detectors. Core supplies no
+agent runtime, trained model, permissions store or retry scheduler.
 
----
+Requires Go 1.27.1+. Install core alone:
 
-## Requirements
-
-- Go 1.27.1+
-
-## Installation
-
-```bash
+```sh
 go get github.com/skosovsky/guardy
 ```
 
 ## Quick Start
 
-Build a pipeline with sequential phase validators and validate text:
+This root-only example redacts a value and writes only its approved projection.
+Static configuration uses `MustNewPipeline`; dynamic configuration should handle
+`NewPipeline`'s error during setup.
 
 ```go
 package main
 
 import (
-	"context"
-	"fmt"
+    "context"
+    "fmt"
+    "strings"
 
-	"github.com/skosovsky/guardy"
-	"github.com/skosovsky/guardy/ext"
+    "github.com/skosovsky/guardy"
 )
 
 func main() {
-	lengthV := ext.MustLengthValidator(0, 2048, ext.WithCode("TOO_LONG"))
-	wordlistV := ext.MustWordlistValidator([]string{"bad", "spam"}, ext.Blocklist, ext.WithCode("FORBIDDEN"))
-	piiV := ext.MustPIIValidator()
-
-	pipeline := guardy.MustNewPipeline(
-		guardy.WithSequential(ext.MustTagPatternValidator(""), piiV, wordlistV, lengthV),
-	)
-
-	ctx := context.Background()
-	text := "Contact me at user@example.com"
-	result, err := pipeline.Run(ctx, nil, text)
-	if err != nil {
-		panic(err)
-	}
-	decision := result.PolicyDecision()
-	switch {
-	case decision.IsSystemFault():
-		fmt.Println("validation fault")
-	case decision.IsTerminal():
-		fmt.Println("blocked:", decision.SafeMessage)
-	case decision.IsRetryable():
-		fmt.Println("retry:", decision.RetryFeedback)
-	default:
-		fmt.Println("ok:", result.Output)
-	}
-}
-```
-
-## Key abstractions
-
-### Validator
-
-Validators implement the generic **Validator[T]** interface:
-
-```go
-type Validator[T any] interface {
-	Validate(ctx context.Context, input T) (T, *Report, error)
-}
-```
-
-For string validation: `Validator[string]`. The pipeline returns the mutated text as the first value; on **ActionRedact** the validator provides the cleaned string. **Report** holds **Action**, **Validator**, **Code**, **Severity**, **Reason**, **Feedback**, **Retryable**, **Fatal** (hard escalation), **SafeUserMessage**, **MutatedText**, **Score**, **ShadowMode**, **Disposition** (typed control flow), **PayloadKind** (output classification). Route control flow with **IsTerminalDeny()** and **IsRetryableCorrection()** — not `strings.Contains` on **Reason** or raw **Action**. **Action** remains for telemetry and redact semantics. Helpers: `PublicMessage()` (safe UI), `OrchestratorMessage()` (LLM retry hints).
-
-### Pipeline (three-phase)
-
-- **Construction**: `NewPipeline[string](WithSequential(...), WithPolicyValidators(...), WithParallel(...))`.
-- **Execution**: `Run(ctx, scope, input)` returns `(RunResult[T], error)`. A completed report-only system fault has nil Go error; check `PolicyDecision().IsSystemFault()` before using output. Validate errors/panics return a safe typed `ValidatorFaultError`; high-level boundaries turn both fault channels into `PolicyFailure` and suppress delivery. Pass `nil` or any `ExecutionScope` implementation. Use `result.PolicyDecision()` for low-level pipeline routing; use `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput` at host boundaries. `result.OutputKind`, `result.Decision()`, and `result.Reports` remain validator-level telemetry. Policy validators declare required scope at compile time; missing keys fail closed with `ErrScopeIncomplete` plus `ScopeIncompleteError` metadata.
-
-`NewPipeline` returns `(*Pipeline[T], error)` and rejects nil rules/options or unused channel fallback configuration. `MustNewPipeline` panics on the same error for static configuration. `pipeline.Use(...)` returns `(*Pipeline[T], error)` and preserves the original; `MustUse` is its static configuration wrapper. Nil middleware or wrapper layers are rejected. Optional `WithObserver(nil)` disables observation.
-
-### Struct pipelines (`Pipeline[MyDTO]`)
-
-Use `NewPipeline[MyDTO](...)` when the payload is a struct (tool calls, agent state), not only `string`:
-
-```go
-type AgentCall struct {
-    ToolArgs json.RawMessage `json:"tool_args"`
-}
-piiV := ext.MustPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
-rawV := guardy.MapJSONRawMessage(piiV,
-    func(c *AgentCall) json.RawMessage { return c.ToolArgs },
-    func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
-)
-pipeline := guardy.MustNewPipeline[AgentCall](guardy.WithSequential(rawV))
-result, _ := pipeline.Run(ctx, nil, AgentCall{ToolArgs: json.RawMessage(`{"email":"a@b.com"}`)})
-// result.Output.ToolArgs — redacted when ActionRedact
-```
-
-For string fields on structs use **Map**; for nested keys inside JSON text use **ext/jsonredact** on `Pipeline[string]`. Full example: [`examples/agent_tool_args`](examples/agent_tool_args/main.go). Policy rules: `PolicyValidator[MyDTO]` + explicit `ExecutionScope` in `Run`.
-
-**Phase 1 — Sequential**
-Validators run in registration order. Each callback’s returned T becomes the next input; `MutatedText` is only an optional diagnostic mirror. Correction, terminal deny and system fault stop this phase; a valid nonfatal shadow block remains an observation. Use for: TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator.
-
-**Phase 2 — Policy**
-Scope-aware validators run sequentially on the value from phase 1, after required scope checks. Each returned T becomes the next input. Correction, terminal deny and fault stop processing; only a valid nonfatal shadow block continues as an observation.
-
-**Phase 3 — Parallel**
-Read-only validators run concurrently via `errgroup` on the final value from the sequential and policy phases. Returned values are ignored; ActionRedact is a system fault. **Decision()** priority: `system fault > terminal deny > retryable correction > redact > pass`. Terminal deny or fault cancels sibling checks; correction does not. Only non-fatal shadow policy blocks are observations; shadow never suppresses faults. On validator error, a **partial RunResult** with gathered reports is returned (telemetry preserved). Use for: SemanticValidator, LLMJudge.
-
-**Example sequential phase order:** tag pattern matcher → PII matcher → wordlist → regex/length. Choose and test order for your rules; this ordering is not a measured protection level.
-
-### Report
-
-**Report** holds validator telemetry and low-level rule output: **Action**, **Code**, **Reason**, **Feedback**, **Disposition**, **PayloadKind**, and related fields. Low-level `Run` callers should use `result.PolicyDecision()` or `errors.As(err, &policyFailure)` into `*PolicyFailure`; host boundaries should prefer `GuardedArgs`, `GuardedJSONArgs`, `GuardDelivery`, or `GuardOutput`. Use `result.Decision()` when you need the underlying report for telemetry or custom validators. Do not route control flow by parsing `Code` or `Reason`.
-
-### Stream release
-
-Use `CompileStream` with an explicit profile and byte limits. `ReleaseWholeResponse`
-checks the final value before the first release. `ReleaseValidatedUnits` emits
-complete newline-delimited units (or JSON objects/arrays with `JSONValues`) and
-requires declared unit-local rule capabilities. `ReleaseBestEffort` allows early
-release of bounded UTF-8 chunks; it has no whole-value safety guarantee.
-
-```go
-stream, err := guardy.CompileStream(w, guardy.StreamConfig{
-    Identity: "response",
-    Profile: guardy.ReleaseWholeResponse,
-    Pipeline: pipeline,
-    Delivery: guardy.NewUserTextPolicy("external"),
-    MaxInputBytes: 1 << 20,
-    MaxPendingBytes: 1 << 20,
-    MaxUnitBytes: 1 << 20,
-    MaxOutputBytes: 1 << 20,
-    ValidationTimeout: time.Second,
-})
-if err != nil { return err }
-if _, err := stream.WriteContext(ctx, data); err != nil { return err }
-outcome, err := stream.Complete(ctx) // trusted producer success
-// On disconnect/error: stream.Abort(cause). Close without Complete aborts.
-```
-
-Limits count bytes and include redaction expansion. Pending memory stays bounded;
-validator-owned allocations are caller-owned. Unsupported mandatory capabilities
-fail at construction. Completion is a trusted method call, never a payload flag.
-The initial unit profile supports unit-local rules with zero cross-unit lookaround;
-final-only or unknown rules require whole-response. JSON framing does not replace
-schema/policy validation. No profile silently downgrades.
-
-`ReleaseError` carries a terminal category and exposes `PolicyFailure` via
-`errors.As`. Outcomes include actual received/released bytes, sequence and peak
-pending bytes. Partial transport writes are irreversible and terminate; no automatic
-replay occurs. `DeliverFallback` is a separate at-most-once checked delivery after
-policy deny, never after validator fault. Observers see counters/stages, not payload.
-Validators must honor context; non-cooperative validators cannot be forcibly stopped.
-
-See `examples/streaming_filter`, `examples/json_streaming`, and [CONTRACTS.md](CONTRACTS.md).
-
-### HTTP Guard (`http_guard.go`)
-
-**Guard** returns HTTP middleware and a configuration error; `MustGuard` is its static-configuration counterpart. The extractor receives a replay of the consumed request body. On **Redact**, the injector receives the authoritative pipeline output `T`; on **Pass**, next receives the original bytes. The positive `WithGuardMaxBodyBytes` cap defaults to 1 MiB: excess input returns 413, read/extraction errors 400, missing scope 400, deny/correction 422, and faults/cancellation/body-close/injection errors 500. Guard closes consumed bodies before replacing them and closes the handed-off body when next returns. Callbacks borrow their current body; replacement transfers ownership to Guard. See the ownership table in CONTRACTS.md. For host-boundary routing, use `Decision`, `PolicyFailure`, typed guard events, or the generic wrapper APIs instead of request-context report state.
-
-```go
-extractor := func(r *http.Request) (string, error) {
-	body, err := io.ReadAll(r.Body)
-	return string(body), err
-}
-middleware, err := guardy.Guard(pipeline, extractor, guardy.PlainTextInjector(),
-    guardy.WithGuardMaxBodyBytes(2 << 20))
-if err != nil {
-    return err
-}
-handler := middleware(yourHandler)
-```
-
-### Policy validators (scope-aware)
-
-Declare typed scope requirements with `ScopeKey[T]`, then pass any `ExecutionScope` implementation at run time. Use `NewScope(ScopeValue(...))` for static bindings, or expose host-owned structs through `ScopeFunc`. `MapScope` remains a low-level convenience, not the primary integration contract.
-
-```go
-roleKey := guardy.NewScopeKey[string]("principal.role")
-pipeline := guardy.MustNewPipeline(
-    guardy.WithPolicyValidators(
-        guardy.MustTypedAttributeEquals[string, string](roleKey, "viewer"),
-    ),
-)
-
-scope := guardy.NewScope(guardy.ScopeValue(roleKey, "viewer"))
-result, err := pipeline.Run(ctx, scope, "hello")
-decision := result.PolicyDecision()
-```
-
-Register rules with `WithPolicyValidators` (runs after sequential phase, before parallel phase). Built-in typed builders: `NewTypedAttributeEquals`, `NewTypedAttributePresent`. Custom rules can use `NewPolicyFuncWithScope`. Missing scope keys fail closed with `ErrScopeIncomplete`; incompatible dynamic types return `ErrScopeIncompatible` and a system-fault decision. Concrete keys require the exact type; interface keys accept implementations, matching `ScopeKey.Lookup`. Use `errors.As` into `*ScopeIncompleteError` or `MissingScopeKeys(err)` for machine-readable missing keys. See `examples/policy_attributes`.
-
-`NewTypedAttributeEquals` uses Go equality. Interface values that contain slices,
-maps or other incomparable operands fail with `ErrAttributeIncomparable` and
-`AttributeComparisonError`, projected as a system fault by the pipeline. Use a custom
-policy for domain-specific comparison. The untyped `NewAttributeEquals` API was removed.
-
-### Canonical boundary contracts
-
-Use `Decision` and `PolicyFailure` at host boundaries. Guardy errors from decode, interceptors, stream, and guarded output expose `*PolicyFailure` through `errors.As`, while sentinel checks still work through `errors.Is`.
-
-```go
-payload, err := argsPipeline.Validate(ctx, scope, raw)
-if err != nil {
-    var failure *guardy.PolicyFailure
-    if errors.As(err, &failure) && failure.Decision.IsRetryable() {
-        return failure.Decision.RetryFeedback
+    redact := guardy.ValidatorFunc[string](func(_ context.Context, value string) (string, *guardy.Report, error) {
+        clean := strings.ReplaceAll(value, "user@example.com", "[email]")
+        return clean, &guardy.Report{Action: guardy.ActionRedact}, nil
+    })
+    pipeline := guardy.MustNewPipeline(guardy.WithSequential(redact))
+    delivery, err := pipeline.GuardOutput(context.Background(), nil, "Contact user@example.com")
+    if err != nil {
+        fmt.Println("delivery rejected")
+        return
     }
-    return err
+    projection, ok := delivery.Projection()
+    if !ok {
+        return
+    }
+    fmt.Println(projection.Value)
 }
 ```
 
-For typed arguments, compile a raw-first pipeline once and let guardy return one boundary object:
+Output: `Contact [email]`. This literal replacement is an example transformation,
+not a general email detector. The executable counterpart and outcome matrix are
+in [consumer_docs_example_test.go](consumer_docs_example_test.go).
+
+`GuardOutput` uses the explicit `NewUserTextPolicy("user")` recipe. Its bounded
+shape classifier supports known text representations; it does not certify custom
+serialization or content provenance. For another destination use `GuardDelivery`
+with `NewDeliveryPolicy(channel, WithDeliveryAllowedKinds(...),
+WithDeliveryClassifier(...))`. Bind the classifier to the actual host wire format.
+Unknown kinds and unsupported/cyclic representations fault. Core never invokes
+arbitrary `MarshalJSON`/`MarshalText` to infer approval.
+
+Deliver only `DeliveryProjection`, not the entire `GuardedDelivery`, original
+payload, raw reports or correction feedback. Fallback is a separate checked
+value, allowed after policy rejection only by an explicit contract; faults cannot
+activate it. A routing proposal is not delivery approval.
+
+## Values, decisions and faults
+
+A validator implements `Validate(context.Context, T) (T, *Report, error)`.
+Returned `T` and `RunResult.Output` are authoritative; `MutatedText` is only an
+optional diagnostic mirror. Use `Map` for a struct field and `MapJSONRawMessage`
+for a raw JSON field. Setters must copy reachable aliases before mutation: guardy
+cannot undo external mutations, tool execution or other host effects.
+
+`Report` is a validator DTO, retained for third-party integration and telemetry.
+`Decision` is canonical control flow. Fault outranks deny, which outranks correction.
+Fatal escalation cannot be hidden by redaction or nonfatal shadow observation.
+Route with `PolicyDecision`/`PolicyFailure.Decision`, not `Reason`, `Code` text or
+locally re-derived report flags. `FinishReport` applies construction defaults;
+a raw `ActionRetry` without explicit retryability is a terminal deny.
+
+Low-level callers must handle both fault channels before using output:
 
 ```go
-type Command struct {
-    Name string `json:"name"`
+result, err := pipeline.Run(ctx, scope, input)
+if err != nil {
+    return err // Validate error/panic, cancellation or prerequisite failure
 }
-
-argsPipeline := guardy.MustCompileArgs[Command](rawPipeline)
-args, err := argsPipeline.Validate(ctx, scope, `{"name":"Ada"}`)
-// args is GuardedArgs[Command]: Value, Raw, SanitizedRaw, Reports,
-// PayloadKind, and the canonical Decision stay together.
-```
-
-For dynamic JSON arguments, keep sanitized raw JSON, decoded object, schema identity, reports, and decision together:
-
-```go
-// Metadata describes the schema; it does not validate the object.
-metadata := guardy.JSONArgsMetadata{ID: "command.schema", Shape: callerShape}
-checker := guardy.JSONArgsValidatorFunc(validateObject) // caller executable rules
-jsonArgsPipeline := guardy.MustCompileJSONArgs(rawPipeline, checker,
-    guardy.WithJSONArgsMetadata(metadata),
-)
-args, err := jsonArgsPipeline.Validate(ctx, scope, rawJSON)
-// args is GuardedJSONArgs: Raw, SanitizedRaw, Object, SchemaID, Reports,
-// PayloadKind, and Decision.
-```
-
-Wrap dynamic handlers with the same boundary object:
-
-```go
-handler := guardy.WrapGuardedJSONArgs(jsonArgsPipeline, scope,
-    func(ctx context.Context, args guardy.GuardedJSONArgs) (string, error) {
-        return args.SchemaID + ":" + args.Object["name"].(string), nil
-    },
-)
-result, args, err := handler(ctx, rawJSON)
-```
-
-For guarded output, return a single authoritative delivery contract. `GuardOutput` uses the default external-user policy; `GuardDelivery` accepts an explicit channel policy:
-
-```go
-guarded, err := outputPipeline.GuardDelivery(
-    ctx,
-    scope,
-    guardy.NewUserTextPolicy("external", guardy.WithDeliveryFallback("Blocked.")),
-    text,
-)
-if value, ok := guarded.DeliverableValue(); ok {
-    send(value)
-}
-```
-
-Generic adapters are available for host functions: `WrapArgs` validates raw arguments before calling a typed handler, `WrapGuardedArgs` passes the full `GuardedArgs[T]` boundary to a handler, `WrapGuardedJSONArgs` does the same for dynamic JSON, and `WrapGuardedOutput` validates handler output before returning `GuardedDelivery[T]`.
-
-Observers receive typed guard events:
-
-```go
-pipeline := guardy.MustNewPipeline(
-    guardy.WithPipelineName[string]("reply-output"),
-    guardy.WithObserver[string](func(ctx context.Context, event guardy.GuardEvent) {
-        log.Println(event.PipelineName, event.Phase, event.Decision.Code)
-    }),
-)
-```
-
-For routing, project canonical decisions through guardy instead of reinterpreting action/disposition combinations:
-
-```go
-route, routeErr := failure.Decision.Route(guardy.RemediationPolicy{
-    RetryAttempt: 2,
-    MaxRetries:   3,
-})
-if routeErr != nil { return routeErr } // invalid host retry counters
-switch route.Outcome {
-case guardy.GuardRouteRetryCorrection:
-    retry(route.RetryFeedback)
-case guardy.GuardRouteTerminalDeny, guardy.GuardRouteSystemFault:
-    stop(route.SafeMessage)
+decision := result.PolicyDecision()
+switch {
+case decision.IsSystemFault():
+    return errors.New("validation fault") // a report-only fault can have nil err
+case decision.IsTerminal():
+    return errors.New("blocked")
+case decision.IsRetryable():
+    return errors.New("correction required")
+default:
+    consume(result.Output) // host owns destination approval for this low-level use
 }
 ```
 
-### User channel (`WithUserChannel`)
+High-level argument, delivery and stream boundaries suppress fault output and
+expose `PolicyFailure` through `errors.As`. Inspect `ValidatorFaultError`,
+`ValidatorPanicError`, `CompletedObservationsError` and their causes only in trusted
+operator diagnostics. Default public errors omit raw causes and retry feedback.
+`WithCompletedObservations` attests only earlier finished checks; arbitrary reports
+beside errors are discarded. See [CONTRACTS.md](CONTRACTS.md).
 
-For output guards, enable terminal filtering so non-safe `PayloadKind` is blocked inside the library:
+## Pipeline, typed facts and ownership
+
+Phases run sequential → policy → parallel. `WithSequential` callbacks transform
+values in order; `WithPolicyValidators` use typed host facts; `WithParallel` checks
+must be read-only. Equal-priority parallel diagnostics may vary; canonical outcome
+priority remains fixed. `Validate` panics become safe faults in every phase.
+Construction, observers and host callbacks outside Validate must not panic.
+
+`NewPipeline` and `Pipeline.Use` return `(pipeline, error)` and reject invalid
+configuration before processing. `MustNewPipeline`/`MustUse` are static wrappers.
+Nil rules/options/middleware/wrapper layers are errors; `WithObserver(nil)` explicitly
+disables observation. Use copies registration slices and shares rule/provider objects.
+
+Declare requirements with `ScopeKey[T].Requirement()` and supply an `ExecutionScope`
+through `NewScope(ScopeValue(key, value))` or your own Lookup implementation.
+Concrete prerequisites require exact dynamic types; interface keys accept implementing
+types. A nil interface cannot satisfy a typed key. Name-only declarations check presence.
+Missing/incompatible prerequisites fail before sequential callbacks.
+
+`ScopeFactory` resolves fresh caller facts at each adapter invocation; output
+adapters resolve them after a successful handler. Facts are transient borrowed
+values. Build policy operands, nested scope values and callback/provider objects
+must stay immutable or have caller synchronization. Publish a fresh pipeline and
+matching facts as one version for reload; do not mutate retained aliases. The
+executable atomic reload recipe is in [build/ownership_test.go](build/ownership_test.go).
+Fact lookup does not atomically authorize execution or bind an approval.
+
+Identity, source references, confirmed trust, confidentiality, destination and
+policy identity are separate host facts. Untrusted claims do not upgrade trust;
+summaries and subagent outputs retain source restrictions. After a pause, refresh
+facts and revalidate exact canonical arguments. Approval, scheduling, retry counters,
+rollback, declassification, persistence and vault lifetime remain host-owned.
+See [integration/context_policy_reference_test.go](integration/context_policy_reference_test.go)
+for actual argument/handler/context/persistence/export/delivery fixtures.
+
+## Adapters and declared configuration
+
+- `WrapInput` checks before execution; `WrapGuardedOutput` checks the result and
+  supplies a guarded projection. Handler errors suppress partial results. Neither
+  wrapper retries or undoes side effects. `WrapOutput` is low-level: it returns an
+  unvalidated partial result alongside a handler error; never deliver that value.
+- `CompileArgs[T]` and `CompileJSONArgs` produce typed/dynamic canonical argument
+  boundaries. Dispatch approved sanitized arguments, not a local re-decode of raw
+  input. Final guards check canonical output after mutation; `ShapeProvider` and
+  JSON metadata describe shapes, not enforcement. See [examples/agent_tool_args](examples/agent_tool_args/main.go).
+- Optional `build.CompileStringGuard` compiles a `GuardSpec`. JSON-schema injection
+  uses `build.WithJSONSchema`; it does not put an engine in core.
+- `CompileBoundaryProfile` records declared coverage only. It cannot inspect or
+  install host wiring. Real handler/sink fixtures prove enforcement.
+- `Decision.Route(RemediationPolicy)` returns `(GuardRoute, error)`; negative
+  counters reject configuration, zero retries means exhausted. The host schedules
+  retries and separately checks proposed fallback delivery.
+
+## HTTP
+
+`Guard(pipeline, extractor, injector, options...)` returns `(middleware, error)`;
+`MustGuard` is the static alternative. `WithGuardScopeFactory` refreshes facts after
+extraction. `WithGuardMaxBodyBytes` requires a positive consumed-input cap, default
+1 MiB; declared ContentLength cannot bypass it. Exact cap is allowed, excess is 413.
+Read/extraction and missing scope are 400; deny/correction 422; validation faults,
+cancellation, pre-handoff body-close and injection errors 500 with safe public text.
+
+Pass restores original bytes, length/header and independent GetBody replay.
+Redaction sends returned `T` to the format-aware injector, never `MutatedText`.
+`PlainTextInjector` supports string bodies. Guard closes the consumed original
+wrapper before replacement; extractors/injectors borrow their replay body and
+transfer current replacements to Guard. Next borrows the captured handed-off body,
+closed on return. Callbacks own intermediate replacements they remove; handlers own
+their replacements. GetBody readers are caller-owned. A late close cannot rewrite
+an already committed response; this is not a universal socket lifecycle promise.
+The full ownership table is in [CONTRACTS.md](CONTRACTS.md#http-request-limits-and-body-ownership-t10).
+See [ExampleGuard](example_test.go) and [http_guard_ownership_test.go](http_guard_ownership_test.go).
+
+## Streaming
+
+Use `CompileStream(writer, StreamConfig)` with explicit profile, framing and positive
+byte budgets. `Complete(ctx)` is a trusted final boundary; `Close` aborts. Whole-response
+buffers and validates the complete value; unit mode requires declared unit-local rules;
+best-effort releases bounded UTF-8 chunks and makes no whole-value guarantee.
+No profile silently downgrades. `DeliverFallback` performs separate checked delivery,
+never recursive fallback or masking a fault.
+
+Input/output/pending/unit limits count bytes, including UTF-8 and delimiters.
+Newline exact-limit tails wait for Complete; an extra byte/newline faults before
+buffering. Unit JSON requires object/array for original, transformed and fallback
+values; whole-response JSON accepts one valid value, including scalars. Expanded
+unit output is bounded by MaxUnitBytes and whole output by MaxOutputBytes. JSON
+framing whitespace counts toward the preceding unit; pending must exceed unit cap
+by a byte. Transformed/fallback newline output must remain one self-contained unit.
+
+Pending allocation capacity stays within MaxPendingBytes; PeakPendingBytes measures
+reserved pending capacity, not all process/validator allocations. Incremental framing
+avoids repeated prefix scans/tail shifts, excluding caller callbacks, JSON syntax
+checks and transport work. Partition guarantees apply to admissible inputs. Each
+Write's input-budget admission is atomic; rejected partitions can have different
+already delivered prefixes. Released bytes are actual transport bytes; short writes
+terminate without replay, and earlier prefixes cannot be undone.
+
+Callbacks run under the processor mutex and must return without reentry. Abort,
+Outcome and subsequent calls can wait for them; context cannot interrupt mutex
+acquisition or forcibly stop a non-cooperative callback. No detached timeout workers.
+Use ReleaseError categories and errors.Is for malformed/incomplete/limit/transport
+faults, not diagnostic strings. See [CONTRACTS.md](CONTRACTS.md#stream-release),
+[STREAM_MEASUREMENTS.md](STREAM_MEASUREMENTS.md), [examples/streaming_filter](examples/streaming_filter/main.go)
+and [examples/json_streaming](examples/json_streaming/main.go).
+
+## Packages and optional installation
+
+| Import | Purpose |
+| --- | --- |
+| `github.com/skosovsky/guardy` | Core BYOT pipeline, typed facts, argument/delivery/HTTP/stream boundaries |
+| `github.com/skosovsky/guardy/ext` | Built-in matchers, classifier/semantic adapter, vault, MapSlice (root module) |
+| `github.com/skosovsky/guardy/guardytest` | Synthetic outcome, boundary and semantic fixtures (root module) |
+| `github.com/skosovsky/guardy/build` | Declarative compiler, separate module |
+| `github.com/skosovsky/guardy/ext/jsonredact` | Recursive JSON leaf redaction, separate module |
+| `github.com/skosovsky/guardy/ext/jsonschema` | Raw/struct-derived JSON Schema validation, separate module |
+| `github.com/skosovsky/guardy/ext/guardyotel` | OTel middleware, separate module |
+
+Install and import only the optional module you use:
+
+```sh
+go get github.com/skosovsky/guardy/build
+go get github.com/skosovsky/guardy/ext/jsonredact
+go get github.com/skosovsky/guardy/ext/jsonschema
+go get github.com/skosovsky/guardy/ext/guardyotel
+```
+
+For example, a host using optional JSON redaction and schema validation imports:
 
 ```go
-pipeline := guardy.MustNewPipeline(
-    guardy.WithUserChannel[string](),
-    guardy.WithUserChannelFallback[string]("Sorry, I can't show that."),
-    guardy.WithSequential(classifier),
+import (
+    "github.com/skosovsky/guardy/ext/jsonredact"
+    "github.com/skosovsky/guardy/ext/jsonschema"
 )
 ```
 
-Validators may set `Report.PayloadKind` (`PayloadSafeUserText`, `PayloadInternalControlSignal`, `PayloadTechnicalPayload`). `RunResult.OutputKind` aggregates the most restrictive kind for any `T`. For delivery boundaries prefer `pipeline.GuardDelivery(ctx, scope, policy, value)` or `pipeline.GuardOutput(ctx, scope, value)`, which return the canonical `GuardedDelivery[T]` with `DeliverableValue` and `Projection`.
-
-`GuardDelivery` requires an explicit channel, allowed kinds and `WithDeliveryClassifier`.
-The caller classifier must describe the representation actually sent to that destination;
-core does not call `MarshalJSON` or infer serialization safety from Go shape. A zero
-policy or missing classifier/kinds is a configuration fault before any pipeline callback.
-`GuardOutput` selects `NewUserTextPolicy("user")`; text-oriented examples explicitly use
-`NewUserTextPolicy(channel)`. This opt-in recipe classifies text/bytes and named text
-without custom marshalers, treating valid JSON objects/arrays and composite Go shapes
-as technical. Its shape check is a routing recipe, not a proof of serialized safety.
-Custom marshalers and unsupported scalar representations require a caller classifier.
-Dereference is bounded to 64 steps; cycles, excessive depth and unknown representations
-produce typed `ErrDeliveryClassification` system faults with no delivery or fallback.
-Nil typed text pointers/byte slices are classified by their underlying type; nil
-interfaces are unsupported. The host must deliver the checked representation unchanged.
-
-Fallback is checked for compatibility with `T` before processing. `nil` means absent;
-a typed nil is configured content and is separately validated and classified like any
-other fallback. Mismatched fallback types produce `ErrConfiguration`, never silent omission.
-
-### Declarative guards (`guardy/build`)
-
-Compile intent without wiring ext validators manually:
-
-```go
-import "github.com/skosovsky/guardy/build"
-
-pipeline, err := build.CompileStringGuard(build.GuardSpec{
-    WordlistBlock: []string{"bad"},
-    PIIRedact:     true,
-    LengthMax:     4096,
-}, build.WithJSONSchema(schemaBytes))
-
-// Output guards: user channel + technical JSON classifier
-outPipeline, err := build.CompileStringGuard(build.GuardSpec{},
-    build.WithUserChannel(),
-    build.WithUserChannelFallback("Output blocked."),
-    build.WithOutputClassifier(),
-)
-```
-
-See `examples/declarative_guard`.
-
-`CompileStringGuard` returns `ConfigurationError` (matching `ErrConfiguration`)
-with a component, field path and code; its default text excludes schema and policy
-values. Empty schema bytes explicitly supplied through `WithJSONSchema` are invalid;
-`{}` is permitted. Omitting that option permits flows without schemas. Negative
-`LengthMax` is invalid; zero disables the rule. Fallback requires `WithUserChannel`.
-`PolicyAttributeDeepEqual` compares values using `reflect.DeepEqual`, preserving
-types and supporting maps/slices. Core typed equality uses Go `==`.
-
-`GuardSpec` selects rules explicitly: `PIIRedact`, `WordlistBlock`, `LengthMax`, and `PolicyRules`. There are no sensitivity/security presets or implicit rule changes. Fast rules run in the documented order; their composition does not establish detector accuracy.
-
-### Generic decorators (`interceptor.go`)
-
-**WrapInput** runs a pipeline on the request value before your `func(context.Context, Req) (Res, error)`. **WrapGuardedOutput** runs after your function and suppresses partial results on handler errors. Deliver only its approved `DeliveryProjection` to the sink. **WrapOutput** is a low-level wrapper: it returns an unvalidated partial result alongside a handler error; callers must not deliver that value. Neither wrapper retries the handler or undoes its side effects. Both take a `ScopeFactory` (use `nil` when no policy keys are required). Input facts are resolved before validation; output facts are resolved after a successful handler. The host owns coherent snapshots and execution authorization. Terminal deny returns **\*BlockError**; retryable correction returns **RetryError**. Both expose **PolicyFailure** through `errors.As`. For raw typed arguments use **WrapArgs** or **WrapGuardedArgs**. For dynamic JSON handlers use **WrapGuardedJSONArgs**. For output delivery contracts use **WrapGuardedOutput**. See `examples/generic_decorator`.
-
-## Built-in validators (ext)
-
-| Validator                   | Description                                                                                                                                                                                             |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **TagPatternValidator**   | Matches XML-like system tags (e.g. `<system>`, `</system>`). `ext.NewTagPatternValidator(pattern)` or `ext.MustTagPatternValidator("")`.                                                          |
-| **PIIValidator**            | Redacts or blocks email, phone, credit card. `ext.MustPIIValidator(...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`.                |
-| **WordlistValidator**       | Blocklist or allowlist; block or redact. `ext.NewWordlistValidator(words, mode, ...)` returns `(Validator, error)`; `ext.MustWordlistValidator` is for static config. Use `ext.WithAction`, `ext.WithCode`, `ext.WithLowercase`, `ext.WithRedactionReplacement`, `ext.WithTokenVault`. |
-| **RegexValidator**          | Match pattern; block or redact. `ext.NewRegexValidator(pattern, ...)` with `ext.WithAction`, `ext.WithCode`, `ext.WithSeverity`, `ext.WithRedactionReplacement`.                                        |
-| **LengthValidator**         | Min/max rune length. `ext.MustLengthValidator(min, max, ...)` with `ext.WithCode`, `ext.WithSeverity`, `ext.WithName`.                                                                                   |
-| **TechnicalJSONClassifier** | Heuristically marks tool-like JSON as `PayloadTechnicalPayload` for [WithUserChannel]. `ext.NewTechnicalJSONClassifier(...)` with `ext.WithCode`.                                                                |
-| **JSON Schema**             | Optional submodule `guardy/ext/jsonschema` — validates JSON strings against a schema; returns **ActionRetry** with **Feedback** on violation.                                                           |
-| **JSON Redact**             | Submodule `guardy/ext/jsonredact` — recursive redact on JSON string leaves via a `Validator[string]` leaf validator.                                                                                    |
-
-### Matcher and detector contracts
-
-Wordlist tokens are maximal runs of Unicode letters, numbers, combining marks
-and underscore. Punctuation/whitespace delimit tokens. Every listed entry must be
-one non-empty token. `NewWordlistValidator` returns an error for invalid entries/modes;
-`MustWordlistValidator` panics and is intended for static configuration. `WithLowercase` applies Go
-`strings.ToLower` to both entries and matched tokens; it is not full Unicode case
-folding. There is no Unicode normalization, transliteration or confusable matching.
-Detection and replacement use the same original spans. Wordlist, regex and PII
-replacement strings are literal, including `$` and backslash.
-
-PII matching has a finite format contract:
-
-- ASCII unquoted email shapes with a dotted alphabetic TLD; no internationalized
-  local parts, quoted mailboxes or address literals.
-- NANP 10-digit numbers with optional `1`/`+1`; `+7` numbers with 3-3-2-2 grouping.
-  Spaces, dots and hyphens are supported, with optional area-code parentheses.
-  Other country codes and extensions are outside the matched span contract.
-- Visa contiguous 13/16/19 digits and MasterCard 51–55 with 16 digits. A 16-digit
-  card may use four groups with consistent spaces or hyphens. Other prefixes,
-  families, lengths, mixed separators and grouped 13/19-digit forms are unsupported.
-
-Matches require non-word boundaries (Unicode letters/numbers/marks/underscore
-are word characters). These are shape checks, not issuance, Luhn, mailbox or
-telephone validity checks. IDs that look like supported numbers can be false
-positives. All spans are detected on original text; overlaps merge before
-replacement or vault storage, and generated replacements/tokens are not rescanned
-by that validator. An unsupported format can still contain a supported substring
-which is replaced, leaving other parts unchanged (for example, a 16-digit group
-inside a longer grouped number, or a base phone before an extension). Unsupported
-formats have no whole-value redaction guarantee. This is not global PII coverage
-or a DLP product.
-
-`TextClassifier.Classify(context.Context, string)` is synchronous and caller
-supplied. Cancellation is cooperative; the adapter starts no background workers
-and cannot stop a callback that ignores context. It checks cancellation before
-and after the call, so a late success cannot be delivered. `IsViolation` determines
-the verdict; `Score` may use any finite detector-defined scale. Error, cancellation,
-NaN or infinity yields a pipeline fault, even for an alleged pass. No model SDK
-or classifier accuracy claim is supplied by the adapter.
-
-The tag matcher recognizes configured text patterns, not arbitrary instruction
-attacks. Tool-key JSON classification is a heuristic with false positives and
-negatives. Host adapters must supply trusted `PayloadKind` independently of text
-when a delivery boundary requires provenance; a heuristic cannot establish trust
-or authorize execution.
-
-### Structured Output / JSON Schema
-
-For low-level control you can still provide a raw JSON Schema string:
-
-```go
-validator, _ := jsonschemaext.NewJSONSchemaValidator(`{
-  "type": "object",
-  "properties": {
-    "name": {"type": "string"}
-  },
-  "required": ["name"]
-}`)
-```
-
-`jsonschema` also accepts shared v2 rule options (`ext.WithCode`, `ext.WithSeverity`, `ext.WithReason`, `ext.WithName`). It is an intrinsically `ActionRetry` validator; mutation options (`WithTokenVault`, `WithRedactionReplacement`, `WithLowercase`) are rejected at construction time.
-
-For the common case, prefer generating the schema from a Go struct:
-
-```go
-package main
-
-import jsonschemaext "github.com/skosovsky/guardy/ext/jsonschema"
-
-type User struct {
-	Name string `json:"name" jsonschema:"required"`
-	Age  int    `json:"age" jsonschema:"minimum=18"`
-}
-
-validator, _ := jsonschemaext.NewJSONSchemaValidatorFromStruct(&User{})
-```
-
-`NewJSONSchemaValidatorFromStruct` keeps the schema in sync with your Go type and still returns `ActionRetry` with detailed `Feedback` for invalid JSON or schema violations.
-
-JSON decoding in `ext/jsonschema`, `ext/jsonredact`, dynamic args and the default typed
-args codec accepts exactly one document and rejects duplicate keys at every depth
-(including equivalent escaped keys). Numbers use `json.Number`, preserving integers,
-decimals and exponents without a float64 round trip. Typed numeric fields follow
-`encoding/json`: choose `int64`, `uint64` or `json.Number` for exact values; explicit
-floating point fields and custom codecs are caller-owned choices. Schema/redaction
-accept null and scalar top-level documents; dynamic args require a non-null object.
-
-The schema engine supports Draft 4, 6, 7, 2019-09 and 2020-12; absent `$schema` means
-2020-12, matching the struct generator. Unsupported dialects and required custom
-vocabularies fail compilation. Unknown annotation keywords remain allowed. Format
-assertions follow the selected dialect (annotation by default in 2019-09/2020-12);
-content assertions are disabled. Patterns use Go's regular expression syntax.
-Exact numeric assertions use `math/big.Rat`; operands outside its representable
-range fail schema compilation, and instance numbers outside that range receive
-`ActionRetry` instead of a panic or an unchecked pass. This engine limit does not
-apply to syntax decoding/redaction or to numbers inside schema annotations.
-Length/item/property count assertions must fit a platform integer; compilation
-rejects overflow rather than truncating the count.
-Compilation never loads network or filesystem resources. Local `$ref` works directly;
-use `NewJSONSchemaValidatorWithResources` with caller-owned JSON strings keyed by
-absolute URI for external references or custom metaschemas. Custom metaschemas must
-ultimately identify a supported dialect and may require only supported vocabularies.
-
-The JSON redactor applies its leaf validator to string **values**, preserving keys
-and all other JSON values. A nil or typed-nil leaf panics at construction. A mandatory
-leaf decision or error returns the original document; partial redaction is never
-released as an allowed result. Output is re-encoded as valid JSON; formatting is not
-preserved. Object keys are visited in lexicographic Go string order, arrays in
-index order. Traversal continues after correction/deny to detect stronger outcomes;
-system fault, error or cancellation stops it. Equal-priority diagnostics use the
-last visited report, matching ComposeReports. Unvisited siblings are not inferred
-to have passed. Cancellation is checked throughout traversal and after leaf callbacks.
-
-Syntax checks, schema validation and business policy are separate obligations.
-`build.WithJSONSchema` uses the same optional schema validator. Shape metadata is
-not validation. After transformation/binding, attach `WithArgsFinalGuard`
-or `WithJSONArgsFinalGuard` to check schema and policy against canonical bytes;
-final guards must not mutate them. No schema dependency is required in core.
-To reject unknown properties and wrong-case names, enforce an explicit schema
-with `required`, `properties` and `additionalProperties: false` in the raw guard
-before binding. The final guard checks post-bind mutations; it cannot recover
-fields that standard `encoding/json` discarded. Both are ordinary `Pipeline[string]`
-checks. See executable `integration/Example_documentAPI` and
-`integration/Example_documentAPIReference` for document/API composition.
-Providing a final guard option with nil fails compilation; omit the option for
-flows intentionally without final checks. The library cannot prove the adequacy
-of rules inside an arbitrary caller pipeline.
-
-
-### Token Vault (Reversible Redaction)
-
-Use `TokenVault` when you need reversible redaction (`[GUARDY_TOKEN_...]`) and later restoration in model output:
-
-```go
-vault := ext.NewInMemoryTokenVault()
-piiV := ext.MustPIIValidator(
-	ext.WithAction(guardy.ActionRedact),
-	ext.WithTokenVault(vault),
-)
-result, _ := guardy.MustNewPipeline(guardy.WithSequential(piiV)).Run(ctx, nil, "email: a@b.com")
-// After host recipient authorization: restore, then validate final output.
-// See examples/reversible_redaction for the complete delivery flow.
-```
-
-Built-in validators write namespaced canonical tokens such as `[GUARDY_TOKEN_PII_1]` and `[GUARDY_TOKEN_WORDLIST_1]` through `TokenVault.Store(namespace, original) (token, error)`.
-A token is a lookup key, not permission to disclose. The host owns recipient
-authorization, vault isolation/lifetime and a separate final delivery check after
-restoration. Do not share a request vault across recipients by default.
-
-### Multi-turn Adapter (MapSlice)
-
-Use `MapSlice` for BYOT message slices (`[]T`) without introducing framework-specific message types into guardy:
-
-```go
-type Msg struct{ Content string }
-base, _ := ext.NewRegexValidator(`(?i)secret`, ext.WithAction(guardy.ActionRedact))
-multi := ext.MapSlice(
-	func(m Msg) string { return m.Content },
-	func(m Msg, s string) Msg { m.Content = s; return m },
-	base,
-)
-```
-
-Mandatory deny/retry/fault from an item prevents release of partial transformations. `MapSlice` checks each item independently and aggregates reports; it does not analyze relationships or instructions across messages.
-
-### Telemetry (Optional `ext/guardyotel`)
-
-For OpenTelemetry integration without adding heavy deps to root module, use `github.com/skosovsky/guardy/ext/guardyotel`:
-
-```go
-import "github.com/skosovsky/guardy/ext/guardyotel"
-
-pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
-pipeline = pipeline.MustUse(guardyotel.MustMiddleware[string](
-	guardyotel.WithIncludePayloads(false), // default secure mode
-))
-```
-
-`guardyotel.NewMiddleware` returns middleware and setup error when instrument creation
-fails; `MustMiddleware` is the explicit static configuration wrapper. Causes remain
-available through errors.Is/As, while public setup errors omit provider diagnostics.
-`WithMeter(nil)`/`WithTracer(nil)` explicitly disable a channel.
-
-Sequential phase exports counters/histograms; parallel phase emits spans. Raw payload capture is opt-in.
-Arbitrary validator/code labels are omitted by default; `WithAllowedMetadata` permits
-explicit static identifiers of at most 128 bytes. Raw validator errors and report
-text are never exported. `guardy.disposition` and `guardy.outcome` describe the
-canonical per-call result; `guardy.error` and span error status indicate execution
-faults, including invalid reports or explicit fault with nil Go error. Denial and
-correction use successful execution span status. `guardy.observed_disposition` and
-`guardy.observation` distinguish a shadow block from the enforced pass; fatal or
-invalid shadow reports remain enforced. Raw action is additional diagnostics.
-Scores are not labels or automatically exported. This middleware sees rule calls,
-not final delivery or orchestration faults after return, and is not an authorization
-audit ledger.
-
-The OTel wrapper declares its own partial/unit/final support. Core still requires
-compatible declarations from the base rule and every middleware layer; OTel does
-not make an unknown or final-only rule unit-safe. See `examples/otel_integration`
-for executable whole/unit/best-effort delivery.
-
-### Map (Lens adapter)
-
-Use **Map[T,U]** to adapt `Validator[U]` to `Validator[T]` for domain structs:
-
-```go
-type AgentState struct { Text string }
-regexV, _ := ext.NewRegexValidator(`(?i)bad`, ext.WithAction(guardy.ActionRedact), ext.WithCode("X"), ext.WithRedactionReplacement("[REDACTED]"))
-v := guardy.Map(regexV, func(s *AgentState) string { return s.Text },
-	func(s *AgentState, t string) *AgentState { s.Text = t; return s })
-```
-
-### MapJSONRawMessage (`json.RawMessage` fields)
-
-Use **MapJSONRawMessage** when a struct field holds opaque JSON (tool calling, structured outputs). `extract` and `inject` must be non-nil (panics if nil). It skips `nil`, empty, and exact JSON `null` literals (not whitespace-padded `" null "`), runs a `Validator[string]` on the raw text, and after **ActionRedact** only calls `inject` when `json.Valid` succeeds. Broken redaction returns **ActionRetry** with **CodeJSONRedactCorrupted** (`JSON_REDACT_CORRUPTED`) and **Retryable** (pipeline contract; not `RetryError`).
-
-```go
-type AgentCall struct {
-    ToolArgs json.RawMessage `json:"tool_args"`
-}
-piiV := ext.MustPIIValidator(ext.WithAction(guardy.ActionRedact), ext.WithCode("PII"))
-v := guardy.MapJSONRawMessage(piiV,
-    func(c *AgentCall) json.RawMessage { return c.ToolArgs },
-    func(c *AgentCall, raw json.RawMessage) *AgentCall { c.ToolArgs = raw; return c },
-)
-pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
-```
-
-Use `T` as a struct value (`Validator[AgentCall]`). For nested keys inside JSON, use `ext/jsonredact` instead. See `examples/agent_tool_args`.
-
-## Core validators (guardy)
-
-- **SemanticValidator** — wraps a `Matcher` and threshold; use for similarity/embedding checks (parallel phase). Pass and block reports retain finite `Score` on the caller’s scale for external calibration; it is not necessarily a probability.
-- **LLMJudge** — wraps a `Judge`; use for LLM-as-judge (parallel phase). Both support **shadow mode** (block is logged but does not short-circuit).
-
-## Testing with guardytest
-
-Use **guardy/guardytest** for unit tests:
-
-- **FakeValidator(name, *guardy.Report)** — validator that always returns the given report (nil or zero = pass).
-- **FailingValidator(name, err)** — validator that always returns the given error.
-- **MustPass**, **MustBlock**, **MustRedact**, **MustRetry** — assert `report.Action`.
-- **MustTerminalDeny**, **MustRetryableCorrection**, **MustSystemFault** — assert validator report disposition when a test needs report-level details.
-- **MustOutputKind** — assert `RunResult.OutputKind` (user channel / classifier tests).
-- **MustScopeIncomplete** — assert `errors.Is(err, ErrScopeIncomplete)`.
-
-```go
-v := guardytest.FakeValidator("mock", &guardy.Report{Action: guardy.ActionBlock, Reason: "TEST"})
-pipeline := guardy.MustNewPipeline(guardy.WithSequential(v))
-result, _ := pipeline.Run(ctx, nil, "x")
-if !result.PolicyDecision().IsTerminal() {
-    t.Fatal("expected terminal decision")
-}
-```
-
-## Error handling
-
-- **PolicyFailure** — canonical boundary error contract; use `errors.As(err, &failure)` and route by `failure.Decision`.
-- **BlockError** — block from WrapInput or WrapOutput; unwraps to **ErrBlocked** and carries **Failure PolicyFailure**.
-- **ValidatorFaultError** — validator/pipeline infrastructure failure; unwraps to **ErrValidatorFailed** and carries **Failure PolicyFailure**.
-- **ReleaseError** — terminal stream outcome with distinct guard/limit/incomplete/transport category, actual released bytes, and canonical **PolicyFailure**.
-- **ErrBlocked** — block decisions (Guard, WrapInput, ReleaseError).
-- **ErrRetryRequested** — retry decisions (WrapOutput, ReleaseError, RetryError).
-- **RetryError** — structured retry from interceptors and typed argument validation; unwraps to **ErrRetryRequested** and carries **Failure PolicyFailure**.
-- **ErrScopeIncomplete** — `Run` called without required policy scope keys.
-- **ErrValidatorFailed** — wraps a validator’s system error from `Run`; prefer `errors.As` into **PolicyFailure** or **ValidatorFaultError**.
-
-Use `PolicyFailure.Decision` or `RunResult.PolicyDecision()` for control flow - not string parsing on `Code` or `Reason`, and not local re-derivation from `Report`. Error report details are telemetry snapshots via `ReportSnapshot()`, not the boundary contract.
-
-Production `ext` validators should always set **`ext.WithCode(...)`** so hosts never parse `Reason` strings.
-
-## Packages
-
-- **guardy** — core types (Action, Report, Decision, PolicyFailure, PayloadKind, Validator), Pipeline, typed scope, ArgsPipeline, JSONArgsPipeline, GuardedArgs, GuardedJSONArgs, GuardedDelivery, DeliveryPolicy, GuardEvent, GuardRoute, StreamProcessor, BoundaryProfile, Guard middleware, errors.
-- **guardy/build** — declarative `GuardSpec` → `CompileStringGuard` (imports ext; core stays clean).
-- **guardy/ext** — TagPatternValidator, PIIValidator, WordlistValidator, RegexValidator, LengthValidator, TokenVault, MapSlice, ClassifierValidator, NewTechnicalJSONClassifier (output PayloadKind for user channel).
-- **guardy/ext/jsonschema** — optional JSON Schema validator with raw-schema and struct-derived constructors.
-- **guardy/ext/guardyotel** — optional OTel middleware module (metrics + tracing).
-- **guardy/guardytest** — FakeValidator, FailingValidator, MustPass/MustBlock/MustRedact/MustRetry, MustTerminalDeny/MustRetryableCorrection/MustSystemFault, MustOutputKind, MustScopeIncomplete.
-
-See [CONTRACTS.md](CONTRACTS.md) for boundary and release invariants.
-
-## Migration: streaming release and canonical boundaries
-
-- Removed `NewGuardWriter`, `GuardWriterOption`, chunk/timeout/scope options and
-  `StreamError`. Use `CompileStream`, an explicit profile, bounds and
-  `ReleaseError`. Replace successful `Close` flushes with `Complete(ctx)`;
-  disconnects use `Abort`. Whole-response PII guarding no longer exposes a prefix.
-- `WrapInput`, `WrapOutput`, `WrapArgs`, `WrapGuardedArgs`,
-  `WrapGuardedJSONArgs`, `WrapGuardedOutput` take `ScopeFactory`, called on every invocation/resume. Use
-  `func(ctx context.Context) (guardy.ExecutionScope, error)` to project current
-  policy facts. Low-level `Run` still accepts an explicit scope.
-- Typed args are canonically encoded after post-bind hooks, including pointer
-  types. Add `WithArgsFinalGuard[T](schemaAndPolicyPipeline)` to require final
-  schema/policy checking after mutations; `ShapeProvider` is metadata only.
-  Final checks are read-only. `WithArgsCodec` accepts caller-owned bind/encode.
-- Dynamic schema callbacks get deeply isolated JSON. They check the sanitized
-  decoded object, not the original payload. Use `WithJSONArgsFinalGuard` for
-  mandatory policy checks on canonical JSON after all transformations.
-  `JSONArgsValidator` and `JSONArgsValidatorFunc` supply checks; `JSONArgsMetadata`
-  supplies only ID/shape. Nil built-in checker functions and explicitly nil final
-  guards fail compilation with `ErrConfiguration`. A custom checker’s rules remain
-  caller-owned. Ordinary flows can omit schema and final options.
-- Dispatch only guarded sanitized arguments. For every consumer use a separate
-  destination policy and serialize `GuardedDelivery.Projection()`, never the
-  wrapper with original raw values or reports. Replacement/fallback content is
-  checked by its destination pipeline; a forbidden fallback is suppressed.
-- Decision aggregation prioritizes effective disposition. Fatal pass/redact can
-  no longer disappear behind an earlier mutation. Report-only system faults block
-  stream release. Map errors using `errors.As`, not text.
-- `MaxRetries == 0` means no retries. Caller owns retry counters and external
-  approval binding; resume must rebuild current scope and revalidate arguments.
-- Fault/retry `Error()` text no longer includes diagnostic causes/correction
-  feedback. Read these explicitly through `PolicyFailure`; do not expose them
-  as external response text. Semantic scores and thresholds must be finite;
-  NaN/infinity is a system fault, not a benign detector result.
-- `CompileBoundaryProfile` declares caller-reported supported/mandatory coverage; it does
-  not intercept remote backends automatically. Use reusable
-  `guardytest.CheckBoundaryCases` in optional integrations.
-
-Caller-owned facts examples in `policy_facts_example_test.go` show source linkage,
-separate confirmed/claimed trust, missing destination rejection and redaction.
-The executable recipe in `policy_recipe_test.go` connects untrusted source,
-transformation, typed arguments and destination. Its caller-owned facts preserve
-all references and confirmed trust; returned evidence is at most two opaque
-references, each at most 64 bytes. Unknown/missing sources fail closed. Host
-declassification and the restricted no-provenance profile require explicit choices.
-Guardy creates no permission grant, trust registry, provenance store or workflow.
-
-`guardytest.ReferenceBoundaryFixtures` and `StringBoundaryCases` provide fresh
-benign/adversarial cases for real handler/consumer wiring; configure their stated
-synthetic test policy. `ReferenceSemanticFixtures` exercises real threshold/shadow
-behavior with deterministic mock scores, detector identity, errors and cooperative
-timeouts. Keep deterministic and semantic suites separate: mock conformance does
-not measure detector false positives/negatives or live-provider safety.
-
-## Migration: typed scope, boundary contracts and delivery routing
-
-- **Breaking:** `Run(ctx, scope, input)` — remove `WithAttributes` / `AttributesFromContext`; declare `ScopeKey[T]` requirements and pass a host `ExecutionScope`.
-- **Fail-closed policy:** `RequiredScope()` compiled at pipeline construction; missing keys → `ErrScopeIncomplete` + `ScopeIncompleteError` before sequential phase.
-- **Decision:** route with `RunResult.PolicyDecision()` and `PolicyFailure.Decision`, not local parsing or local disposition derivation from `Report`.
-- **Output contract:** use `GuardDelivery` / `GuardOutput` / `GuardedDelivery[T]` for delivery boundaries, not plain strings plus `OutputKind` flags or post-guard JSON sniffing.
-- **Typed arguments:** use `CompileArgs[T]` / `ArgsPipeline[T]` / `GuardedArgs[T]`; raw validation plus local decode was removed from the public path.
-- **Dynamic JSON arguments:** use `CompileJSONArgs` / `JSONArgsPipeline` / `GuardedJSONArgs` when the handler cannot bind to a static Go type.
-- **Observer telemetry:** `WithObserver` receives `GuardEvent` for non-fatal shadow blocks, with scope, phase, decision, pipeline identity, payload kind, report, and safe telemetry metadata. It is not an all-events audit ledger.
-- **Decision routing:** `Decision.Route(RemediationPolicy)` and `RouteDecision` return `(GuardRoute, error)`; negative host counters are configuration errors. A fallback route is only a proposal: check its value with `GuardDelivery` before sending.
-- **HTTP report context:** `ReportFromContext` was removed; report context side channels are replaced by explicit decisions, policy failures, guard events, and boundary values.
-- **WrapInput/WrapOutput:** take `ScopeFactory` (pass `nil` when unused); raw-args and output-boundary wrappers are `WrapArgs`, `WrapGuardedArgs`, `WrapGuardedJSONArgs`, and `WrapGuardedOutput`.
-- **Validators:** use `FinishReport` or `ext.FinalizeRuleReport` for `ActionRetry` so `Retryable` defaults are applied; raw `ActionRetry` without defaults is treated as terminal deny.
-- **Declarative guards:** `github.com/skosovsky/guardy/build` — JSON Schema via `build.WithJSONSchema`, not in core.
-
-## Migration: policy and safety decisions
-
-Use `ArgsPipeline`, `Map` and `MapJSONRawMessage` for type-safe argument validation and redaction.
-
-- **Decision control flow:** use `Decision` / `PolicyFailure`; `Report` remains validator telemetry.
-- **Policy phase:** `WithPolicyValidators` + typed `ScopeKey[T]` requirements + explicit `ExecutionScope` in `Run`.
-- **Typed arguments:** `ArgsPipeline` + `GuardedArgs[T]` replaces raw pipeline plus local decode.
-- **Streaming:** `errors.As(err, &failure)` where `failure` is `*PolicyFailure`.
-- **JSON redact:** `guardy/ext/jsonredact` (separate module; optional).
-- **ext options:** `WithCode` required for production; `WithRetryable`, `WithFatal`, `WithSafeUserMessage` as needed.
-
-## Migration: streaming, policy shadow and post-bind validation
-
-- **Stream migration:** use explicit `CompileStream` profiles and trusted `Complete`; `Close` aborts.
-- **Policy shadow:** shadow policy blocks no longer stop the pipeline; register `WithObserver` for telemetry.
-- **PostBindValidator:** business rules after bind with `CodePostBindViolation` + `RetryError`;
-  cancellation/deadline errors are system faults with their cause preserved through `errors.Is`.
-- **jsonschema codes:** default schema violations use `CodeJSONSchemaInvalid` (`JSON_SCHEMA_INVALID`).
-
-## Migration: `MapJSONRawMessage`
-
-- **Broken JSON after redact:** branch on `CodeJSONRedactCorrupted`, not `CodeJSONInvalid` (parse/bind errors).
-- **Struct tool args:** `NewPipeline[MyDTO]` + `MapJSONRawMessage`; see `examples/agent_tool_args`.
-
-## v2 Migration Highlights
-
-- `Pipeline.Use(...)` returns a new pipeline and a configuration error; `MustUse` is the explicit panic wrapper.
-- `Report` includes `Code` and typed `Severity`.
-- Legacy streaming constructors/options are removed; use `StreamConfig`.
-- `PIIMasking` APIs were renamed to `PIIValidator` / `NewPIIValidator`.
-- `ext/jsonschema.NewValidatorFromStruct` was renamed to `NewJSONSchemaValidatorFromStruct`.
-- Built-in `ext` validators use options for common rule metadata (`WithAction`, `WithCode`, `WithSeverity`, `WithReason`, ...).
-
-## Wordlist benchmark
-
-Run the reproducible redact comparison benchmark:
-
-```bash
+OTel and declarative hosts import `"github.com/skosovsky/guardy/ext/guardyotel"`
+and `"github.com/skosovsky/guardy/build"` respectively.
+
+The corresponding Go imports are exactly the paths in the table. Core imports none
+of the optional engines. See [ext/jsonschema/UPGRADE.md](ext/jsonschema/UPGRADE.md)
+for pinned exact-number, overflow, dialect and reference upgrade probes.
+
+## Detector, vault and telemetry limits
+
+Built-in detector and semantic rule constructors return configuration errors;
+Must variants serve static setup.
+Regex/wordlist compile at construction. Set bounded stable WithCode identifiers.
+PII recognizes a finite set of ASCII email, NANP/+7 phone and Visa/MasterCard shapes;
+it does not certify mailbox/phone issuance, Luhn validity or global PII coverage.
+Unsupported formats can contain a supported substring and be only partly redacted.
+Word boundaries, overlaps and generated replacements follow the explicit
+[matcher contract](CONTRACTS.md#standard-matcher-and-classifier-limits).
+TagPattern matches configured text patterns, not arbitrary instruction attacks;
+TechnicalJSONClassifier is a heuristic with false positives/negatives, not trust evidence.
+
+Caller-supplied synchronous TextClassifier/SemanticDetector callbacks are cooperative.
+Scores/thresholds must be finite; NaN/infinity/error/cancellation faults even for an
+alleged pass. MapSlice checks independent items, not relationships across messages;
+its copy is outer-slice only, so setters must use copy-on-write for reachable aliases.
+JSONRedact visits sorted object keys and array indices, continues after deny/correction
+to find stronger outcomes, and stops at fault/cancellation. Mandatory outcomes retain
+the original document and clear MutatedText.
+
+TokenVault.Store returns `(token, error)`; storage error/panic/empty/identity token
+faults without degrading to irreversible replacement. A token is a lookup key, not
+a permission grant. Host owns isolation, lifetime, recipient authorization and a
+final delivery check after restoration; see [examples/reversible_redaction](examples/reversible_redaction/main.go).
+
+Optional guardyotel.NewMiddleware returns `(middleware, error)` on instrument setup
+failure, with safe ConfigurationError and inspectable original cause. MustMiddleware
+is static setup; plain nil Meter/Tracer explicitly disables that channel. Runtime
+metadata allowlists are opt-in, bounded to 128-byte static identifiers. Raw payload
+capture is opt-in; raw errors/report text are never exported. Canonical disposition,
+outcome and execution-fault status do not constitute delivery approval or a full
+audit ledger. Provider lifecycle is host-owned. See [examples/otel_integration](examples/otel_integration/main.go).
+
+Deterministic fixtures measure conformance, not detector accuracy. Evaluate fixed
+model/config/dataset identities, benign/adversarial splits, false positives/negatives,
+task success, latency and faults separately. There is no live-provider safety claim.
+
+## Development, measurements and release
+
+Use golangci-lint 2.14.0+; CI pins its exact version. `make test` and `make lint` cover
+all nested modules and examples; make test also runs release tooling fixtures.
+A root `go test ./...` alone excludes nested modules. `make bench` measures local
+workloads. Historical wordlist comparison names `baseline_a16279e_runtime_compile`
+and `v2_precompiled` are benchmark identifiers, not a module major version:
+
+```sh
 go test -bench '^BenchmarkWordlist_Blocklist_Redact_BaselineComparison$' -benchmem ./ext -run '^$'
 ```
 
-This benchmark includes:
-- `baseline_a16279e_runtime_compile`: frozen pre-v2 redact path copied from commit `a16279e` (runtime regex compile on each hit).
-- `v2_precompiled`: current v2 validator with precompiled matchers from constructor.
+Results depend on machine/workload and do not measure arbitrary callback latency,
+semantic accuracy or production throughput. Streaming before/after boundaries and
+partition/work limitations are recorded in [STREAM_MEASUREMENTS.md](STREAM_MEASUREMENTS.md).
 
-Latest local run on this workspace (March 28, 2026):
-- `baseline_a16279e_runtime_compile`: `~197k ns/op`, `~234k B/op`, `~1678 allocs/op`
-- `v2_precompiled`: `~3.2k ns/op`, `~587 B/op`, `~15 allocs/op`
-- Throughput ratio: `~61x` faster for v2 on redact path.
+Release preparation requires Python3.9+, Git and Go. `make release-prepare VERSION=...
+CANDIDATE=...` stages an isolated candidate; `make release-verify CANDIDATE=...` uses
+its private exact-module proxy/cache, readonly graph/race/lint and independent
+consumer. Neither publishes. Candidate generation preserves module boundaries,
+removes workspace/local replacements and rejects unsupported v2+ path transitions.
+The standard confirmed release workflow is `make release-patch`/`make release-break`;
+it prepares/verifies and publishes candidate tags only to the configured origin.
+Low-level publish requires explicit REMOTE and verified candidate bytes. See
+[CONTRACTS.md](CONTRACTS.md#release-artifacts-and-independent-modules).
 
-## Development
+All API changes and earlier transitions are in [MIGRATION.md](MIGRATION.md).
+This guide describes the current candidate, without claiming it has been published.
 
-Use Go 1.27.1 or newer and golangci-lint 2.14.0 or newer. CI pins the current
-tooling releases. An explicit linter binary can be selected with
-`make lint GOLANGCI_LINT=/path/to/golangci-lint`.
-
-```bash
-make test
-make lint
-```
-
-## License
-
-See [LICENSE](LICENSE).
-
-## Migration: report composition
-
-Decision routing now uses Disposition alone: use IsTerminal, IsRetryable and
-IsSystemFault instead of the removed Terminal, Retryable, SystemFault and
-UserCorrectable fields. Report flags remain construction inputs and telemetry.
-FinishReport initializes new reports; adapters must preserve completed reports,
-including explicit non-retryability. JSONArgsValidator callbacks follow the same
-contract as Validator; raw ActionRetry is terminal unless retryability is explicit.
-ComposeReports preserves the strongest enforcement and aggregated PayloadKind.
-Unknown enums and non-finite report scores are faults; fatal escalation wins over
-correction. Shadow observes only non-fatal policy blocks. The shadow observer's
-Decision describes the violation without suppression; its Report retains ShadowMode.
-ShouldStop/ShouldRetry, ApplyControlDefaults and ext.ValidatorOption were removed;
-use disposition methods, FinishReport and ext.Option.
-
-
-## Current host facts and context policies
-
-Long-lived adapters resolve `ScopeFactory` at each boundary. Input/argument checks
-obtain facts before validation; output checks obtain facts after a successful
-handler. HTTP uses `WithGuardScopeFactory` after extraction. Low-level `Run` accepts
-an explicit snapshot. Fact freshness and atomic authorization at execution remain
-host responsibilities. `WrapOutput` preserves a partial handler result on error;
-`WrapGuardedOutput` suppresses it. Neither can undo handler side effects.
-
-The host assigns authenticated identity, source references, trust/integrity,
-confidentiality, destination and policy identity. These are separate facts:
-authenticated content can still be confidential. Untrusted text claiming to be
-trusted does not change facts. Summaries, memory records and subagent results must
-retain host source restrictions; unknown provenance fails a configured mandatory
-policy. Each consumer checks its own destination and serializes only an approved
-`DeliveryProjection`. A host gate binds approval to exact canonical args, identity,
-destination and current policy/configuration; `ConfigurationID` is metadata.
-After pause/resume, rebuild facts and revalidate. The same contracts apply to a
-plain document/API workflow with no model or agent runtime.
-
-Telemetry must export bounded opaque references and explicitly permitted metadata.
-Do not serialize complete Scope/Report/raw data or feedback. Third-party validator
-errors may contain secrets even with payload capture disabled. OTel provides call
-metrics/spans, not a provenance ledger or complete decision audit.
-
-For external semantic evaluation fix detector/model/configuration and dataset IDs,
-threshold and train/evaluation split. Keep benign and adversarial sets separate;
-report false positives/negatives, task success, latency and fault rates. Deterministic
-mock conformance verifies integration only. Live-provider benchmarks are optional
-and are not required by CI.
-
-
-`integration/context_policy_reference_test.go` contains the executable document/API reference
-harness and deterministic adversarial corpus. It validates typed and dynamic
-canonical arguments with JSON redaction and final schema/policy, binds a host
-approval, resumes against fresh facts, and observes real handler calls and bytes
-at independent context, persistence, export and delivery sinks. All harness types
-and approvals are caller-owned; no Agent/Message/Session type is required.
-
-
-JSON/newline streaming uses processor-local incremental framing and bounded pending
-storage. Already scanned prefixes are retained as scanner state rather than parsed
-again on each Write; consuming a unit does not repeatedly shift the live tail.
-`PeakPendingBytes` records reserved pending capacity, which stays within
-`MaxPendingBytes`. Fixed scanner state and caller-owned validation/output allocations
-are separate. Deterministic operation tests check framing/buffer work; local
-before/after benchmarks in `STREAM_MEASUREMENTS.md` do not promise callback latency.
-
-JSON stream framing distinguishes `StreamMalformed` (malformed/incompatible unit,
-`ErrInvalidStreamUnit`), `StreamIncomplete` (trusted completion before a full unit,
-`ErrIncompleteStreamUnit`) and `StreamLimit` (framing budget, `ErrStreamUnitLimit`).
-Use categories and `errors.Is`, not error strings. Earlier released bytes remain
-accounted for and terminal outcomes stay sticky.
-
-Release preparation uses Python 3.9+, Git and the same Go 1.27.1+ toolchain.
-Cross-module tests live in `integration`; core tests have no optional engine
-requirements. `make test` discovers integration and every nested module and runs
-release tooling fixtures as well. The standard release entry points are unchanged:
-lint and tests run first, followed by scripts/release.sh and version confirmation.
-
-```sh
-make release-patch # v0.11.0 -> v0.11.1
-make release-break # v0.11.1 -> v0.12.0
-```
-
-The script selects the next version from the configured origin's remote tags,
-requires a clean checkout and confirmation, then prepares, verifies and publishes
-an isolated candidate to origin's push URL. It publishes only the candidate's tags.
-For CI or candidate-only checks, release-prepare VERSION=... CANDIDATE=... and
-release-verify CANDIDATE=... remain available; release-publish requires an explicit
-REMOTE=... URL. Internal phases do not change the standard release workflow.
-
-Prepare snapshots the current tracked and non-ignored source files, including
-uncommitted work, into an isolated Git candidate. It leaves the source checkout,
-index and refs unchanged. Candidate modules have exact internal requirements at
-the chosen version; similar external module prefixes are preserved. Module paths
-must match repository directories; v2+ transitions are rejected before generation.
-No workspace or local replacement remains in the candidate. ZIP/info/mod artifacts
-and planned tags are deterministic for the same source/version. Cyclic internal
-release requirements are rejected before staging (this repository has none).
-
-Verify uses a private module cache and local proxy: exact internal module paths
-never fall back to a public version. External modules resolve from the public proxy;
-existing go.sum hashes are checked, and staged unpublished modules do not use SumDB.
-Every module runs readonly graph/test/race/lint checks, including executable examples;
-a separate smoke consumer imports core, build and available optional extensions.
-Verification does not publish tags or module artifacts. Publish requires the same
-verified candidate bytes and uses an atomic explicit tag set, with candidate ref
-cleanup. The low-level publish phase requires a remote URL, never pushes unrelated tags and does not
-change the user's checkout. The integration/release conformance checks are local;
-they do not imply a production release was published.
-
-
-Streaming newline limits include the delimiter. An exact-limit tail waits for
-`Complete`; a further byte or newline faults before buffering it. Newline pending
-capacity is bounded by the smaller pending/unit limit. Partition independence
-applies to admissible inputs. Each Write is checked atomically against the remaining
-input budget; overbudget partitions can have different previously delivered,
-irreversible prefixes. Scope factory, validators, writer and observer run under the
-processor mutex and must return without reentering it. Abort/Outcome can wait for
-these callbacks; cancellation cannot forcibly terminate them or interrupt lock
-acquisition. No detached timeout workers are started.
-
-
-JSON validated units use the same object/array framing for source, transformed and
-fallback values; scalar unit output is rejected before transport. Whole-response
-JSON accepts any single valid JSON value. Newline transformed/fallback output must
-remain one unit. For unit and best-effort release, `MaxUnitBytes` bounds both input
-and approved expanded output, including UTF-8 bytes and framing whitespace.
-Whole-response expanded output uses its overall `MaxOutputBytes` budget. Framing
-and unit-budget failures emit no bytes from the failing unit; earlier prefixes
-remain irreversible, and processing faults never activate fallback.
-
-## Sharing and policy reload
-
-Pipeline configuration lists and StaticScope’s key map are immutable; validators,
-providers, middleware state and bound map/slice/pointer values remain caller-owned.
-Use does not clone these objects. Keep borrowed policy operands and scope values
-immutable, and make callbacks safe for concurrent calls. MapSlice copies only its
-outer slice; pointer/map/slice setters must use copy-on-write. Denial cannot undo
-alias mutations or host side effects.
-
-For reload, build a fresh pipeline and immutable facts, atomically publish them as
-one version, and load that version once per request. Retired versions remain valid
-for in-flight requests. See the executable reload example in
-[build/ownership_test.go](build/ownership_test.go). ScopeFactory refreshes transient
-facts but does not provide a deep snapshot or execution authorization.
-
-BoundaryProfile validates a declaration, not adapter wiring. Actual handler and
-sink enforcement belongs in integration fixtures. The optional JSON-schema engine
-and exact-number graph are retained for canonical tool arguments and exact numeric
-constraints; dependency upgrade checks are in
-[ext/jsonschema/UPGRADE.md](ext/jsonschema/UPGRADE.md).
+[License](LICENSE).

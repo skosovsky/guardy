@@ -574,3 +574,24 @@ injects authoritative returned T; the format-aware injector owns representation
 correctness. Framework Close calls are idempotent per owned wrapper. A callback's
 replacement does not authorize bypassing the cap on original input or invoking next
 on fault. This contract concerns wrappers/resources, not a universal socket leak.
+
+## Consumer recipes (T11)
+
+Quick Start must deliver only an approved GuardedDelivery.Projection to its sink.
+A low-level Run recipe must check both a non-nil Go error and canonical
+PolicyDecision().IsSystemFault(), then terminal deny/retry, before consuming
+RunResult.Output. Report-only faults can have nil Go error. Errors, raw reports,
+original values and correction feedback are not consumer payloads.
+
+The returned T and RunResult.Output are authoritative transformations for string,
+struct/lens and HTTP consumers; MutatedText is optional diagnostic text and must
+never replace the actual typed output. Runnable examples and sink matrices exercise
+pass, redact, deny, retry, report-only fault and Go error separately. Docs tests
+certify the example recipes and known fixture behavior, not unknown host wiring,
+custom serialization, detector quality or execution authorization.
+
+README is the current consumer guide. MIGRATION.md records the unreleased candidate
+and earlier API transitions separately, without implying a published major version.
+Root-only consumers need no optional JSON/schema/OTel engine; nested modules require
+their own go get/import. Precise matcher, ownership, stream and telemetry limits
+remain part of the public contract even where the guide links to detailed evidence.

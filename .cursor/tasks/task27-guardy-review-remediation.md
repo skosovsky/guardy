@@ -1,6 +1,6 @@
 # Task 27. Guardy: исправить контрактные дефекты и упростить API
 
-Статус: **в работе; T00–T10 приняты; T11 — в работе**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
+Статус: **в работе; T00–T11 приняты; T12 — в работе**. Независимое ревью: 2026-10-06. Проверенный commit: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1` (`fix: release flow`). Разрешены clear break и реорганизация. Код библиотеки в ходе ревью не менялся.
 
 ## Цель и вывод
 
@@ -171,14 +171,14 @@ Host/другие библиотеки владеют agent loop, Ask/Plan/Actio
 
 ## Документация и naming
 
-- [ ] Закрыть R08/R09 исполняемыми consumer examples; объяснить authoritative output, Decision/error channels и безопасную выдачу через Projection.
-- [ ] Уточнить общую concurrency/ownership contract, mutation preconditions, transient/current ScopeFactory facts, no authorization/rollback guarantee.
-- [ ] Описать HTTP limits/statuses, replacement/body ownership, cancellation и ошибки extractor/injector.
-- [ ] Свести ~870 строк README и повторяющиеся migration layers в текущий guide + versioned MIGRATION. Убрать внутреннее «v2-style» либо объяснить, что это design label, не Go `/v2` module path. Не форсировать v2 release ради документации.
-- [ ] Добавить ext/jsonredact в inventory и явные install/import примеры optional modules. Сохранить dependency boundaries и root-only install сценарий.
-- [ ] Согласовать StreamConfig/README/CONTRACTS/STREAM_MEASUREMENTS по exact byte bounds, transformed output, fallback framing, partition guarantees, lock/reentry и cooperative cancellation.
-- [ ] Сохранить честные matcher limitations, отличие deterministic fixtures от statistical quality, telemetry privacy defaults и измеренные benchmark limitations.
-- [ ] Переименования D02/D06/D16 и удаления deprecated APIs оформить одной migration, включая изменения telemetry labels и сериализуемых контрактов. Не оставлять legacy wrappers без consumer причины.
+- [x] Закрыть R08/R09 исполняемыми consumer examples; объяснить authoritative output, Decision/error channels и безопасную выдачу через Projection.
+- [x] Уточнить общую concurrency/ownership contract, mutation preconditions, transient/current ScopeFactory facts, no authorization/rollback guarantee.
+- [x] Описать HTTP limits/statuses, replacement/body ownership, cancellation и ошибки extractor/injector.
+- [x] Свести ~870 строк README и повторяющиеся migration layers в текущий guide + versioned MIGRATION. Убрать внутреннее «v2-style» либо объяснить, что это design label, не Go `/v2` module path. Не форсировать v2 release ради документации.
+- [x] Добавить ext/jsonredact в inventory и явные install/import примеры optional modules. Сохранить dependency boundaries и root-only install сценарий.
+- [x] Согласовать StreamConfig/README/CONTRACTS/STREAM_MEASUREMENTS по exact byte bounds, transformed output, fallback framing, partition guarantees, lock/reentry и cooperative cancellation.
+- [x] Сохранить честные matcher limitations, отличие deterministic fixtures от statistical quality, telemetry privacy defaults и измеренные benchmark limitations.
+- [x] Переименования D02/D06/D16 и удаления deprecated APIs оформить одной migration, включая изменения telemetry labels и сериализуемых контрактов. Не оставлять legacy wrappers без consumer причины.
 
 ## Порядок реализации и приёмка
 
@@ -326,13 +326,13 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 3. Safe guarded wrappers/sinks integration fixtures suppress fault/partial result; WrapOutput low-level contract explicit, no side-effect undo.
 4. Integration/OTel/HTTP tests PASS, migration актуальна.
 
-**T11 — consumer docs** (в работе; commit `docs: contracts`; R08–R09, D10, D21 + весь исходный docs checklist).
+**T11 — consumer docs** (принята; commit `docs: contracts`; R08–R09, D10, D21 + весь исходный docs checklist).
 1. Исполняемые pass/redact/deny/retry/report-only fault/Go error consumer examples: только approved value reaches sink; redactor authoritative T/struct/Map/HTTP bytes проверены.
 2. README текущий guide и единая versioned MIGRATION, legacy/v2-style removed или объяснён; все изменённые APIs/labels/serialized contracts отражены.
 3. Inventory включает jsonredact, optional install/import и root-only dependency сценарий; honest detector/telemetry/benchmark limitations сохранены.
 4. Все исходные docs checklist пункты сверены с API и отмечены только по доказательствам; runnable examples/test checks PASS.
 
-**T12 — итоговая верификация** (ожидает T11; commit `test: remediation`; все R/D/DoD).
+**T12 — итоговая верификация** (в работе; commit `test: remediation`; все R/D/DoD).
 1. make test/make lint всего текущего module inventory (baseline 19), необходимые race/finite watchdog и stream benchmarks against baseline, logs сохранены.
 2. Изолированный prepare/verify реального candidate из финального API, exact refs/module graph и independent consumer; release tooling fixture tests PASS, origin не публикуется.
 3. Requirement-by-requirement audit всех R/D/DoD/docs checklist: результат→доказательство→commit, каждое сохранение обосновано; no hidden fallback/coercion/domain dependencies.
@@ -377,3 +377,7 @@ Baseline: `e7e1c8c51e656e94106c5cf7c101ef0bc7d139d1`; рабочее дерев�
 ### T10 — принято
 
 Независимые приёмки финального diff: completeness100% (4/4), correctness PASS без нерешённых подтверждённых ошибок. Evidence: task27-evidence/t10-*. OTel fallible setup сохраняет creation causes и privacy/runtime contracts; HTTP fallible Guard/configurable cap/default413/consumed body ownership и tracking callback/cancel/error matrix; guarded actual sink suppresses partial/fault/cancel, low-level WrapOutput явно сохраняет unvalidated partial без retry/undo. Финальные all19race (63079) и plain all19make lint (46982) завершились exit0; независимые root/integration/OTel race ×2, correctness HTTP/integration/OTel ×5 PASS. Старые API runtime baselines OTel/HTTP exit1 воспроизводят исправленные нарушения. Последние lint directive-only изменения повторно проверены обоими ревьюерами. Предыдущий commit T09 be2d8c7. Commit T10: fix: adapters. T11/T12 остаются обязательными.
+
+### T11 — принято
+
+Независимые приёмки финального diff: completeness100% (4/4), все восемь исходных docs checklist сверены, correctness PASS без нерешённых подтверждённых ошибок. Evidence task27-evidence/t11-*. README current guide321lines, root-only guarded Projection Quick Start и exhaustive low-level Run fault channels, authoritative returned T; MIGRATION единая unreleased candidate/earlier transitions, никакого утверждения о опубликованном /v2. Новый executable six-outcome sink matrix, struct Map и literal Quick Start PASS; HTTP authoritative bytes matrix T10 сохранена. Архив b98ede2 с исходными скопированными R08/R09 patterns воспроизводит runtime assertion failures exit1. Финальные all19race59283/plainmake lint54478/diffcheck exit0; независимые root/integration race×3 и root examples/HTTP×5 PASS. Предыдущий T10 commit b98ede2 fix: adapters. Commit T11 docs: contracts. T12 release/bench/RD/DoD/final acceptance остаётся обязательной.
