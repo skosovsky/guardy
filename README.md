@@ -161,6 +161,15 @@ for actual argument/handler/context/persistence/export/delivery fixtures.
   counters reject configuration, zero retries means exhausted. The host schedules
   retries and separately checks proposed fallback delivery.
 
+## Optional downstream composition
+
+The separate [integration/downstream](integration/downstream/README.md) module
+provides real execution binders and a producer text stream consumer. It preserves
+fault causes and canonical sanitized arguments, checks final tool schema before
+execution, and gates whole-response delivery on successful producer completion.
+Core remains independent. See the executable example and semantic fixtures there
+for outcome mapping, post-handler failures and host-owned token restore.
+
 ## HTTP
 
 `Guard(pipeline, extractor, injector, options...)` returns `(middleware, error)`;

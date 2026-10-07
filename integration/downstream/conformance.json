@@ -1,0 +1,16 @@
+{
+  "sources": {
+    "toolsy": {
+      "repository": "https://github.com/skosovsky/toolsy.git",
+      "revision": "82e51316c272de6241cae429d70a33ecbfad5220"
+    },
+    "prompty": {
+      "repository": "https://github.com/skosovsky/prompty.git",
+      "revision": "5607832ee869f63bc3c6768a02ed60a019cd691e"
+    }
+  },
+  "published": {
+    "github.com/skosovsky/toolsy": "v0.18.0",
+    "github.com/skosovsky/prompty": "v0.15.0"
+  }
+}

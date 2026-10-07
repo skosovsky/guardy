@@ -1,3 +1,31 @@
+# Optional downstream composition
+
+Install `github.com/skosovsky/guardy/integration/downstream` separately. Existing
+core signatures are unchanged; consumers must update their wiring:
+
+- Replace raw guardy error returns in a custom argument binder with
+  `downstream.NewArgsBinder` / `NewJSONArgsBinder`, or explicit `MapArgsError` in
+  custom pre-handler glue. Faults must not become argument corrections.
+- Pass a required read-only final guard after bind/hooks. Schema metadata is not
+  validation; the adapter also enforces the actual tool manifest schema.
+- Dispatch `Value` together with canonical `SanitizedRaw` as downstream `Raw`.
+  Do not forward guardy's original diagnostic raw input or mutate after approval.
+- Replace observer/finalizer-based forwarding and EOF flush with
+  `ConsumeTextStream(ctx, stream, sink, cfg)`. Use an explicit release profile;
+  only a completed successful lifecycle permits whole-response delivery.
+- Route refusal/incomplete/pause and failures separately. Resume with new
+  invocation/facts; progressive prefixes and transport writes cannot be undone.
+- Preserve noncorrectable result-contract errors after the handler. Guard an
+  output projection, not an entire effect/control/audience envelope, and never
+  retry an effect as argument repair.
+- Authorize the recipient/session before token lookup, enforce vault expiry in
+  the host, then run a fresh destination guard on the restored output.
+
+[Before/after wiring, executable example and limits](integration/downstream/README.md)
+cover these changes. No automatic retries, IAM or provenance trust upgrades are
+introduced. Source and published semantic conformance are independently exercised
+by CI; fixtures do not certify live providers or production authorization.
+
 # Migration guide
 
 ## Unreleased candidate: task27 remediation

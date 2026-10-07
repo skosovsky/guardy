@@ -82,3 +82,27 @@ jobs:
         run: make release-prepare VERSION=v0.12.0 CANDIDATE="$RUNNER_TEMP/guardy-candidate"
       - name: Verify every module and artifact consumer
         run: make release-verify CANDIDATE="$RUNNER_TEMP/guardy-candidate"
+
+  downstream-conformance:
+    name: Downstream conformance (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [sources, published]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: integration/downstream/go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.9'
+      - name: Verify actual execution and producer boundaries
+        run: python3 scripts/downstream_conformance.py ${{ matrix.mode }} --output "$RUNNER_TEMP/downstream-${{ matrix.mode }}"
+      - name: Retain dependency selection and semantic test evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: downstream-${{ matrix.mode }}
+          path: ${{ runner.temp }}/downstream-${{ matrix.mode }}

@@ -4,6 +4,7 @@ use (
 	.
 	./build
 	./integration
+	./integration/downstream
 	./examples/agent_tool_args
 	./examples/custom_validator
 	./examples/declarative_guard

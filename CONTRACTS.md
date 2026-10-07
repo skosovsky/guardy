@@ -606,3 +606,55 @@ projects SystemFault, even if cancellation raced with a completed deny/correctio
 fallback follows the same cause rule and remains separate from the original
 terminal outcome. No normal/fallback bytes are written on these faults. These
 projections do not attest a failed callback's arbitrary report or output.
+# Optional downstream composition
+
+`integration/downstream` is an independently installed module. Core imports no
+execution or producer runtime. It supplies a tool argument binder and a text stream
+consumer, not an agent, permission store, retry scheduler or rollback facility.
+
+`NewArgsBinder` and `NewJSONArgsBinder` require both a raw pipeline and a non-nil
+read-only final pipeline. The custom tool binder replaces default parsing/schema
+validation. These adapters run fresh host scope → raw guard → binding/hooks →
+canonical encoding → final guard → the actual tool manifest schema. Missing or
+unsupported schema faults before policy/approval/handler. Schema compilation uses
+only embedded resources and never fetches references. The host must not install
+mutating `ArgValidator` or policy callbacks after binding; a mutation requires
+another validation boundary. Custom codecs must faithfully encode their value.
+Approval and resume binding remain host responsibilities; invoke the binder again
+with refreshed facts and exact arguments after a pause.
+
+The tool's `ValidatedArgs.Raw` receives `SanitizedRaw`, never guardy's diagnostic
+original `Raw`. No reports or original payload are copied into metadata.
+
+| Guard outcome | Tool error code | Retryable |
+| --- | --- | --- |
+| Terminal deny | POLICY_DENIED | false |
+| Correction | VALIDATION_FAILED | true (host owns budget) |
+| Fault, report-only fault, unknown error | INTERNAL | false |
+| Cancellation | INTERNAL, detected by errors.Is | false |
+| Deadline | TIMEOUT, detected by errors.Is | false |
+
+The original error is retained in `ToolError.Err`, including `PolicyFailure` and
+sentinel causes. Public `Reason`, `SafeMessage` and `Error()` use static safe copy;
+each message is at most 128 bytes. Arbitrarily long diagnostic input is replaced,
+not truncated into public output. Final schema mismatch uses the checker's
+correction disposition. Post-handler result checks retain the runtime's
+noncorrectable result-contract failure; the adapter does not redispatch.
+
+`ConsumeTextStream` accepts only text content. It creates a fresh bounded guardy
+processor and consumes the real producer handle once. Only successful lifecycle
+termination with `OutcomeCompleted` calls `Complete`; finish/EOF alone do not.
+Incomplete, refusal, paused and tool-call outcomes have distinct host routes;
+unknown/unsupported content, protocol failure, producer error and cancellation
+abort without flushing. Observers/finalizers validate isolated snapshots and
+cannot sanitize delivery. The sink sees only processor writes. Progressive
+profiles are explicit and cannot revoke already delivered prefixes. Sink failures
+preserve actual `ReleasedBytes` and causes, never replay. Reusing a consumed
+producer fails before new delivery. Resume requires a new handle and new checks.
+
+Host recipes deliver only destination projections, never serialized result/control
+envelopes. Token restore requires recipient authorization before lookup and a fresh
+destination guard afterward. Vault isolation/expiry and provenance attestations
+are host-owned; untrusted claims, summaries and nested results grant no trust.
+Live providers, multimodal/tool-call stream delivery, automatic fallback, arbitrary
+schema resource fetching and atomic authorization/effect transactions are unsupported.
