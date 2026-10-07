@@ -25,7 +25,8 @@ class ReleaseConformance(unittest.TestCase):
         item = {"path": self.external_path, "dir": "."}
         release.stage_artifact(ext_source, self.external, item, [item], "v1.2.3")
         self.external_url = self.external.as_uri()
-        self.write(".gitignore", "ignored-secret\n")
+        self.write(".gitignore", "ignored-secret\n.cursor/\n")
+        self.write(".cursor/tracked.md", "tracked ignored release input\n")
         self.write("README.md", "fixture\n")
         self.write("go.work", "go 1.27.1\nuse (\n .\n ./alpha\n ./beta\n)\n")
         self.write("go.mod", "module " + self.prefix + "\n\ngo 1.27.1\n\nrequire (\n " +
@@ -41,6 +42,7 @@ class ReleaseConformance(unittest.TestCase):
         self.write("beta/beta.go", 'package beta\nimport "' + self.prefix + '/alpha"\nvar Value = alpha.Value\n')
         release.run(["git", "init", "--quiet"], self.source)
         release.run(["git", "add", "--all"], self.source)
+        release.run(["git", "add", "--force", ".cursor/tracked.md"], self.source)
         release.run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Fixture",
                      "-c", "user.email=fixture@example.invalid", "commit", "--quiet", "-m", "fixture"], self.source)
         release.run(["git", "-c", "tag.gpgsign=false", "tag", "unrelated-local-tag"], self.source)
@@ -90,6 +92,19 @@ class ReleaseConformance(unittest.TestCase):
         self.assertFalse((first / "repo/go.work").exists())
         self.assertFalse((first / "repo/ignored-secret").exists())
         self.assertTrue((first / "repo/untracked.md").exists())
+        self.assertEqual(release.run(["git", "show", "HEAD:.cursor/tracked.md"], first / "repo"),
+                         "tracked ignored release input\n")
+        # The published commit must contain every file staged in its module ZIP.
+        import zipfile
+        with zipfile.ZipFile(first / "proxy" / self.prefix / "@v/v0.12.0.zip") as archive:
+            prefix = self.prefix + "@v0.12.0/"
+            self.assertNotIn(prefix + "ignored-secret", archive.namelist())
+            self.assertNotIn("ignored-secret", release.run(
+                ["git", "ls-tree", "-r", "--name-only", "HEAD"], first / "repo").splitlines())
+            for name in archive.namelist():
+                relative = name.removeprefix(prefix)
+                committed = release.run(["git", "show", "HEAD:" + relative], first / "repo")
+                self.assertEqual(committed.encode(), archive.read(name), relative)
         self.assert_source_unchanged()
 
     def test_verify_executes_artifacts_and_freezes_manifests(self):

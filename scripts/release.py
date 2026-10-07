@@ -281,7 +281,10 @@ def prepare(source, output, version, external="https://proxy.golang.org"):
             item["tag"] = version if item["dir"] == "." else item["dir"] + "/" + version
         commit_environment = dict(os.environ, GIT_AUTHOR_DATE="2000-01-01T00:00:00Z",
                                   GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
-        run(["git", "add", "--all"], root)
+        # The snapshot already contains only source_files. A --no-checkout clone
+        # has no index, so tracked-but-ignored source files require force to
+        # keep the published commit identical to the staged module archives.
+        run(["git", "add", "--force", "--all"], root)
         run(["git", "-c", "commit.gpgsign=false", "-c", "user.name=Guardy release",
              "-c", "user.email=release@guardy.invalid", "commit", "--quiet", "--allow-empty",
              "-m", "chore: release " + version], root, commit_environment)
