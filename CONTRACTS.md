@@ -288,31 +288,23 @@ reports can support external calibration under the existing evaluation protocol.
 
 ## Release artifacts and independent modules
 
-Release preparation snapshots caller-selected source files into an isolated candidate;
-it never changes the source branch, index, refs or files. Candidate modules use a
-single explicit version and exact internal module paths; similar external prefixes
-are not internal dependencies. Local replacements and workspace overrides are absent.
-Go tooling parses/edits manifests; external requirement versions are preserved.
-Unsupported v2+ path transitions are rejected before candidate generation.
+Make discovers all go.mod files outside hidden/vendor directories and runs with
+GOWORK=off. Development source retains relative replacements for its own modules.
+The release script checks that nested module paths equal the root path plus their
+directory; every discovered module participates in the release.
 
-Prepare writes deterministic module archives, manifests and planned tags. Verify
-loads the unpublished modules from the candidate's local module proxy with GOWORK=off
-and readonly manifests, tests every module with race, checks lint and an independent
-smoke consumer. It does not publish artifacts or tags. Integration tests have their
-own module; optional engines are not dependencies of core unit tests.
+Release selects committed source from local main and runs lint, unit, integration
+and e2e gates in an isolated checkout. Only candidate go.mod/go.sum may change:
+internal requirements use the release version, internal replacements are removed.
+The caller's checkout, index, local tags and development manifests are unchanged.
 
-Publish is a separate explicit command after successful verification of the same
-candidate bytes. It creates release refs only in the isolated candidate and pushes
-an explicit atomic set of tag refspecs to a supplied remote. Source refs and unrelated
-tags stay unchanged. Failure/interrupt cleanup removes transient candidate refs; no
-push --tags or hidden origin default is used. Publication is outside this task.
-
-The standard make release-patch/release-break workflow runs lint and tests, then
-scripts/release.sh with patch/break and the discovered modules. The script selects
-the next version from origin's remote tags and asks for confirmation, then executes
-prepare/verify/publish internally against origin's explicit push URL. The source
-checkout must be clean and stays unchanged throughout the release train. Separate
-phase commands remain available for candidate-only CI verification.
+After confirmation, a single atomic push sends source to remote main and candidate
+to exact module tags. Remote main must fast-forward; there is no force, broad tag
+push or non-atomic fallback. Failed gates publish nothing. Candidate state survives
+cancellation or failed publication. Inspect/resume/finish retain exact identity and
+ref checks; conflicting tags are never overwritten. Completion verifies remote
+refs, not public proxy availability. Artifact/consumer conformance is part of the
+prepublication Go test gate. See [runbook](docs/release/runbook.md).
 
 ### Built-in detector construction and redaction
 

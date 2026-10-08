@@ -134,44 +134,7 @@ func TestIndependentConsumerPoliciesAndSerialization(t *testing.T) {
 	// Arrange: the same internal result has three independent destination rules.
 	value := "secret result"
 	for _, channel := range []string{"context", "persistence", "export"} {
-		t.Run(channel, func(t *testing.T) {
-			p := MustNewPipeline(
-				WithSequential(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
-					switch channel {
-					case "context":
-						return s, nil, nil
-					case "persistence":
-						return strings.ReplaceAll(s, "secret", "[X]"), &Report{Action: ActionRedact}, nil
-					default:
-						return s, &Report{Action: ActionBlock, Reason: "internal diagnostic " + s}, nil
-					}
-				})),
-			)
-			var sink bytes.Buffer
-			// Act: only the projection is serialized into an actual consumer sink.
-			delivery, err := p.GuardDelivery(context.Background(), nil, NewUserTextPolicy(channel), value)
-			if projection, allowed := delivery.Projection(); allowed {
-				if encodeErr := json.NewEncoder(&sink).Encode(projection); encodeErr != nil {
-					t.Fatal(encodeErr)
-				}
-			}
-			// Assert: denial of export does not alter context/persistence decisions.
-			if channel == "export" {
-				if err == nil || sink.Len() != 0 {
-					t.Fatalf("%v %q", err, sink.String())
-				}
-			} else if err != nil || sink.Len() == 0 {
-				t.Fatalf("%v %q", err, sink.String())
-			}
-			if channel == "persistence" && strings.Contains(sink.String(), "secret") {
-				t.Fatal("original secret reached persistence")
-			}
-			for _, forbidden := range []string{"Raw", "Reports", "Decision", "internal diagnostic"} {
-				if strings.Contains(sink.String(), forbidden) {
-					t.Fatalf("internal wrapper serialized: %q", sink.String())
-				}
-			}
-		})
+		t.Run(channel, func(t *testing.T) { checkIndependentConsumerPoliciesAndSerialization(t, channel, value) })
 	}
 }
 
@@ -271,70 +234,9 @@ func TestResumeRechecksChangedScopePolicyAndArguments(t *testing.T) {
 }
 
 func TestObserverDisabledEnabledSampledParity(t *testing.T) {
-	type observation struct {
-		ArgsDecision, StreamDecision Decision
-		Calls                        int
-		Bytes                        string
-		Released                     int64
-		Sequence                     uint64
-	}
 	var baseline observation
 	for _, mode := range []string{"disabled", "enabled", "sampled"} {
-		// Arrange.
-		seen, sampled := 0, 0
-		observer := Observer(nil)
-		if mode != "disabled" {
-			observer = func(context.Context, GuardEvent) {
-				seen++
-				if mode == "enabled" || seen%2 == 0 {
-					sampled++
-				}
-			}
-		}
-		shadow := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
-			return value, &Report{Action: ActionBlock, ShadowMode: true}, nil
-		})
-		args := MustCompileArgs[argsCommand](MustNewPipeline(WithSequential(shadow), WithObserver[string](observer)))
-		var observed observation
-		handler := WrapArgs(
-			args,
-			nil,
-			func(context.Context, argsCommand) (string, error) { observed.Calls++; return "one\ntwo\n", nil },
-		)
-		// Act.
-		value, boundary, err := handler(context.Background(), `{"name":"benign"}`)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var sink bytes.Buffer
-		cfg := testStreamConfig(
-			MustNewPipeline(
-				WithSequential(WithStreamingCapabilities(shadow, StreamCapabilities{Unit: true})),
-				WithObserver[string](observer),
-			),
-		)
-		cfg.Profile = ReleaseValidatedUnits
-		if mode != "disabled" {
-			cfg.Observer = func(StreamEvent) {
-				seen++
-				if mode == "enabled" || seen%2 == 0 {
-					sampled++
-				}
-			}
-		}
-		stream, err := CompileStream(&sink, cfg)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err = stream.Write([]byte(value)); err != nil {
-			t.Fatal(err)
-		}
-		outcome, err := stream.Complete(context.Background())
-		if err != nil {
-			t.Fatal(err)
-		}
-		observed.ArgsDecision, observed.StreamDecision = boundary.Decision, outcome.Decision
-		observed.Bytes, observed.Released, observed.Sequence = sink.String(), outcome.ReleasedBytes, outcome.Sequence
+		observed, sampled := observeParity(t, mode)
 		// Assert: observers affect only observed event counts.
 		if mode == "disabled" {
 			baseline = observed
@@ -346,59 +248,10 @@ func TestObserverDisabledEnabledSampledParity(t *testing.T) {
 
 func TestTechnicalCallbackReplacementAndFallbackDestinationChecks(t *testing.T) {
 	for _, candidate := range []string{"safe notice", "secret replacement", `{"tool_calls":[]}`} {
-		t.Run(candidate, func(t *testing.T) {
-			// Arrange: downstream checks apply equally to callback replacement and fallback.
-			p := MustNewPipeline(
-				WithSequential(ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
-					if strings.Contains(value, "secret") {
-						return value, &Report{Action: ActionBlock}, nil
-					}
-					return value, nil, nil
-				})),
-			)
-			callback := WrapGuardedOutput(
-				p,
-				nil,
-				func(context.Context, string) (string, error) { return candidate, nil },
-			)
-			var callbackSink, fallbackSink bytes.Buffer
-			// Act.
-			replacement, replacementErr := callback(context.Background(), "ignored")
-			if value, ok := replacement.DeliverableValue(); ok {
-				_, _ = callbackSink.WriteString(value)
-			}
-			fallback, fallbackErr := p.GuardDelivery(
-				context.Background(),
-				nil,
-				NewUserTextPolicy("external", WithDeliveryFallback(candidate)),
-				`{"tool_calls":[{"name":"internal"}]}`,
-			)
-			if projection, ok := fallback.Projection(); ok {
-				_, _ = fallbackSink.WriteString(projection.Value)
-			}
-			// Assert: technical kinds cannot masquerade as externally safe text.
-			if candidate == "safe notice" {
-				if replacementErr != nil || fallbackErr == nil || !fallback.Fallback ||
-					callbackSink.String() != candidate ||
-					fallbackSink.String() != candidate {
-					t.Fatalf(
-						"replacement=%+v fallback=%+v errors=%v %v",
-						replacement,
-						fallback,
-						replacementErr,
-						fallbackErr,
-					)
-				}
-			} else if replacementErr == nil || fallbackErr == nil || callbackSink.Len() != 0 || fallbackSink.Len() != 0 || fallback.Deliverable {
-				t.Fatalf(
-					"replacement=%+v fallback=%+v errors=%v %v",
-					replacement,
-					fallback,
-					replacementErr,
-					fallbackErr,
-				)
-			}
-		})
+		t.Run(
+			candidate,
+			func(t *testing.T) { checkTechnicalCallbackReplacementAndFallbackDestinationChecks(t, candidate) },
+		)
 	}
 }
 
@@ -421,4 +274,167 @@ func TestPublicErrorTextExcludesDiagnosticsAndCorrectionFeedback(t *testing.T) {
 	if !errors.As(retry, &failure) || failure.Decision.RetryFeedback != "rewrite SECRET" {
 		t.Fatal("correction diagnostics were lost rather than separated")
 	}
+}
+
+func checkIndependentConsumerPoliciesAndSerialization(t *testing.T, channel string, value string) {
+	t.Helper()
+	p := MustNewPipeline(
+		WithSequential(ValidatorFunc[string](func(_ context.Context, s string) (string, *Report, error) {
+			switch channel {
+			case "context":
+				return s, nil, nil
+			case "persistence":
+				return strings.ReplaceAll(s, "secret", "[X]"), &Report{Action: ActionRedact}, nil
+			default:
+				return s, &Report{Action: ActionBlock, Reason: "internal diagnostic " + s}, nil
+			}
+		})),
+	)
+	var sink bytes.Buffer
+	// Act: only the projection is serialized into an actual consumer sink.
+	delivery, err := p.GuardDelivery(context.Background(), nil, NewUserTextPolicy(channel), value)
+	if projection, allowed := delivery.Projection(); allowed {
+		if encodeErr := json.NewEncoder(&sink).Encode(projection); encodeErr != nil {
+			t.Fatal(encodeErr)
+		}
+	}
+	// Assert: denial of export does not alter context/persistence decisions.
+	if channel == "export" {
+		if err == nil || sink.Len() != 0 {
+			t.Fatalf("%v %q", err, sink.String())
+		}
+	} else if err != nil || sink.Len() == 0 {
+		t.Fatalf("%v %q", err, sink.String())
+	}
+	if channel == "persistence" && strings.Contains(sink.String(), "secret") {
+		t.Fatal("original secret reached persistence")
+	}
+	for _, forbidden := range []string{"Raw", "Reports", "Decision", "internal diagnostic"} {
+		if strings.Contains(sink.String(), forbidden) {
+			t.Fatalf("internal wrapper serialized: %q", sink.String())
+		}
+	}
+}
+
+func checkTechnicalCallbackReplacementAndFallbackDestinationChecks(t *testing.T, candidate string) {
+	t.Helper()
+	// Arrange: downstream checks apply equally to callback replacement and fallback.
+	p := MustNewPipeline(
+		WithSequential(ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
+			if strings.Contains(value, "secret") {
+				return value, &Report{Action: ActionBlock}, nil
+			}
+			return value, nil, nil
+		})),
+	)
+	callback := WrapGuardedOutput(
+		p,
+		nil,
+		func(context.Context, string) (string, error) { return candidate, nil },
+	)
+	var callbackSink, fallbackSink bytes.Buffer
+	// Act.
+	replacement, replacementErr := callback(context.Background(), "ignored")
+	if value, ok := replacement.DeliverableValue(); ok {
+		_, _ = callbackSink.WriteString(value)
+	}
+	fallback, fallbackErr := p.GuardDelivery(
+		context.Background(),
+		nil,
+		NewUserTextPolicy("external", WithDeliveryFallback(candidate)),
+		`{"tool_calls":[{"name":"internal"}]}`,
+	)
+	if projection, ok := fallback.Projection(); ok {
+		_, _ = fallbackSink.WriteString(projection.Value)
+	}
+	// Assert: technical kinds cannot masquerade as externally safe text.
+	if candidate == "safe notice" {
+		if replacementErr != nil || fallbackErr == nil || !fallback.Fallback ||
+			callbackSink.String() != candidate ||
+			fallbackSink.String() != candidate {
+			t.Fatalf(
+				"replacement=%+v fallback=%+v errors=%v %v",
+				replacement,
+				fallback,
+				replacementErr,
+				fallbackErr,
+			)
+		}
+	} else if replacementErr == nil || fallbackErr == nil || callbackSink.Len() != 0 || fallbackSink.Len() != 0 || fallback.Deliverable {
+		t.Fatalf(
+			"replacement=%+v fallback=%+v errors=%v %v",
+			replacement,
+			fallback,
+			replacementErr,
+			fallbackErr,
+		)
+	}
+}
+
+type observation struct {
+	ArgsDecision, StreamDecision Decision
+	Calls                        int
+	Bytes                        string
+	Released                     int64
+	Sequence                     uint64
+}
+
+func observeParity(t *testing.T, mode string) (observation, int) {
+	t.Helper()
+	// Arrange.
+	seen, sampled := 0, 0
+	observer := Observer(nil)
+	if mode != "disabled" {
+		observer = func(context.Context, GuardEvent) {
+			seen++
+			if mode == "enabled" || seen%2 == 0 {
+				sampled++
+			}
+		}
+	}
+	shadow := ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
+		return value, &Report{Action: ActionBlock, ShadowMode: true}, nil
+	})
+	args := MustCompileArgs[argsCommand](MustNewPipeline(WithSequential(shadow), WithObserver[string](observer)))
+	var observed observation
+	handler := WrapArgs(
+		args,
+		nil,
+		func(context.Context, argsCommand) (string, error) { observed.Calls++; return "one\ntwo\n", nil },
+	)
+	// Act.
+	value, boundary, err := handler(context.Background(), `{"name":"benign"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sink bytes.Buffer
+	cfg := testStreamConfig(
+		MustNewPipeline(
+			WithSequential(WithStreamingCapabilities(shadow, StreamCapabilities{Unit: true})),
+			WithObserver[string](observer),
+		),
+	)
+	cfg.Profile = ReleaseValidatedUnits
+	if mode != "disabled" {
+		cfg.Observer = func(StreamEvent) {
+			seen++
+			if mode == "enabled" || seen%2 == 0 {
+				sampled++
+			}
+		}
+	}
+	stream, err := CompileStream(&sink, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = stream.Write([]byte(value)); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := stream.Complete(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	observed.ArgsDecision, observed.StreamDecision = boundary.Decision, outcome.Decision
+	observed.Bytes, observed.Released, observed.Sequence = sink.String(), outcome.ReleasedBytes, outcome.Sequence
+	return observed, sampled
 }

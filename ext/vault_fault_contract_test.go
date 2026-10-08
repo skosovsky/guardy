@@ -29,42 +29,7 @@ func TestConfiguredVaultNeverDegrades(t *testing.T) {
 		{"identity", func(_ string, s string) (string, error) { return s, nil }, nil},
 		{"cancel", func(string, string) (string, error) { return "", context.Canceled }, context.Canceled},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			for _, recipe := range []struct {
-				name, input string
-				build       func(TokenVault) guardy.Validator[string]
-			}{
-				{"pii", "user@example.com", func(v TokenVault) guardy.Validator[string] { return MustPIIValidator(WithTokenVault(v)) }},
-				{"wordlist", "secret", func(v TokenVault) guardy.Validator[string] {
-					return MustWordlistValidator([]string{"secret"}, Blocklist, WithAction(guardy.ActionRedact), WithTokenVault(v))
-				}},
-			} {
-				t.Run(recipe.name, func(t *testing.T) {
-					// Arrange.
-					v := recipe.build(faultVault{tc.store})
-					// Act.
-					output, report, err := v.Validate(t.Context(), recipe.input)
-					delivery, boundaryErr := guardy.MustNewPipeline(guardy.WithSequential(v)).
-						GuardOutput(t.Context(), nil, recipe.input)
-					// Assert.
-					var storage *TokenStorageError
-					if output != recipe.input || report != nil || !errors.Is(err, ErrTokenStorage) ||
-						!errors.As(err, &storage) {
-						t.Fatalf("output=%q report=%+v error=%v", output, report, err)
-					}
-					if tc.cause != nil && !errors.Is(err, tc.cause) {
-						t.Fatalf("missing cause: %v", err)
-					}
-					if storage.Error() != ErrTokenStorage.Error() {
-						t.Fatalf("unsafe message %q", storage.Error())
-					}
-					if boundaryErr == nil || delivery.Deliverable || delivery.Value != "" {
-						t.Fatalf("delivery=%+v error=%v", delivery, boundaryErr)
-					}
-				})
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkConfiguredVaultNeverDegrades(t, tc) })
 	}
 }
 
@@ -102,5 +67,47 @@ func TestVaultZeroValueAndAllowlistNoTokens(t *testing.T) {
 	_, err = absent.Store("PII", "secret")
 	if !errors.Is(err, ErrTokenStorage) {
 		t.Fatalf("nil receiver error=%v", err)
+	}
+}
+
+func checkConfiguredVaultNeverDegrades(t *testing.T, tc struct {
+	name  string
+	store func(string, string) (string, error)
+	cause error
+}) {
+	t.Helper()
+	t.Parallel()
+	for _, recipe := range []struct {
+		name, input string
+		build       func(TokenVault) guardy.Validator[string]
+	}{
+		{"pii", "user@example.com", func(v TokenVault) guardy.Validator[string] { return MustPIIValidator(WithTokenVault(v)) }},
+		{"wordlist", "secret", func(v TokenVault) guardy.Validator[string] {
+			return MustWordlistValidator([]string{"secret"}, Blocklist, WithAction(guardy.ActionRedact), WithTokenVault(v))
+		}},
+	} {
+		t.Run(recipe.name, func(t *testing.T) {
+			// Arrange.
+			v := recipe.build(faultVault{tc.store})
+			// Act.
+			output, report, err := v.Validate(t.Context(), recipe.input)
+			delivery, boundaryErr := guardy.MustNewPipeline(guardy.WithSequential(v)).
+				GuardOutput(t.Context(), nil, recipe.input)
+			// Assert.
+			var storage *TokenStorageError
+			if output != recipe.input || report != nil || !errors.Is(err, ErrTokenStorage) ||
+				!errors.As(err, &storage) {
+				t.Fatalf("output=%q report=%+v error=%v", output, report, err)
+			}
+			if tc.cause != nil && !errors.Is(err, tc.cause) {
+				t.Fatalf("missing cause: %v", err)
+			}
+			if storage.Error() != ErrTokenStorage.Error() {
+				t.Fatalf("unsafe message %q", storage.Error())
+			}
+			if boundaryErr == nil || delivery.Deliverable || delivery.Value != "" {
+				t.Fatalf("delivery=%+v error=%v", delivery, boundaryErr)
+			}
+		})
 	}
 }

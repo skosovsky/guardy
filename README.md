@@ -300,8 +300,11 @@ task success, latency and faults separately. There is no live-provider safety cl
 
 ## Development, measurements and release
 
-Use golangci-lint 2.14.0+; CI pins its exact version. `make test` and `make lint` cover
-all nested modules and examples; make test also runs release tooling fixtures.
+Use golangci-lint 2.14.0; CI pins Go 1.27.2. Make discovers every module with
+`GOWORK=off`. Run `make lint`, `make test`, `make test-integration` and
+`make test-e2e` sequentially. Unit tests include release protocol fixtures; tagged
+profiles cover actual boundary composition and isolated artifact consumers.
+See [verification](docs/verification.md) for prerequisites and test selection.
 A root `go test ./...` alone excludes nested modules. `make bench` measures local
 workloads. Historical wordlist comparison names `baseline_a16279e_runtime_compile`
 and `v2_precompiled` are benchmark identifiers, not a module major version:
@@ -314,15 +317,12 @@ Results depend on machine/workload and do not measure arbitrary callback latency
 semantic accuracy or production throughput. Streaming before/after boundaries and
 partition/work limitations are recorded in [STREAM_MEASUREMENTS.md](STREAM_MEASUREMENTS.md).
 
-Release preparation requires Python3.9+, Git and Go. `make release-prepare VERSION=...
-CANDIDATE=...` stages an isolated candidate; `make release-verify CANDIDATE=...` uses
-its private exact-module proxy/cache, readonly graph/race/lint and independent
-consumer. Neither publishes. Candidate generation preserves module boundaries,
-removes workspace/local replacements and rejects unsupported v2+ path transitions.
-The standard confirmed release workflow is `make release-patch`/`make release-break`;
-it prepares/verifies and publishes candidate tags only to the configured origin.
-Low-level publish requires explicit REMOTE and verified candidate bytes. See
-[CONTRACTS.md](CONTRACTS.md#release-artifacts-and-independent-modules).
+Release uses Bash, Git, Make and Go. `make release-patch` / `make release-break`
+validate the selected source in an isolated checkout, prepare internal manifests,
+and ask before one atomic push: source to main, candidate to exact module tags.
+Development replacements remain in main. Recovery uses `make release-inspect`,
+`make release-resume` and `make release-finish`; no production release is needed
+to run the fixture tests. See the [release runbook](docs/release/runbook.md).
 
 All API changes and earlier transitions are in [MIGRATION.md](MIGRATION.md).
 This guide describes the current candidate, without claiming it has been published.

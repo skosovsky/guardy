@@ -363,6 +363,27 @@ func UserTextClassifier(value any) (PayloadKind, error) {
 			return PayloadTechnicalPayload, nil
 		case reflect.Map, reflect.Array, reflect.Struct:
 			return PayloadTechnicalPayload, nil
+		case reflect.Invalid,
+			reflect.Bool,
+			reflect.Int,
+			reflect.Int8,
+			reflect.Int16,
+			reflect.Int32,
+			reflect.Int64,
+			reflect.Uint,
+			reflect.Uint8,
+			reflect.Uint16,
+			reflect.Uint32,
+			reflect.Uint64,
+			reflect.Uintptr,
+			reflect.Float32,
+			reflect.Float64,
+			reflect.Complex64,
+			reflect.Complex128,
+			reflect.Chan,
+			reflect.Func,
+			reflect.UnsafePointer:
+			fallthrough
 		default:
 			return PayloadSafeUserText, &DeliveryClassificationError{Code: "unsupported_type"}
 		}
@@ -390,6 +411,28 @@ func userTextTypeKind(t reflect.Type, budget int) (PayloadKind, error) {
 			return PayloadTechnicalPayload, nil
 		case reflect.Map, reflect.Array, reflect.Struct:
 			return PayloadTechnicalPayload, nil
+		case reflect.Invalid,
+			reflect.Bool,
+			reflect.Int,
+			reflect.Int8,
+			reflect.Int16,
+			reflect.Int32,
+			reflect.Int64,
+			reflect.Uint,
+			reflect.Uint8,
+			reflect.Uint16,
+			reflect.Uint32,
+			reflect.Uint64,
+			reflect.Uintptr,
+			reflect.Float32,
+			reflect.Float64,
+			reflect.Complex64,
+			reflect.Complex128,
+			reflect.Chan,
+			reflect.Func,
+			reflect.UnsafePointer,
+			reflect.Interface:
+			fallthrough
 		default:
 			return PayloadSafeUserText, &DeliveryClassificationError{Code: "unsupported_type"}
 		}

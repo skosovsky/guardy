@@ -19,38 +19,7 @@ func TestStreamNewlineTailBudgetAcrossPartitions(t *testing.T) {
 		{"extra_byte", "abcde", false},
 		{"extra_newline", "abcd\n", false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			for _, pending := range []int{4, 32} {
-				for _, chunks := range boundaryPartitions(tc.input) {
-					// Arrange.
-					cfg := testStreamConfig(MustNewPipeline[string]())
-					cfg.Profile = ReleaseValidatedUnits
-					cfg.MaxUnitBytes = 4
-					cfg.MaxPendingBytes = pending
-					var sink bytes.Buffer
-					stream, err := CompileStream(&sink, cfg)
-					if err != nil {
-						t.Fatal(err)
-					}
-					// Act.
-					err = writePartition(context.Background(), stream, chunks)
-					outcome := stream.Outcome()
-					// Assert.
-					if tc.success {
-						if err != nil || outcome.Category != StreamSuccess ||
-							sink.String() != tc.input || outcome.Sequence != 1 {
-							t.Fatalf("chunks=%q outcome=%+v error=%v sink=%q", chunks, outcome, err, sink.String())
-						}
-					} else if !errors.Is(err, ErrStreamUnitLimit) || outcome.Category != StreamLimit || sink.Len() != 0 {
-						t.Fatalf("chunks=%q outcome=%+v error=%v sink=%q", chunks, outcome, err, sink.String())
-					}
-					if outcome.PeakPendingBytes > 4 {
-						t.Fatalf("pending=%d", outcome.PeakPendingBytes)
-					}
-				}
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkStreamNewlineTailBudgetAcrossPartitions(t, tc) })
 	}
 }
 
@@ -141,6 +110,44 @@ func TestStreamExactTailWaitsForCompleteOnce(t *testing.T) {
 		// Assert: completion is sticky and does not validate/deliver the tail twice.
 		if firstErr != nil || againErr != nil || calls != 1 || sink.String() != "abcd" {
 			t.Fatalf("chunks=%q calls=%d sink=%q errors=%v/%v", chunks, calls, sink.String(), firstErr, againErr)
+		}
+	}
+}
+
+func checkStreamNewlineTailBudgetAcrossPartitions(t *testing.T, tc struct {
+	name    string
+	input   string
+	success bool
+}) {
+	t.Helper()
+	t.Parallel()
+	for _, pending := range []int{4, 32} {
+		for _, chunks := range boundaryPartitions(tc.input) {
+			// Arrange.
+			cfg := testStreamConfig(MustNewPipeline[string]())
+			cfg.Profile = ReleaseValidatedUnits
+			cfg.MaxUnitBytes = 4
+			cfg.MaxPendingBytes = pending
+			var sink bytes.Buffer
+			stream, err := CompileStream(&sink, cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Act.
+			err = writePartition(context.Background(), stream, chunks)
+			outcome := stream.Outcome()
+			// Assert.
+			if tc.success {
+				if err != nil || outcome.Category != StreamSuccess ||
+					sink.String() != tc.input || outcome.Sequence != 1 {
+					t.Fatalf("chunks=%q outcome=%+v error=%v sink=%q", chunks, outcome, err, sink.String())
+				}
+			} else if !errors.Is(err, ErrStreamUnitLimit) || outcome.Category != StreamLimit || sink.Len() != 0 {
+				t.Fatalf("chunks=%q outcome=%+v error=%v sink=%q", chunks, outcome, err, sink.String())
+			}
+			if outcome.PeakPendingBytes > 4 {
+				t.Fatalf("pending=%d", outcome.PeakPendingBytes)
+			}
 		}
 	}
 }

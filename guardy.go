@@ -171,6 +171,8 @@ func reportPriority(rep *Report) int {
 		return priorityFatal
 	case DispositionRetryableCorrection:
 		return priorityRetry
+	case DispositionNone:
+		fallthrough
 	default:
 		if rep.Action == ActionRedact {
 			return priorityRedact

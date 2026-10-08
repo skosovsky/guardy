@@ -31,34 +31,7 @@ func TestStreamPassRedactAndEmpty(t *testing.T) {
 		{"cyrillic", "Привет мир", "Привет мир", ActionPass},
 		{"emoji", "a😊b", "a😊b", ActionPass},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			// Arrange.
-			rule := ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
-				return test.output, &Report{Action: test.action}, nil
-			})
-			var sink bytes.Buffer
-			s, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithSequential(rule))))
-			if err != nil {
-				t.Fatal(err)
-			}
-			// Act: even UTF-8 partial bytes remain pending.
-			for _, b := range []byte(test.input) {
-				if _, err = s.Write([]byte{b}); err != nil {
-					t.Fatal(err)
-				}
-			}
-			if sink.Len() != 0 {
-				t.Fatal("premature release")
-			}
-			outcome, err := s.Complete(context.Background())
-			// Assert.
-			if err != nil || sink.String() != test.output || outcome.ReleasedBytes != int64(len(test.output)) {
-				t.Fatalf("%q %+v %v", sink.String(), outcome, err)
-			}
-			if _, err := s.Write([]byte("later")); !errors.Is(err, io.ErrClosedPipe) {
-				t.Fatalf("write after terminal: %v", err)
-			}
-		})
+		t.Run(test.name, func(t *testing.T) { checkStreamPassRedactAndEmpty(t, test) })
 	}
 }
 
@@ -262,3 +235,38 @@ func TestStreamObserverCannotChangeDelivery(t *testing.T) {
 }
 
 var _ io.WriteCloser = (*StreamProcessor)(nil)
+
+func checkStreamPassRedactAndEmpty(t *testing.T, test struct {
+	name   string
+	input  string
+	output string
+	action Action
+}) {
+	t.Helper()
+	// Arrange.
+	rule := ValidatorFunc[string](func(_ context.Context, _ string) (string, *Report, error) {
+		return test.output, &Report{Action: test.action}, nil
+	})
+	var sink bytes.Buffer
+	s, err := CompileStream(&sink, testStreamConfig(MustNewPipeline(WithSequential(rule))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Act: even UTF-8 partial bytes remain pending.
+	for _, b := range []byte(test.input) {
+		if _, err = s.Write([]byte{b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sink.Len() != 0 {
+		t.Fatal("premature release")
+	}
+	outcome, err := s.Complete(context.Background())
+	// Assert.
+	if err != nil || sink.String() != test.output || outcome.ReleasedBytes != int64(len(test.output)) {
+		t.Fatalf("%q %+v %v", sink.String(), outcome, err)
+	}
+	if _, err := s.Write([]byte("later")); !errors.Is(err, io.ErrClosedPipe) {
+		t.Fatalf("write after terminal: %v", err)
+	}
+}

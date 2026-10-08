@@ -96,25 +96,7 @@ func (p *piiValidator) Validate(ctx context.Context, input string) (string, *gua
 func piiSpans(input string) []textSpan {
 	spans := emailSpans(input)
 	for _, pattern := range []*regexp.Regexp{phonePattern, russianPhonePattern, cardPattern} {
-		offset := 0
-		for offset < len(input) {
-			match := pattern.FindStringIndex(input[offset:])
-			if match == nil {
-				break
-			}
-			start, end := offset+match[0], offset+match[1]
-			valid := piiBoundary(input, start, end)
-			if pattern == phonePattern && start > 0 && input[start-1] == '+' && input[start] != '+' {
-				valid = false
-			}
-			if pattern == cardPattern && !supportedCard(input[start:end]) {
-				valid = false
-			}
-			if valid {
-				spans = append(spans, textSpan{start: start, end: end})
-			}
-			offset = nextPIIStart(input, start)
-		}
+		spans = appendPatternSpans(spans, input, pattern)
 	}
 	slices.SortFunc(spans, func(a, b textSpan) int {
 		if a.start != b.start {
@@ -242,4 +224,27 @@ func emailDomainEnd(input string, start int) int {
 		}
 	}
 	return candidate
+}
+
+func appendPatternSpans(spans []textSpan, input string, pattern *regexp.Regexp) []textSpan {
+	offset := 0
+	for offset < len(input) {
+		match := pattern.FindStringIndex(input[offset:])
+		if match == nil {
+			break
+		}
+		start, end := offset+match[0], offset+match[1]
+		valid := piiBoundary(input, start, end)
+		if pattern == phonePattern && start > 0 && input[start-1] == '+' && input[start] != '+' {
+			valid = false
+		}
+		if pattern == cardPattern && !supportedCard(input[start:end]) {
+			valid = false
+		}
+		if valid {
+			spans = append(spans, textSpan{start: start, end: end})
+		}
+		offset = nextPIIStart(input, start)
+	}
+	return spans
 }

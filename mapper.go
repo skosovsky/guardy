@@ -124,8 +124,7 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 	if shouldShortCircuitValidator(rep) {
 		return input, rep, nil
 	}
-	switch rep.Action {
-	case ActionRedact:
+	if rep.Action == ActionRedact {
 		if _, parseErr := jsondoc.Decode(newStr); parseErr != nil {
 			const msg = "redaction corrupted JSON structure"
 			corrupted := FinishReport(&Report{
@@ -148,7 +147,6 @@ func (m *jsonRawMessageValidator[T]) Validate(ctx context.Context, input T) (T, 
 		input = *out
 		rep = rep.CloneWithoutState()
 		return input, rep, nil
-	default:
-		return input, rep, nil
 	}
+	return input, rep, nil
 }

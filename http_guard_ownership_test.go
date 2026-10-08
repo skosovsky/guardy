@@ -34,53 +34,7 @@ func TestHTTPGuardCapAndConsumedWrapperOwnership(t *testing.T) {
 	}{
 		{"exact", "abc", 3, 200}, {"over", "abcd", 3, 413}, {"default", strings.Repeat("x", DefaultMaxBodyBytes+1), DefaultMaxBodyBytes, 413},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: a lying ContentLength must not bypass consumed-byte admission.
-			original := &httpTrackedBody{reader: strings.NewReader(tc.raw)}
-			req := httptest.NewRequest(http.MethodPost, "/", nil)
-			req.Body = original
-			req.ContentLength = 1
-			calls := 0
-			var received string
-			middleware, err := Guard(
-				MustNewPipeline[string](),
-				bodyExtractor,
-				PlainTextInjector(),
-				WithGuardMaxBodyBytes(tc.limit),
-			)
-			if err != nil {
-				t.Fatal(err)
-			}
-			handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				calls++
-				raw, _ := io.ReadAll(r.Body)
-				received = string(raw)
-				replay, replayErr := r.GetBody()
-				if replayErr != nil {
-					t.Fatal(replayErr)
-				}
-				again, _ := io.ReadAll(replay)
-				_ = replay.Close()
-				if string(again) != tc.raw || r.ContentLength != int64(len(tc.raw)) {
-					t.Error("replay/length not synchronized")
-				}
-				w.WriteHeader(http.StatusOK)
-			}))
-			rec := httptest.NewRecorder()
-			// Act.
-			handler.ServeHTTP(rec, req)
-			// Assert.
-			if original.closes != 1 || rec.Code != tc.status {
-				t.Fatalf("close=%d status=%d", original.closes, rec.Code)
-			}
-			if tc.status == 200 {
-				if calls != 1 || received != tc.raw {
-					t.Fatal("pass body not restored")
-				}
-			} else if calls != 0 {
-				t.Fatal("oversize reached handler")
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkHTTPGuardCapAndConsumedWrapperOwnership(t, tc) })
 	}
 }
 
@@ -271,5 +225,59 @@ func TestHTTPGuardConstructionRejectsInvalidConfiguration(t *testing.T) {
 	}
 	if middleware, err := Guard[string](p, bodyExtractor, nil); middleware != nil || !errors.Is(err, ErrConfiguration) {
 		t.Fatal("nil injector admitted")
+	}
+}
+
+func checkHTTPGuardCapAndConsumedWrapperOwnership(t *testing.T, tc struct {
+	name   string
+	raw    string
+	limit  int64
+	status int
+}) {
+	t.Helper()
+	// Arrange: a lying ContentLength must not bypass consumed-byte admission.
+	original := &httpTrackedBody{reader: strings.NewReader(tc.raw)}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.Body = original
+	req.ContentLength = 1
+	calls := 0
+	var received string
+	middleware, err := Guard(
+		MustNewPipeline[string](),
+		bodyExtractor,
+		PlainTextInjector(),
+		WithGuardMaxBodyBytes(tc.limit),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		raw, _ := io.ReadAll(r.Body)
+		received = string(raw)
+		replay, replayErr := r.GetBody()
+		if replayErr != nil {
+			t.Fatal(replayErr)
+		}
+		again, _ := io.ReadAll(replay)
+		_ = replay.Close()
+		if string(again) != tc.raw || r.ContentLength != int64(len(tc.raw)) {
+			t.Error("replay/length not synchronized")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	rec := httptest.NewRecorder()
+	// Act.
+	handler.ServeHTTP(rec, req)
+	// Assert.
+	if original.closes != 1 || rec.Code != tc.status {
+		t.Fatalf("close=%d status=%d", original.closes, rec.Code)
+	}
+	if tc.status == 200 {
+		if calls != 1 || received != tc.raw {
+			t.Fatal("pass body not restored")
+		}
+	} else if calls != 0 {
+		t.Fatal("oversize reached handler")
 	}
 }

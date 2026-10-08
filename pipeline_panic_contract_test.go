@@ -23,58 +23,7 @@ func runWithoutEscapedPanic(
 
 func TestPipelinePanicContractAllPhases(t *testing.T) {
 	for _, phase := range []string{"sequential", "policy", "parallel", "middleware"} {
-		t.Run(phase, func(t *testing.T) {
-			// Arrange.
-			cause := errors.New("private panic payload")
-			prior := &fakeValidator{validate: func(_ context.Context, text string) (string, *Report, error) {
-				return text, &Report{Action: ActionPass, PayloadKind: PayloadTechnicalPayload}, nil
-			}}
-			broken := &fakeValidator{validate: func(context.Context, string) (string, *Report, error) {
-				panic(cause)
-			}}
-			opts := []PipelineOption[string]{WithSequential[string](prior)}
-			switch phase {
-			case "sequential", "middleware":
-				opts = append(opts, WithSequential[string](broken))
-			case "policy":
-				opts = append(opts, WithPolicyValidators(MustPolicyFuncWithScope[string](nil,
-					func(ctx context.Context, text string, _ ExecutionScope) (string, *Report, error) {
-						return broken.Validate(ctx, text)
-					})))
-			case "parallel":
-				opts = append(opts, WithParallel[string](broken))
-			}
-			p := MustNewPipeline(opts...)
-			if phase == "middleware" {
-				p = p.MustUse(func(next Validator[string]) Validator[string] {
-					return &fakeValidator{
-						validate: func(ctx context.Context, text string) (string, *Report, error) { return next.Validate(ctx, text) },
-					}
-				})
-			}
-
-			// Act.
-			result, escaped, err := runWithoutEscapedPanic(context.Background(), p)
-
-			// Assert.
-			if escaped != nil {
-				t.Fatalf("Validate panic escaped: %T", escaped)
-			}
-			if !errors.Is(err, ErrValidatorFailed) || !errors.Is(err, cause) {
-				t.Fatalf("fault category/original error cause missing: %v", err)
-			}
-			if !result.PolicyDecision().IsSystemFault() || result.OutputKind != PayloadTechnicalPayload {
-				t.Fatalf("fault or completed kind lost: %+v", result)
-			}
-			if strings.Contains(err.Error(), cause.Error()) {
-				t.Fatal("public error exposes panic value")
-			}
-			for _, report := range result.Reports {
-				if strings.Contains(report.Reason, cause.Error()) {
-					t.Fatal("fault report formats panic value")
-				}
-			}
-		})
+		t.Run(phase, func(t *testing.T) { checkPipelinePanicContractAllPhases(t, phase) })
 	}
 }
 
@@ -226,5 +175,59 @@ func TestParallelPanicCancellationIsNotSiblingCancellation(t *testing.T) {
 				t.Fatal("panic boundary allowed/denied as policy instead of fault")
 			}
 		})
+	}
+}
+
+func checkPipelinePanicContractAllPhases(t *testing.T, phase string) {
+	t.Helper()
+	// Arrange.
+	cause := errors.New("private panic payload")
+	prior := &fakeValidator{validate: func(_ context.Context, text string) (string, *Report, error) {
+		return text, &Report{Action: ActionPass, PayloadKind: PayloadTechnicalPayload}, nil
+	}}
+	broken := &fakeValidator{validate: func(context.Context, string) (string, *Report, error) {
+		panic(cause)
+	}}
+	opts := []PipelineOption[string]{WithSequential[string](prior)}
+	switch phase {
+	case "sequential", "middleware":
+		opts = append(opts, WithSequential[string](broken))
+	case "policy":
+		opts = append(opts, WithPolicyValidators(MustPolicyFuncWithScope[string](nil,
+			func(ctx context.Context, text string, _ ExecutionScope) (string, *Report, error) {
+				return broken.Validate(ctx, text)
+			})))
+	case "parallel":
+		opts = append(opts, WithParallel[string](broken))
+	}
+	p := MustNewPipeline(opts...)
+	if phase == "middleware" {
+		p = p.MustUse(func(next Validator[string]) Validator[string] {
+			return &fakeValidator{
+				validate: func(ctx context.Context, text string) (string, *Report, error) { return next.Validate(ctx, text) },
+			}
+		})
+	}
+
+	// Act.
+	result, escaped, err := runWithoutEscapedPanic(context.Background(), p)
+
+	// Assert.
+	if escaped != nil {
+		t.Fatalf("Validate panic escaped: %T", escaped)
+	}
+	if !errors.Is(err, ErrValidatorFailed) || !errors.Is(err, cause) {
+		t.Fatalf("fault category/original error cause missing: %v", err)
+	}
+	if !result.PolicyDecision().IsSystemFault() || result.OutputKind != PayloadTechnicalPayload {
+		t.Fatalf("fault or completed kind lost: %+v", result)
+	}
+	if strings.Contains(err.Error(), cause.Error()) {
+		t.Fatal("public error exposes panic value")
+	}
+	for _, report := range result.Reports {
+		if strings.Contains(report.Reason, cause.Error()) {
+			t.Fatal("fault report formats panic value")
+		}
 	}
 }

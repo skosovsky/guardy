@@ -61,25 +61,11 @@ func NewJSONSchemaValidatorWithResources(
 	}
 
 	const rootURI = "urn:guardy:schema"
-	documents := make(map[string]any, len(resources)+1)
-	for uri, raw := range resources {
-		parsed, parseErr := url.Parse(uri)
-		if parseErr != nil || !parsed.IsAbs() || strings.Contains(uri, "#") {
-			return nil, errors.New("jsonschema: resource URI must be absolute and fragment-free")
-		}
-		uri = parsed.String()
-		if _, exists := documents[uri]; exists {
-			return nil, errors.New("jsonschema: duplicate normalized resource URI")
-		}
-		if uri == rootURI {
-			return nil, errors.New("jsonschema: reserved root resource URI")
-		}
-		document, err := jsondoc.Decode(raw)
-		if err != nil {
-			return nil, fmt.Errorf("jsonschema: decode resource: %w", err)
-		}
-		documents[uri] = document
+	documents, err := schemaResources(resources, rootURI)
+	if err != nil {
+		return nil, err
 	}
+
 	document, err := jsondoc.Decode(schema)
 	if err != nil {
 		return nil, fmt.Errorf("jsonschema: decode schema: %w", err)
@@ -288,4 +274,27 @@ func checkMetaNumbers(
 		}
 	}
 	return nil
+}
+
+func schemaResources(resources map[string]string, rootURI string) (map[string]any, error) {
+	documents := make(map[string]any, len(resources)+1)
+	for uri, raw := range resources {
+		parsed, parseErr := url.Parse(uri)
+		if parseErr != nil || !parsed.IsAbs() || strings.Contains(uri, "#") {
+			return nil, errors.New("jsonschema: resource URI must be absolute and fragment-free")
+		}
+		uri = parsed.String()
+		if _, exists := documents[uri]; exists {
+			return nil, errors.New("jsonschema: duplicate normalized resource URI")
+		}
+		if uri == rootURI {
+			return nil, errors.New("jsonschema: reserved root resource URI")
+		}
+		document, err := jsondoc.Decode(raw)
+		if err != nil {
+			return nil, fmt.Errorf("jsonschema: decode resource: %w", err)
+		}
+		documents[uri] = document
+	}
+	return documents, nil
 }

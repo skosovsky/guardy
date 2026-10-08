@@ -303,6 +303,11 @@ func (s *StreamProcessor) WriteContext(ctx context.Context, p []byte) (int, erro
 	if err := ctx.Err(); err != nil {
 		return 0, s.fail(StreamTimeout, err, DecisionFromReport(nil))
 	}
+	return s.acceptInput(ctx, p)
+}
+
+// acceptInput runs under the processor lock after admission checks.
+func (s *StreamProcessor) acceptInput(ctx context.Context, p []byte) (int, error) {
 	accepted := 0
 	for len(p) > 0 {
 		room := s.cfg.MaxPendingBytes - s.pending.size
@@ -576,6 +581,10 @@ func (s *StreamProcessor) DeliverFallback(ctx context.Context) (StreamOutcome, e
 	if int64(len(value)) > s.cfg.MaxOutputBytes-s.outcome.ReleasedBytes {
 		return s.fallbackFailure(outcome, StreamLimit, errors.New("guardy: fallback output limit"))
 	}
+	return s.writeFallback(outcome, stage, value)
+}
+
+func (s *StreamProcessor) writeFallback(outcome StreamOutcome, stage StreamStage, value string) (StreamOutcome, error) {
 	n, err := io.WriteString(s.writer, value)
 	if n < 0 || n > len(value) {
 		return s.fallbackFailure(outcome, StreamTransport, errors.New("guardy: invalid fallback byte count"))

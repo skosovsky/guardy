@@ -313,37 +313,40 @@ func TestPolicyRecipeRejectionIsNotMetadataFault(t *testing.T) {
 
 func TestPolicyRecipeExplicitHostModes(t *testing.T) {
 	for _, mode := range []string{"provenance_required", "no_provenance", "declassified"} {
-		t.Run(mode, func(t *testing.T) {
-			// Arrange.
-			facts := defaultRecipeFacts()
-			if mode != "declassified" {
-				facts.Sources = nil
-			}
-			facts.AllowNoProvenance = mode == "no_provenance"
-			facts.Declassified = mode == "declassified"
-			// Act.
-			result, err := executeRecipe(
-				context.Background(),
-				documentClaims{ClaimedTrust: "trusted", Content: "secret"},
-				facts,
-			)
-			// Assert: claims never enable either host policy.
-			if mode == "provenance_required" {
-				if err == nil || result.Calls != 0 {
-					t.Fatalf("%+v %v", result, err)
-				}
-				return
-			}
-			if err != nil || result.Facts.ConfirmedTrust != "untrusted" {
-				t.Fatalf("%+v %v", result, err)
-			}
-			if mode == "no_provenance" &&
-				(result.Projection.Value != "summary: [redacted]" || len(result.Evidence.Sources) != 0) {
-				t.Fatalf("%+v", result)
-			}
-			if mode == "declassified" && result.Projection.Value != "summary: secret" {
-				t.Fatalf("%+v", result)
-			}
-		})
+		t.Run(mode, func(t *testing.T) { checkPolicyRecipeExplicitHostModes(t, mode) })
+	}
+}
+
+func checkPolicyRecipeExplicitHostModes(t *testing.T, mode string) {
+	t.Helper()
+	// Arrange.
+	facts := defaultRecipeFacts()
+	if mode != "declassified" {
+		facts.Sources = nil
+	}
+	facts.AllowNoProvenance = mode == "no_provenance"
+	facts.Declassified = mode == "declassified"
+	// Act.
+	result, err := executeRecipe(
+		context.Background(),
+		documentClaims{ClaimedTrust: "trusted", Content: "secret"},
+		facts,
+	)
+	// Assert: claims never enable either host policy.
+	if mode == "provenance_required" {
+		if err == nil || result.Calls != 0 {
+			t.Fatalf("%+v %v", result, err)
+		}
+		return
+	}
+	if err != nil || result.Facts.ConfirmedTrust != "untrusted" {
+		t.Fatalf("%+v %v", result, err)
+	}
+	if mode == "no_provenance" &&
+		(result.Projection.Value != "summary: [redacted]" || len(result.Evidence.Sources) != 0) {
+		t.Fatalf("%+v", result)
+	}
+	if mode == "declassified" && result.Projection.Value != "summary: secret" {
+		t.Fatalf("%+v", result)
 	}
 }

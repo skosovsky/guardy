@@ -89,20 +89,14 @@ in-memory host wiring, not a production IAM/storage implementation.
 
 ## Conformance
 
-```sh
-python3 scripts/downstream_conformance.py sources --output /tmp/guardy-sources
-python3 scripts/downstream_conformance.py published --output /tmp/guardy-published
-# Optional local source snapshots, copied into an isolated workspace:
-python3 scripts/downstream_conformance.py sources --toolsy /path/to/executor \
-  --prompty /path/to/producer --output /tmp/guardy-local
-```
+Run `make test-integration` for real argument/producer boundary contracts and
+`make test-e2e` for complete host recipes. Go tooling integration tests also execute
+both suites against the exact peer source revisions and published versions in
+`conformance.json`, using isolated consumers with GOWORK=off. Missing dependencies
+fail the selected tests. No sibling checkout or Python script is needed.
 
-Run these from the repository root. Source mode clones exact selected revisions
-or copies explicit local paths; it uses its own temporary workspace. Published
-mode copies only this consumer, uses `GOWORK=off`, checks selections and rejects
-replacements. Both retain the actual dependency graph, revision selection and
-verbose `go test -mod=readonly -race -count=1 ./...` log. No semantic fixture is
-skipped for missing dependencies. CI runs both modes and uploads evidence.
-`make test`/`make lint` also discover this nested module; candidate release checks
-run its suite against staged guardy artifacts and published external runtimes.
-Live providers and production authorization/storage are outside these claims.
+Main's go.mod uses development replacements for guardy and jsonschema; external
+peers stay pinned. The published-peer fixture removes development replacements in
+its temporary copy and checks the resolved graph. A separate candidate artifact
+fixture runs the same semantic suites against unpublished guardy module ZIPs.
+Neither check publishes production tags or invokes live providers.

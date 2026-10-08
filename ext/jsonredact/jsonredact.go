@@ -116,21 +116,7 @@ func (v *JSONRedactValidator) walk(ctx context.Context, node *any, changed *bool
 			val[i] = c
 		}
 	case string:
-		out, rep, err := v.leafValidator.Validate(ctx, val)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			err = errors.Join(err, ctxErr)
-		}
-		if err != nil {
-			return err
-		}
-		if rep != nil {
-			*lastRep = guardy.ComposeReports(*lastRep, rep)
-			if guardy.DecisionFromReport(rep).Disposition == guardy.DispositionNone &&
-				rep.Action == guardy.ActionRedact {
-				*changed = true
-				*node = out
-			}
-		}
+		return v.walkString(ctx, val, node, changed, lastRep)
 	}
 	return nil
 }
@@ -140,6 +126,28 @@ func isNilLeaf(leaf LeafValidator) bool {
 	switch value.Kind() {
 	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
 		return value.IsNil()
+	case reflect.Invalid,
+		reflect.Bool,
+		reflect.Int,
+		reflect.Int8,
+		reflect.Int16,
+		reflect.Int32,
+		reflect.Int64,
+		reflect.Uint,
+		reflect.Uint8,
+		reflect.Uint16,
+		reflect.Uint32,
+		reflect.Uint64,
+		reflect.Uintptr,
+		reflect.Float32,
+		reflect.Float64,
+		reflect.Complex64,
+		reflect.Complex128,
+		reflect.Array,
+		reflect.String,
+		reflect.Struct,
+		reflect.UnsafePointer:
+		return false
 	default:
 		return false
 	}
@@ -148,4 +156,29 @@ func isNilLeaf(leaf LeafValidator) bool {
 func jsonFault(input string, completed *guardy.Report, cause error) (string, *guardy.Report, error) {
 	err := guardy.WithCompletedObservations(cause, completed)
 	return input, guardy.CompletedReportFromError(err), err
+}
+
+func (v *JSONRedactValidator) walkString(
+	ctx context.Context,
+	val string,
+	node *any,
+	changed *bool,
+	lastRep **guardy.Report,
+) error {
+	out, rep, err := v.leafValidator.Validate(ctx, val)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		err = errors.Join(err, ctxErr)
+	}
+	if err != nil {
+		return err
+	}
+	if rep != nil {
+		*lastRep = guardy.ComposeReports(*lastRep, rep)
+		if guardy.DecisionFromReport(rep).Disposition == guardy.DispositionNone &&
+			rep.Action == guardy.ActionRedact {
+			*changed = true
+			*node = out
+		}
+	}
+	return nil
 }

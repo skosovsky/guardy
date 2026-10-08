@@ -77,6 +77,15 @@ func ConsumeTextStream(
 			}
 		}
 	}
+	return completeText(ctx, processor, stream, terminal)
+}
+
+func completeText(
+	ctx context.Context,
+	processor *guardy.StreamProcessor,
+	stream *prompty.Stream,
+	terminal bool,
+) (TextRelease, error) {
 	status := stream.Status()
 	if !terminal || status.State != prompty.StreamCompleted || status.Err != nil || status.Result == nil {
 		return abortText(processor, producerRoute(status.Err), errors.Join(prompty.ErrStreamProtocol, status.Err))

@@ -52,18 +52,14 @@ func (f *frameScanner) json(b *streamBuffer, maxBytes int, final bool) (int, err
 		if f.complete {
 			continue
 		}
-		if !f.started {
-			if isJSONSpace(c) {
-				if f.offset >= maxBytes {
-					return 0, ErrStreamUnitLimit
-				}
-				continue
-			}
-			if c != '{' && c != '[' {
-				return 0, ErrInvalidStreamUnit
-			}
-			f.started = true
+		skip, err := f.startJSON(c, maxBytes)
+		if err != nil {
+			return 0, err
 		}
+		if skip {
+			continue
+		}
+
 		f.scanJSONByte(c)
 		if f.invalid {
 			return 0, ErrInvalidStreamUnit
@@ -72,6 +68,10 @@ func (f *frameScanner) json(b *streamBuffer, maxBytes int, final bool) (int, err
 			return 0, ErrStreamUnitLimit
 		}
 	}
+	return f.finishJSON(b.size, maxBytes, final)
+}
+
+func (f *frameScanner) finishJSON(size, maxBytes int, final bool) (int, error) {
 	if f.complete {
 		if f.offset > maxBytes {
 			return 0, ErrStreamUnitLimit
@@ -81,7 +81,7 @@ func (f *frameScanner) json(b *streamBuffer, maxBytes int, final bool) (int, err
 		}
 		return 0, nil
 	}
-	if b.size >= maxBytes {
+	if size >= maxBytes {
 		return 0, ErrStreamUnitLimit
 	}
 	return 0, nil
@@ -125,4 +125,20 @@ func (f *frameScanner) scanJSONByte(c byte) {
 		f.arrays--
 	}
 	f.complete = f.objects == 0 && f.arrays == 0
+}
+
+func (f *frameScanner) startJSON(c byte, maxBytes int) (bool, error) {
+	if !f.started {
+		if isJSONSpace(c) {
+			if f.offset >= maxBytes {
+				return false, ErrStreamUnitLimit
+			}
+			return true, nil
+		}
+		if c != '{' && c != '[' {
+			return false, ErrInvalidStreamUnit
+		}
+		f.started = true
+	}
+	return false, nil
 }

@@ -62,51 +62,7 @@ func TestScopePrecheckMatchesTypedAssertion(t *testing.T) {
 		assertionCase[func() string]("typed_nil_function", (func() string)(nil), true),
 		assertionCase[any]("nil_interface", nil, false),
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			// Arrange.
-			scope := g.MapScope{"fact": tc.value}
-			calls := 0
-			policy := g.MustPolicyFuncWithScope([]g.ScopeRequirement{tc.requirement},
-				func(_ context.Context, value string, _ g.ExecutionScope) (string, *g.Report, error) {
-					calls++
-					return value, nil, nil
-				})
-			pipeline := g.MustNewPipeline(g.WithPolicyValidators(policy))
-			// Act.
-			lookupOK := tc.lookup(scope)
-			result, err := pipeline.Run(context.Background(), scope, "payload")
-			// Assert.
-			if lookupOK != tc.accepted {
-				t.Fatalf("Lookup = %v, want %v", lookupOK, tc.accepted)
-			}
-			if tc.accepted {
-				if err != nil || calls != 1 || result.PolicyDecision().Disposition != g.DispositionNone {
-					t.Fatalf("accepted value: calls=%d decision=%+v error=%v", calls, result.PolicyDecision(), err)
-				}
-			} else {
-				assertScopeTypeFault(t, err, result.PolicyDecision(), calls)
-			}
-
-			// Arrange: exercise the boundary independently, using the same typed contract.
-			calls = 0
-			// Act.
-			delivery, boundaryErr := pipeline.GuardDelivery(
-				context.Background(), scope, g.NewUserTextPolicy("user"), "payload",
-			)
-			value, deliverable := delivery.DeliverableValue()
-			// Assert.
-			if tc.accepted {
-				if boundaryErr != nil || calls != 1 || !deliverable || value != "payload" {
-					t.Fatalf("accepted boundary: calls=%d delivery=%+v error=%v", calls, delivery, boundaryErr)
-				}
-			} else {
-				assertScopeTypeFault(t, boundaryErr, delivery.Decision, calls)
-				if deliverable || value != "" || delivery.Value != "" {
-					t.Fatalf("fault delivered payload: %+v", delivery)
-				}
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkScopePrecheckMatchesTypedAssertion(t, tc) })
 	}
 }
 
@@ -119,5 +75,52 @@ func assertScopeTypeFault(t *testing.T, err error, decision g.Decision, calls in
 		!errors.As(err, &failure) || !errors.Is(failure.Cause, g.ErrScopeIncompatible) ||
 		!decision.IsSystemFault() || failure.Decision != decision {
 		t.Fatalf("calls=%d decision=%+v failure=%+v error=%v", calls, decision, failure, err)
+	}
+}
+
+func checkScopePrecheckMatchesTypedAssertion(t *testing.T, tc scopeAssertionCase) {
+	t.Helper()
+	t.Parallel()
+	// Arrange.
+	scope := g.MapScope{"fact": tc.value}
+	calls := 0
+	policy := g.MustPolicyFuncWithScope([]g.ScopeRequirement{tc.requirement},
+		func(_ context.Context, value string, _ g.ExecutionScope) (string, *g.Report, error) {
+			calls++
+			return value, nil, nil
+		})
+	pipeline := g.MustNewPipeline(g.WithPolicyValidators(policy))
+	// Act.
+	lookupOK := tc.lookup(scope)
+	result, err := pipeline.Run(context.Background(), scope, "payload")
+	// Assert.
+	if lookupOK != tc.accepted {
+		t.Fatalf("Lookup = %v, want %v", lookupOK, tc.accepted)
+	}
+	if tc.accepted {
+		if err != nil || calls != 1 || result.PolicyDecision().Disposition != g.DispositionNone {
+			t.Fatalf("accepted value: calls=%d decision=%+v error=%v", calls, result.PolicyDecision(), err)
+		}
+	} else {
+		assertScopeTypeFault(t, err, result.PolicyDecision(), calls)
+	}
+
+	// Arrange: exercise the boundary independently, using the same typed contract.
+	calls = 0
+	// Act.
+	delivery, boundaryErr := pipeline.GuardDelivery(
+		context.Background(), scope, g.NewUserTextPolicy("user"), "payload",
+	)
+	value, deliverable := delivery.DeliverableValue()
+	// Assert.
+	if tc.accepted {
+		if boundaryErr != nil || calls != 1 || !deliverable || value != "payload" {
+			t.Fatalf("accepted boundary: calls=%d delivery=%+v error=%v", calls, delivery, boundaryErr)
+		}
+	} else {
+		assertScopeTypeFault(t, boundaryErr, delivery.Decision, calls)
+		if deliverable || value != "" || delivery.Value != "" {
+			t.Fatalf("fault delivered payload: %+v", delivery)
+		}
 	}
 }

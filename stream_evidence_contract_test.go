@@ -121,34 +121,39 @@ func TestStreamOutputLimitRetainsCheckedKind(t *testing.T) {
 func TestStreamTimeoutOutranksCompletedPolicyDecision(t *testing.T) {
 	for _, disposition := range []FailureDisposition{DispositionNone, DispositionTerminalDeny, DispositionRetryableCorrection} {
 		for _, fallback := range []bool{false, true} {
-			// Arrange: context can expire just after a checked policy decision returns.
-			decision := DecisionFromReport(&Report{PayloadKind: PayloadTechnicalPayload})
-			decision.Disposition = disposition
-			cause := errors.Join(&PolicyFailure{Decision: decision, Cause: ErrBlocked}, context.Canceled)
-			stream := new(StreamProcessor)
-			// Act.
-			var outcome StreamOutcome
-			var err error
-			if fallback {
-				outcome, err = stream.fallbackFailure(StreamOutcome{Decision: decision}, StreamTimeout, cause)
-			} else {
-				err = stream.fail(StreamTimeout, cause, decision)
-				outcome = stream.Outcome()
-			}
-			// Assert.
-			var failure *PolicyFailure
-			if outcome.Category != StreamTimeout || !outcome.Decision.IsSystemFault() {
-				t.Fatalf("timeout outcome=%+v", outcome)
-			}
-			if outcome.Decision.PayloadKind != PayloadTechnicalPayload {
-				t.Fatalf("completed classification lost: %+v", outcome)
-			}
-			if !errors.As(err, &failure) || failure.Decision != outcome.Decision {
-				t.Fatalf("failure=%+v outcome=%+v err=%v", failure, outcome, err)
-			}
-			if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrBlocked) {
-				t.Fatalf("timeout causes lost: %v", err)
-			}
+			checkTimeoutDecision(t, disposition, fallback)
 		}
+	}
+}
+
+func checkTimeoutDecision(t *testing.T, disposition FailureDisposition, fallback bool) {
+	t.Helper()
+	// Arrange: context can expire just after a checked policy decision returns.
+	decision := DecisionFromReport(&Report{PayloadKind: PayloadTechnicalPayload})
+	decision.Disposition = disposition
+	cause := errors.Join(&PolicyFailure{Decision: decision, Cause: ErrBlocked}, context.Canceled)
+	stream := new(StreamProcessor)
+	// Act.
+	var outcome StreamOutcome
+	var err error
+	if fallback {
+		outcome, err = stream.fallbackFailure(StreamOutcome{Decision: decision}, StreamTimeout, cause)
+	} else {
+		err = stream.fail(StreamTimeout, cause, decision)
+		outcome = stream.Outcome()
+	}
+	// Assert.
+	var failure *PolicyFailure
+	if outcome.Category != StreamTimeout || !outcome.Decision.IsSystemFault() {
+		t.Fatalf("timeout outcome=%+v", outcome)
+	}
+	if outcome.Decision.PayloadKind != PayloadTechnicalPayload {
+		t.Fatalf("completed classification lost: %+v", outcome)
+	}
+	if !errors.As(err, &failure) || failure.Decision != outcome.Decision {
+		t.Fatalf("failure=%+v outcome=%+v err=%v", failure, outcome, err)
+	}
+	if !errors.Is(err, context.Canceled) || !errors.Is(err, ErrBlocked) {
+		t.Fatalf("timeout causes lost: %v", err)
 	}
 }

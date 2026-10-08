@@ -38,67 +38,10 @@ func TestExporterCanonicalDecisionsAndTransparentMiddleware(t *testing.T) {
 		{name: "fatal shadow", report: &guardy.Report{Action: guardy.ActionBlock, ShadowMode: true, Fatal: true}},
 		{name: "invalid shadow", report: &guardy.Report{Action: guardy.ActionBlock, ShadowMode: true, Score: math.Inf(-1)}},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange: collect real spans and metrics for a single slow rule invocation.
-			exporter := tracetest.NewInMemoryExporter()
-			provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
-			reader := sdkmetric.NewManualReader()
-			metricsProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-			t.Cleanup(func() {
-				_ = provider.Shutdown(context.Background())
-				_ = metricsProvider.Shutdown(context.Background())
-			})
-			rule := guardy.ValidatorFunc[string](
-				func(context.Context, string) (string, *guardy.Report, error) { return "clean", tc.report, tc.fault },
-			)
-			base, expectedSpans := testCallPipeline(rule, tc.report)
-			traced := base.MustUse(
-				MustMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(metricsProvider.Meter("test"))),
-			)
-			// Act.
-			original, originalErr := base.Run(t.Context(), nil, "raw")
-			actual, actualErr := traced.Run(t.Context(), nil, "raw")
-			var metrics metricdata.ResourceMetrics
-			if err := reader.Collect(t.Context(), &metrics); err != nil {
-				t.Fatal(err)
-			}
-			spans := exporter.GetSpans()
-			// Assert: no changes to outputs, errors or report content (including NaN scores).
-			if actual.Output != original.Output || actual.PolicyDecision() != original.PolicyDecision() ||
-				errors.Is(actualErr, guardy.ErrValidatorFailed) != errors.Is(originalErr, guardy.ErrValidatorFailed) ||
-				!sameReports(actual.Reports, original.Reports) {
-				t.Fatalf("original=%+v actual=%+v errors=%v/%v", original, actual, originalErr, actualErr)
-			}
-			if tc.fault != nil && !errors.Is(actualErr, tc.fault) {
-				t.Fatal("lost original cause")
-			}
-			if len(spans) != expectedSpans {
-				t.Fatalf("spans=%d", len(spans))
-			}
-			decision := actual.PolicyDecision()
-			if expectedSpans > 0 && decision.IsSystemFault() && spans[0].Status.Code != codes.Error {
-				t.Fatalf("fault status=%+v", spans[0].Status)
-			}
-			if expectedSpans > 0 && !decision.IsSystemFault() && spans[0].Status.Code != codes.Ok {
-				t.Fatalf("policy status=%+v", spans[0].Status)
-			}
-			observed := decision
-			if tc.report != nil && tc.fault == nil {
-				rep := *tc.report
-				rep.ShadowMode = false
-				observed = guardy.DecisionFromReport(&rep)
-			}
-			if expectedSpans > 0 {
-				checkDecisionAttrs(
-					t,
-					attribute.NewSet(spans[0].Attributes...),
-					decision,
-					observed,
-					tc.fault == nil && tc.report.IsObservation(),
-				)
-			}
-			checkMetricDecisions(t, metrics, decision, observed, tc.fault == nil && tc.report.IsObservation())
-		})
+		t.Run(
+			tc.name,
+			func(t *testing.T) { checkExporterCanonicalDecisionsAndTransparentMiddleware(t, tc) },
+		)
 	}
 }
 
@@ -192,4 +135,71 @@ func testCallPipeline(rule guardy.Validator[string], report *guardy.Report) (*gu
 		return guardy.MustNewPipeline(guardy.WithSequential(rule)), 0
 	}
 	return guardy.MustNewPipeline(guardy.WithParallel(rule)), 1
+}
+
+func checkExporterCanonicalDecisionsAndTransparentMiddleware(t *testing.T, tc struct {
+	name   string
+	report *guardy.Report
+	fault  error
+}) {
+	t.Helper()
+	// Arrange: collect real spans and metrics for a single slow rule invocation.
+	exporter := tracetest.NewInMemoryExporter()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSyncer(exporter))
+	reader := sdkmetric.NewManualReader()
+	metricsProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		_ = provider.Shutdown(context.Background())
+		_ = metricsProvider.Shutdown(context.Background())
+	})
+	rule := guardy.ValidatorFunc[string](
+		func(context.Context, string) (string, *guardy.Report, error) { return "clean", tc.report, tc.fault },
+	)
+	base, expectedSpans := testCallPipeline(rule, tc.report)
+	traced := base.MustUse(
+		MustMiddleware[string](WithTracer(provider.Tracer("test")), WithMeter(metricsProvider.Meter("test"))),
+	)
+	// Act.
+	original, originalErr := base.Run(t.Context(), nil, "raw")
+	actual, actualErr := traced.Run(t.Context(), nil, "raw")
+	var metrics metricdata.ResourceMetrics
+	if err := reader.Collect(t.Context(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	spans := exporter.GetSpans()
+	// Assert: no changes to outputs, errors or report content (including NaN scores).
+	if actual.Output != original.Output || actual.PolicyDecision() != original.PolicyDecision() ||
+		errors.Is(actualErr, guardy.ErrValidatorFailed) != errors.Is(originalErr, guardy.ErrValidatorFailed) ||
+		!sameReports(actual.Reports, original.Reports) {
+		t.Fatalf("original=%+v actual=%+v errors=%v/%v", original, actual, originalErr, actualErr)
+	}
+	if tc.fault != nil && !errors.Is(actualErr, tc.fault) {
+		t.Fatal("lost original cause")
+	}
+	if len(spans) != expectedSpans {
+		t.Fatalf("spans=%d", len(spans))
+	}
+	decision := actual.PolicyDecision()
+	if expectedSpans > 0 && decision.IsSystemFault() && spans[0].Status.Code != codes.Error {
+		t.Fatalf("fault status=%+v", spans[0].Status)
+	}
+	if expectedSpans > 0 && !decision.IsSystemFault() && spans[0].Status.Code != codes.Ok {
+		t.Fatalf("policy status=%+v", spans[0].Status)
+	}
+	observed := decision
+	if tc.report != nil && tc.fault == nil {
+		rep := *tc.report
+		rep.ShadowMode = false
+		observed = guardy.DecisionFromReport(&rep)
+	}
+	if expectedSpans > 0 {
+		checkDecisionAttrs(
+			t,
+			attribute.NewSet(spans[0].Attributes...),
+			decision,
+			observed,
+			tc.fault == nil && tc.report.IsObservation(),
+		)
+	}
+	checkMetricDecisions(t, metrics, decision, observed, tc.fault == nil && tc.report.IsObservation())
 }

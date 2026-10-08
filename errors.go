@@ -208,16 +208,14 @@ func errorFromDecision(rep *Report) error {
 	if rep.IsTerminalDeny() {
 		return blockErrorFromReport(rep)
 	}
-	switch rep.Action {
-	case ActionPass, ActionRedact:
+	if rep.Action == ActionPass || rep.Action == ActionRedact {
 		return nil
-	default:
-		return fmt.Errorf(
-			"%w: unsupported pipeline action %s",
-			ErrValidatorFailed,
-			rep.Action.String(),
-		)
 	}
+	return fmt.Errorf(
+		"%w: unsupported pipeline action %s",
+		ErrValidatorFailed,
+		rep.Action.String(),
+	)
 }
 
 func validatorFaultReport(cause error) Report {

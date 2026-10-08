@@ -49,45 +49,7 @@ func builtInCases() []builtInCase {
 func TestBuiltInViolationOptionsOnlyApplyToHits(t *testing.T) {
 	t.Parallel()
 	for _, tc := range builtInCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			for _, flags := range []struct {
-				name         string
-				opts         []Option
-				fatal, retry bool
-				message      string
-			}{
-				{"fatal", []Option{WithFatal(true)}, true, false, ""},
-				{"retry", []Option{WithRetryable(true)}, false, true, ""},
-				{"notice", []Option{WithSafeUserMessage("notice")}, false, false, "notice"},
-				{"all", []Option{WithFatal(true), WithRetryable(true), WithSafeUserMessage("notice")}, true, true, "notice"},
-			} {
-				t.Run(flags.name, func(t *testing.T) {
-					t.Parallel()
-					// Arrange.
-					validator, err := tc.build(flags.opts...)
-					if err != nil {
-						t.Fatal(err)
-					}
-					// Act.
-					_, clean, cleanErr := validator.Validate(t.Context(), "hello")
-					_, hit, hitErr := validator.Validate(t.Context(), tc.hit)
-					// Assert.
-					if cleanErr != nil || hitErr != nil || clean.Fatal || clean.Retryable ||
-						clean.SafeUserMessage != "" ||
-						guardy.DecisionFromReport(clean).Disposition != guardy.DispositionNone {
-						t.Fatalf("clean=%+v errors=%v %v", clean, cleanErr, hitErr)
-					}
-					if hit.Fatal != flags.fatal || hit.Retryable != flags.retry ||
-						hit.SafeUserMessage != flags.message {
-						t.Fatalf("hit=%+v", hit)
-					}
-					if flags.fatal {
-						assertFatalHitDelivery(t, validator, tc.hit, hit)
-					}
-				})
-			}
-		})
+		t.Run(tc.name, func(t *testing.T) { checkBuiltInViolationOptionsOnlyApplyToHits(t, tc) })
 	}
 	// Arrange / Act: caller-authored fatal-pass retains its canonical semantics.
 	decision := guardy.DecisionFromReport(&guardy.Report{Action: guardy.ActionPass, Fatal: true})
@@ -233,5 +195,46 @@ func assertFatalHitDelivery(t *testing.T, validator guardy.Validator[string], in
 	// Assert.
 	if !errors.Is(fault, guardy.ErrBlocked) || delivery.Deliverable || delivery.Value != "" {
 		t.Fatalf("fatal delivery=%+v error=%v", delivery, fault)
+	}
+}
+
+func checkBuiltInViolationOptionsOnlyApplyToHits(t *testing.T, tc builtInCase) {
+	t.Helper()
+	t.Parallel()
+	for _, flags := range []struct {
+		name         string
+		opts         []Option
+		fatal, retry bool
+		message      string
+	}{
+		{"fatal", []Option{WithFatal(true)}, true, false, ""},
+		{"retry", []Option{WithRetryable(true)}, false, true, ""},
+		{"notice", []Option{WithSafeUserMessage("notice")}, false, false, "notice"},
+		{"all", []Option{WithFatal(true), WithRetryable(true), WithSafeUserMessage("notice")}, true, true, "notice"},
+	} {
+		t.Run(flags.name, func(t *testing.T) {
+			t.Parallel()
+			// Arrange.
+			validator, err := tc.build(flags.opts...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Act.
+			_, clean, cleanErr := validator.Validate(t.Context(), "hello")
+			_, hit, hitErr := validator.Validate(t.Context(), tc.hit)
+			// Assert.
+			if cleanErr != nil || hitErr != nil || clean.Fatal || clean.Retryable ||
+				clean.SafeUserMessage != "" ||
+				guardy.DecisionFromReport(clean).Disposition != guardy.DispositionNone {
+				t.Fatalf("clean=%+v errors=%v %v", clean, cleanErr, hitErr)
+			}
+			if hit.Fatal != flags.fatal || hit.Retryable != flags.retry ||
+				hit.SafeUserMessage != flags.message {
+				t.Fatalf("hit=%+v", hit)
+			}
+			if flags.fatal {
+				assertFatalHitDelivery(t, validator, tc.hit, hit)
+			}
+		})
 	}
 }

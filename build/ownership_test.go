@@ -101,16 +101,7 @@ func TestWholeVersionReloadKeepsBorrowedValuesImmutable(t *testing.T) {
 	// Act: each reader loads the pair once; both published versions remain immutable.
 	for range 4 {
 		workers.Go(func() {
-			for range 200 {
-				version := current.Load()
-				result, runErr := version.pipeline.Run(context.Background(), version.scope, "request")
-				if runErr != nil || result.PolicyDecision().Disposition != guardy.DispositionNone {
-					select {
-					case failures <- struct{}{}:
-					default:
-					}
-				}
-			}
+			readGuardVersions(&current, failures)
 		})
 	}
 	for range 100 {
@@ -124,5 +115,18 @@ func TestWholeVersionReloadKeepsBorrowedValuesImmutable(t *testing.T) {
 	if len(failures) != 0 || oldErr != nil || oldResult.PolicyDecision().Disposition != guardy.DispositionNone ||
 		current.Load() != second {
 		t.Fatal("atomic whole-version reload changed retired data or mixed versions")
+	}
+}
+
+func readGuardVersions(current *atomic.Pointer[guardVersion], failures chan<- struct{}) {
+	for range 200 {
+		version := current.Load()
+		result, runErr := version.pipeline.Run(context.Background(), version.scope, "request")
+		if runErr != nil || result.PolicyDecision().Disposition != guardy.DispositionNone {
+			select {
+			case failures <- struct{}{}:
+			default:
+			}
+		}
 	}
 }

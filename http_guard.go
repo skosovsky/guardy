@@ -161,7 +161,6 @@ func restoreHTTPBody(r *http.Request, data []byte) *ownedHTTPBody {
 	return adoptHTTPBody(r)
 }
 
-//nolint:funlen // Keep HTTP admission, callbacks and handoff in one ordered flow.
 func serveGuard[T any](
 	w http.ResponseWriter,
 	r *http.Request,
@@ -229,11 +228,23 @@ func serveGuard[T any](
 		writeJSONDecisionError(w, http.StatusUnprocessableEntity, decision)
 		return
 	}
-	borrowed = restoreHTTPBody(r, data)
+	deliverHTTPRequest(w, r, data, result, injector, next)
+}
+
+func deliverHTTPRequest[T any](
+	w http.ResponseWriter,
+	r *http.Request,
+	data []byte,
+	result RunResult[T],
+	injector func(*http.Request, T) error,
+	next http.Handler,
+) {
+	ctx := r.Context()
+	borrowed := restoreHTTPBody(r, data)
 	if result.Decision().Action == ActionRedact {
 		injectErr := injector(r, result.Output)
 		keep := callbackCancellation(ctx, injectErr) == nil && injectErr == nil
-		closeErr = finishHTTPCallback(r, borrowed, keep)
+		closeErr := finishHTTPCallback(r, borrowed, keep)
 		if !keep || closeErr != nil {
 			if keep {
 				_ = finishHTTPCallback(r, adoptHTTPBody(r), false)

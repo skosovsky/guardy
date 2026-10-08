@@ -76,45 +76,10 @@ func TestStreamMiddlewareCapabilityContract(t *testing.T) {
 			{"no-final", ReleaseWholeResponse, true, StreamCapabilities{Unit: true}, false},
 			{"ordinary-final", ReleaseWholeResponse, false, StreamCapabilities{}, true},
 		} {
-			t.Run(phase+"/"+scenario.name, func(t *testing.T) {
-				// Arrange.
-				base := WithStreamingCapabilities(
-					ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
-						return value, nil, nil
-					}),
-					StreamCapabilities{Unit: true, Final: true},
-				)
-				pipeline := middlewareCapabilityPipeline(phase, base)
-				pipeline = pipeline.MustUse(func(next Validator[string]) Validator[string] {
-					wrapper := ValidatorFunc[string](next.Validate)
-					if scenario.declared {
-						return WithStreamingCapabilities(wrapper, scenario.capability)
-					}
-					return wrapper
-				})
-				cfg := testStreamConfig(pipeline)
-				cfg.Profile = scenario.profile
-				var sink bytes.Buffer
-				// Act.
-				stream, err := CompileStream(&sink, cfg)
-				if err == nil {
-					_, err = stream.Write([]byte("safe\n"))
-					if err == nil {
-						_, err = stream.Complete(context.Background())
-					}
-				}
-				// Assert.
-				if scenario.allowed {
-					if err != nil || sink.String() != "safe\n" {
-						t.Fatalf("supported middleware: output=%q error=%v", sink.String(), err)
-					}
-				} else {
-					var release *ReleaseError
-					if !errors.As(err, &release) || release.Outcome.Category != StreamUnsupported || sink.Len() != 0 {
-						t.Fatalf("unsupported middleware: output=%q error=%v", sink.String(), err)
-					}
-				}
-			})
+			t.Run(
+				phase+"/"+scenario.name,
+				func(t *testing.T) { checkStreamMiddlewareCapabilityContract(t, phase, scenario) },
+			)
 		}
 	}
 }
@@ -177,5 +142,52 @@ func TestStreamRejectsHiddenIntermediateMiddleware(t *testing.T) {
 				t.Fatalf("hidden intermediate capability accepted: output=%q error=%v", sink.String(), err)
 			}
 		})
+	}
+}
+
+func checkStreamMiddlewareCapabilityContract(t *testing.T, phase string, scenario struct {
+	name       string
+	profile    ReleaseProfile
+	declared   bool
+	capability StreamCapabilities
+	allowed    bool
+}) {
+	t.Helper()
+	// Arrange.
+	base := WithStreamingCapabilities(
+		ValidatorFunc[string](func(_ context.Context, value string) (string, *Report, error) {
+			return value, nil, nil
+		}),
+		StreamCapabilities{Unit: true, Final: true},
+	)
+	pipeline := middlewareCapabilityPipeline(phase, base)
+	pipeline = pipeline.MustUse(func(next Validator[string]) Validator[string] {
+		wrapper := ValidatorFunc[string](next.Validate)
+		if scenario.declared {
+			return WithStreamingCapabilities(wrapper, scenario.capability)
+		}
+		return wrapper
+	})
+	cfg := testStreamConfig(pipeline)
+	cfg.Profile = scenario.profile
+	var sink bytes.Buffer
+	// Act.
+	stream, err := CompileStream(&sink, cfg)
+	if err == nil {
+		_, err = stream.Write([]byte("safe\n"))
+		if err == nil {
+			_, err = stream.Complete(context.Background())
+		}
+	}
+	// Assert.
+	if scenario.allowed {
+		if err != nil || sink.String() != "safe\n" {
+			t.Fatalf("supported middleware: output=%q error=%v", sink.String(), err)
+		}
+	} else {
+		var release *ReleaseError
+		if !errors.As(err, &release) || release.Outcome.Category != StreamUnsupported || sink.Len() != 0 {
+			t.Fatalf("unsupported middleware: output=%q error=%v", sink.String(), err)
+		}
 	}
 }

@@ -99,6 +99,10 @@ func checkGraphField(value reflect.Value, documents map[string]any, seen map[*sc
 			return checkCompiledNumbers(reference.Ref, documents, seen)
 		}
 	}
+	return checkGraphContainer(value, documents, seen)
+}
+
+func checkGraphContainer(value reflect.Value, documents map[string]any, seen map[*schemaengine.Schema]bool) error {
 	switch value.Kind() { //nolint:exhaustive // Only graph containers contain schema edges.
 	case reflect.Slice:
 		for i := range value.Len() {
@@ -201,34 +205,45 @@ func checkDynamicAnchors(
 ) error {
 	switch node := value.(type) {
 	case map[string]any:
-		if id, ok := node["$id"].(string); ok {
-			parent, err := url.Parse(base)
-			if err != nil {
-				return nil //nolint:nilerr // A malformed annotation identifier does not identify a resource.
-			}
-			reference, err := url.Parse(id)
-			if err != nil {
-				return nil //nolint:nilerr // A malformed annotation identifier does not identify a resource.
-			}
-			base = parent.ResolveReference(reference).String()
-		}
-		if anchor, ok := node["$dynamicAnchor"].(string); ok {
-			if schema, err := compiler.Compile(base + "#" + anchor); err == nil {
-				if err := checkCompiledNumbers(schema, documents, seen); err != nil {
-					return err
-				}
-			}
-		}
-		for _, child := range node {
-			if err := checkDynamicAnchors(compiler, child, base, documents, seen); err != nil {
-				return err
-			}
-		}
+		return checkDynamicObject(compiler, node, base, documents, seen)
 	case []any:
 		for _, child := range node {
 			if err := checkDynamicAnchors(compiler, child, base, documents, seen); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func checkDynamicObject(
+	compiler *schemaengine.Compiler,
+	node map[string]any,
+	base string,
+	documents map[string]any,
+	seen map[*schemaengine.Schema]bool,
+) error {
+	if id, ok := node["$id"].(string); ok {
+		parent, err := url.Parse(base)
+		if err != nil {
+			return nil //nolint:nilerr // A malformed annotation identifier does not identify a resource.
+		}
+		reference, err := url.Parse(id)
+		if err != nil {
+			return nil //nolint:nilerr // A malformed annotation identifier does not identify a resource.
+		}
+		base = parent.ResolveReference(reference).String()
+	}
+	if anchor, ok := node["$dynamicAnchor"].(string); ok {
+		if schema, err := compiler.Compile(base + "#" + anchor); err == nil {
+			if err := checkCompiledNumbers(schema, documents, seen); err != nil {
+				return err
+			}
+		}
+	}
+	for _, child := range node {
+		if err := checkDynamicAnchors(compiler, child, base, documents, seen); err != nil {
+			return err
 		}
 	}
 	return nil

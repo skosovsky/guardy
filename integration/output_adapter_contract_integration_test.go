@@ -1,3 +1,5 @@
+//go:build integration
+
 package integration_test
 
 import (
@@ -10,7 +12,7 @@ import (
 )
 
 //nolint:gocognit // Matrix checks actual sink, causes and side effects for each output boundary outcome.
-func TestOutputAdapterDeliversOnlyApprovedProjection(t *testing.T) {
+func TestIntegrationOutputAdapterDeliversOnlyApprovedProjection(t *testing.T) {
 	for _, stage := range []string{"pass", "redact", "partial", "scope", "go-error", "report-fault", "cancel", "deny", "retry"} {
 		t.Run(stage, func(t *testing.T) {
 			// Arrange.
@@ -87,7 +89,7 @@ func TestOutputAdapterDeliversOnlyApprovedProjection(t *testing.T) {
 	}
 }
 
-func TestLowLevelOutputPreservesUnvalidatedPartialWithoutRetry(t *testing.T) {
+func TestIntegrationLowLevelOutputPreservesUnvalidatedPartialWithoutRetry(t *testing.T) {
 	// Arrange.
 	cause := errors.New("handler failure")
 	effects, checks := 0, 0

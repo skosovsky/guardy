@@ -32,6 +32,7 @@ type InMemoryTokenVault struct {
 // NewInMemoryTokenVault creates a thread-safe vault for request/session scope.
 func NewInMemoryTokenVault() *InMemoryTokenVault {
 	return &InMemoryTokenVault{
+		mu:       sync.RWMutex{},
 		nextByNS: make(map[string]uint64),
 		pairs:    make(map[string]string),
 		restores: make(map[string]string),

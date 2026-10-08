@@ -161,37 +161,42 @@ func TestIndependentAPIPayloadAndBatchTransform(t *testing.T) {
 
 func TestIndependentFakeProducerConsumer(t *testing.T) {
 	for _, abort := range []bool{false, true} {
-		// Arrange: producer has only a push callback and success/error signal.
-		var sink bytes.Buffer
-		stream, err := CompileStream(&sink, testStreamConfig(MustNewPipeline[string]()))
-		if err != nil {
-			t.Fatal(err)
-		}
-		producer := func(push func([]byte) error) error {
-			for _, chunk := range []string{"arbitrary ", "producer"} {
-				if pushErr := push([]byte(chunk)); pushErr != nil {
-					return pushErr
-				}
+		checkIndependentProducer(t, abort)
+	}
+}
+
+func checkIndependentProducer(t *testing.T, abort bool) {
+	t.Helper()
+	// Arrange: producer has only a push callback and success/error signal.
+	var sink bytes.Buffer
+	stream, err := CompileStream(&sink, testStreamConfig(MustNewPipeline[string]()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	producer := func(push func([]byte) error) error {
+		for _, chunk := range []string{"arbitrary ", "producer"} {
+			if pushErr := push([]byte(chunk)); pushErr != nil {
+				return pushErr
 			}
-			if abort {
-				return errors.New("producer disconnected")
-			}
-			return nil
 		}
-		// Act.
-		err = producer(func(chunk []byte) error { _, writeErr := stream.Write(chunk); return writeErr })
-		if err != nil {
-			_, err = stream.Abort(err)
-		} else {
-			_, err = stream.Complete(context.Background())
-		}
-		// Assert.
 		if abort {
-			if err == nil || sink.Len() != 0 || stream.Outcome().Category != StreamIncomplete {
-				t.Fatalf("%v %q", err, sink.String())
-			}
-		} else if err != nil || sink.String() != "arbitrary producer" {
+			return errors.New("producer disconnected")
+		}
+		return nil
+	}
+	// Act.
+	err = producer(func(chunk []byte) error { _, writeErr := stream.Write(chunk); return writeErr })
+	if err != nil {
+		_, err = stream.Abort(err)
+	} else {
+		_, err = stream.Complete(context.Background())
+	}
+	// Assert.
+	if abort {
+		if err == nil || sink.Len() != 0 || stream.Outcome().Category != StreamIncomplete {
 			t.Fatalf("%v %q", err, sink.String())
 		}
+	} else if err != nil || sink.String() != "arbitrary producer" {
+		t.Fatalf("%v %q", err, sink.String())
 	}
 }

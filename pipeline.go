@@ -234,6 +234,10 @@ func (p *Pipeline[T]) wrapAll(vv []Validator[T]) ([]Validator[T], []Validator[T]
 
 func (p *Pipeline[T]) clone() *Pipeline[T] {
 	next := &Pipeline[T]{
+		sequentialPathWrapped:  nil,
+		parallelPathWrapped:    nil,
+		sequentialPathLayers:   nil,
+		parallelPathLayers:     nil,
 		observer:               p.observer,
 		userChannelFallbackSet: p.userChannelFallbackSet,
 		name:                   p.name,
@@ -268,7 +272,7 @@ func (p *Pipeline[T]) notifyObserver(
 // NewPipeline builds a pipeline, rejecting invalid configuration before Run.
 // Options and RequiredScope callbacks are trusted construction code; panics escape.
 func NewPipeline[T any](opts ...PipelineOption[T]) (*Pipeline[T], error) {
-	p := &Pipeline[T]{}
+	p := new(Pipeline[T])
 	for i, opt := range opts {
 		if opt == nil {
 			return nil, configurationError("pipeline", fmt.Sprintf("options[%d]", i), "nil")

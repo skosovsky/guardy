@@ -147,6 +147,14 @@ func CompileStringGuard(spec GuardSpec, opts ...CompileOption) (*guardy.Pipeline
 		fast = append(fast, v)
 	}
 
+	return compilePolicies(spec, cfg, fast)
+}
+
+func compilePolicies(
+	spec GuardSpec,
+	cfg compileConfig,
+	fast []guardy.Validator[string],
+) (*guardy.Pipeline[string], error) {
 	var policy []guardy.PolicyValidator[string]
 	for _, rule := range spec.PolicyRules {
 		switch rule.Kind {

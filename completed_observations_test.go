@@ -53,53 +53,10 @@ func TestFailedReportsAreNotCompletedObservations(t *testing.T) {
 	t.Parallel()
 	for _, phase := range []ValidationPhase{ValidationPhaseSequential, ValidationPhasePolicy, ValidationPhaseParallel} {
 		for _, cancelOnReturn := range []bool{false, true} {
-			t.Run(fmt.Sprint(phase, cancelOnReturn), func(t *testing.T) {
-				t.Parallel()
-				// Arrange.
-				ctx, cancel := context.WithCancel(t.Context())
-				defer cancel()
-				cause := errors.New("failed callback")
-				validate := func(_ context.Context, input string) (string, *Report, error) {
-					rep := &Report{Action: ActionPass, Validator: "failed", PayloadKind: PayloadInternalControlSignal}
-					if cancelOnReturn {
-						cancel()
-						return "failed " + input, rep, nil
-					}
-					return "failed " + input, rep, cause
-				}
-				var option PipelineOption[string]
-				switch phase {
-				case ValidationPhaseSequential:
-					option = WithSequential(ValidatorFunc[string](validate))
-				case ValidationPhaseParallel:
-					option = WithParallel(ValidatorFunc[string](validate))
-				case ValidationPhasePolicy:
-					option = WithPolicyValidators(
-						MustPolicyFuncWithScope(
-							nil,
-							func(ctx context.Context, input string, _ ExecutionScope) (string, *Report, error) {
-								return validate(ctx, input)
-							},
-						),
-					)
-				}
-				pipeline := MustNewPipeline(option)
-				// Act.
-				result, err := pipeline.Run(ctx, nil, "original")
-				// Assert: first fault has no successful evidence; late nil-error cancellation is still failure.
-				if err == nil || result.OutputKind != PayloadSafeUserText || !result.PolicyDecision().IsSystemFault() ||
-					CompletedReportFromError(err) != nil {
-					t.Fatalf("result=%+v evidence=%+v error=%v", result, CompletedReportFromError(err), err)
-				}
-				if cancelOnReturn && !errors.Is(err, context.Canceled) {
-					t.Fatalf("lost cancellation: %v", err)
-				}
-				for _, rep := range result.Reports {
-					if rep.Validator == "failed" {
-						t.Fatalf("trusted failed report: %+v", rep)
-					}
-				}
-			})
+			t.Run(
+				fmt.Sprint(phase, cancelOnReturn),
+				func(t *testing.T) { checkFailedReportsAreNotCompletedObservations(t, cancelOnReturn, phase) },
+			)
 		}
 	}
 }
@@ -202,5 +159,58 @@ func TestMappingFaultProjectsAttestedHistoryWithoutInjection(t *testing.T) {
 				t.Fatalf("output=%+v report=%+v error=%v injected=%d", output, report, err, injected)
 			}
 		})
+	}
+}
+
+func checkFailedReportsAreNotCompletedObservations(
+	t *testing.T,
+	cancelOnReturn bool,
+	phase ValidationPhase,
+) {
+	t.Helper()
+	t.Parallel()
+	// Arrange.
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	cause := errors.New("failed callback")
+	validate := func(_ context.Context, input string) (string, *Report, error) {
+		rep := &Report{Action: ActionPass, Validator: "failed", PayloadKind: PayloadInternalControlSignal}
+		if cancelOnReturn {
+			cancel()
+			return "failed " + input, rep, nil
+		}
+		return "failed " + input, rep, cause
+	}
+	var option PipelineOption[string]
+	switch phase {
+	case ValidationPhaseSequential:
+		option = WithSequential(ValidatorFunc[string](validate))
+	case ValidationPhaseParallel:
+		option = WithParallel(ValidatorFunc[string](validate))
+	case ValidationPhasePolicy:
+		option = WithPolicyValidators(
+			MustPolicyFuncWithScope(
+				nil,
+				func(ctx context.Context, input string, _ ExecutionScope) (string, *Report, error) {
+					return validate(ctx, input)
+				},
+			),
+		)
+	}
+	pipeline := MustNewPipeline(option)
+	// Act.
+	result, err := pipeline.Run(ctx, nil, "original")
+	// Assert: first fault has no successful evidence; late nil-error cancellation is still failure.
+	if err == nil || result.OutputKind != PayloadSafeUserText || !result.PolicyDecision().IsSystemFault() ||
+		CompletedReportFromError(err) != nil {
+		t.Fatalf("result=%+v evidence=%+v error=%v", result, CompletedReportFromError(err), err)
+	}
+	if cancelOnReturn && !errors.Is(err, context.Canceled) {
+		t.Fatalf("lost cancellation: %v", err)
+	}
+	for _, rep := range result.Reports {
+		if rep.Validator == "failed" {
+			t.Fatalf("trusted failed report: %+v", rep)
+		}
 	}
 }
