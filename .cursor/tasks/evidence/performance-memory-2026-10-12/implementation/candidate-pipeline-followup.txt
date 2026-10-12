@@ -1,0 +1,200 @@
+# ABBA round 1 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 8220753	        74.31 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6110148	        97.69 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       532.6 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 1 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 8125580	        74.65 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6211018	        97.09 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       537.3 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 2 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 8108468	        75.77 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6130095	       100.1 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       538.0 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 2 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7960176	        76.88 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6038976	        99.27 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       542.2 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 3 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7478595	        87.53 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5860461	       108.0 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       541.5 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 3 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7682605	        80.80 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6044893	       100.1 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       534.2 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 4 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7726316	        78.23 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6328410	        97.37 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       578.4 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 4 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7841701	        74.77 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5816780	        99.97 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       546.2 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 5 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7990738	        77.72 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6178594	        98.91 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       545.9 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 5 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7661493	        79.14 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6001947	       103.0 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       599.7 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 6 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7151082	        76.66 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6073598	        99.13 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       550.7 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 6 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7583904	        77.28 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5896969	        99.01 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       543.5 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 7 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7916854	        77.69 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6056931	        99.85 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       549.9 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 7 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7737034	        76.37 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 6049580	       100.0 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       538.5 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 8 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7512782	        76.94 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5980771	       100.5 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       546.4 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 8 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7595653	        83.06 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5763847	       105.4 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       556.2 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 9 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7767157	       102.1 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 4497386	       245.0 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	  337614	      2878 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 9 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 2335476	       342.8 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 2915670	       387.6 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	  955002	       918.6 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 10 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7320547	        79.28 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5929936	        99.99 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1000000	       575.0 ns/op	    1224 B/op	      11 allocs/op
+PASS
+# ABBA round 10 candidate
+$ /tmp/guardy-performance-pipeline-candidate.test -test.run=^$ -test.bench=^BenchmarkPipelineConstruction$/^(0|1)$|^BenchmarkPipelineRunAdjacent$/^error$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkPipelineConstruction/0-10  	 7638823	        83.00 ns/op	     320 B/op	       1 allocs/op
+BenchmarkPipelineConstruction/1-10  	 5994284	       128.3 ns/op	     336 B/op	       2 allocs/op
+BenchmarkPipelineRunAdjacent/error-10         	 1079746	       879.9 ns/op	    1224 B/op	      11 allocs/op
+PASS

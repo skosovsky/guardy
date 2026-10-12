@@ -1,0 +1,366 @@
+{
+  "BenchmarkPipelineRunPolicies/0-10": {
+    "baseline": {
+      "ns": 74.035,
+      "bytes": 128.0,
+      "allocs": 4.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 64.75999999999999,
+      "bytes": 32.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunPolicies/1-10": {
+    "baseline": {
+      "ns": 150.45,
+      "bytes": 176.0,
+      "allocs": 6.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 141.39999999999998,
+      "bytes": 80.0,
+      "allocs": 3.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunPolicies/8-10": {
+    "baseline": {
+      "ns": 631.7,
+      "bytes": 512.0,
+      "allocs": 13.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 382.15,
+      "bytes": 80.0,
+      "allocs": 3.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunPolicies/64-10": {
+    "baseline": {
+      "ns": 4534.0,
+      "bytes": 3328.0,
+      "allocs": 69.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 2575.0,
+      "bytes": 80.0,
+      "allocs": 3.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineConstruction/0-10": {
+    "baseline": {
+      "ns": 84.845,
+      "bytes": 320.0,
+      "allocs": 1.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 92.1,
+      "bytes": 320.0,
+      "allocs": 1.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineConstruction/1-10": {
+    "baseline": {
+      "ns": 109.25,
+      "bytes": 336.0,
+      "allocs": 2.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 205.55,
+      "bytes": 336.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineConstruction/8-10": {
+    "baseline": {
+      "ns": 201.64999999999998,
+      "bytes": 448.0,
+      "allocs": 2.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 200.3,
+      "bytes": 448.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineConstruction/64-10": {
+    "baseline": {
+      "ns": 799.3,
+      "bytes": 1472.0,
+      "allocs": 2.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 725.5,
+      "bytes": 1472.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/sequential-10": {
+    "baseline": {
+      "ns": 139.14999999999998,
+      "bytes": 128.0,
+      "allocs": 4.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 100.05,
+      "bytes": 80.0,
+      "allocs": 3.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/parallel-10": {
+    "baseline": {
+      "ns": 2051.0,
+      "bytes": 1032.0,
+      "allocs": 20.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1403.0,
+      "bytes": 936.0,
+      "allocs": 18.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/middleware-10": {
+    "baseline": {
+      "ns": 239.65,
+      "bytes": 176.0,
+      "allocs": 6.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 146.60000000000002,
+      "bytes": 128.0,
+      "allocs": 5.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/observation-10": {
+    "baseline": {
+      "ns": 393.04999999999995,
+      "bytes": 608.0,
+      "allocs": 7.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 362.2,
+      "bytes": 560.0,
+      "allocs": 6.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/block-10": {
+    "baseline": {
+      "ns": 367.9,
+      "bytes": 560.0,
+      "allocs": 6.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 387.85,
+      "bytes": 560.0,
+      "allocs": 6.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkPipelineRunAdjacent/error-10": {
+    "baseline": {
+      "ns": 654.5,
+      "bytes": 1224.0,
+      "allocs": 11.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 717.5,
+      "bytes": 1224.0,
+      "allocs": 11.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindNumbers/16-10": {
+    "baseline": {
+      "ns": 2298.0,
+      "bytes": 2217.0,
+      "allocs": 40.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1537.0,
+      "bytes": 904.0,
+      "allocs": 13.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindNumbers/256-10": {
+    "baseline": {
+      "ns": 22995.5,
+      "bytes": 21041.0,
+      "allocs": 294.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 15447.0,
+      "bytes": 7195.0,
+      "allocs": 21.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindNumbers/4096-10": {
+    "baseline": {
+      "ns": 357324.0,
+      "bytes": 475925.0,
+      "allocs": 4155.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 311532.5,
+      "bytes": 171053.0,
+      "allocs": 32.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindDocuments/mixed-10": {
+    "baseline": {
+      "ns": 3014.5,
+      "bytes": 3011.0,
+      "allocs": 59.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 4193.5,
+      "bytes": 1713.0,
+      "allocs": 35.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindDocuments/nested-10": {
+    "baseline": {
+      "ns": 22588.5,
+      "bytes": 28172.5,
+      "allocs": 341.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 21201.5,
+      "bytes": 14149.0,
+      "allocs": 182.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindDocuments/object-10": {
+    "baseline": {
+      "ns": 2370.0,
+      "bytes": 2274.0,
+      "allocs": 42.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1942.0,
+      "bytes": 1273.0,
+      "allocs": 21.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindAdmission/malformed-10": {
+    "baseline": {
+      "ns": 1039.5,
+      "bytes": 1312.0,
+      "allocs": 30.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1634.0,
+      "bytes": 1312.0,
+      "allocs": 30.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindAdmission/duplicate-10": {
+    "baseline": {
+      "ns": 498.7,
+      "bytes": 1016.0,
+      "allocs": 14.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 90.405,
+      "bytes": 40.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindAdmission/escaped-10": {
+    "baseline": {
+      "ns": 550.5,
+      "bytes": 1024.0,
+      "allocs": 15.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 265.70000000000005,
+      "bytes": 72.0,
+      "allocs": 5.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindAdmission/trailing-10": {
+    "baseline": {
+      "ns": 485.5,
+      "bytes": 1000.0,
+      "allocs": 13.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 59.400000000000006,
+      "bytes": 40.0,
+      "allocs": 2.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindCustom-10": {
+    "baseline": {
+      "ns": 2014.0,
+      "bytes": 2465.0,
+      "allocs": 43.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1139.5,
+      "bytes": 896.0,
+      "allocs": 10.0,
+      "samples": 10
+    }
+  },
+  "BenchmarkBindConstruction-10": {
+    "baseline": {
+      "ns": 1667.0,
+      "bytes": 1897.0,
+      "allocs": 34.0,
+      "samples": 10
+    },
+    "candidate": {
+      "ns": 1053.0,
+      "bytes": 736.0,
+      "allocs": 12.0,
+      "samples": 10
+    }
+  }
+}

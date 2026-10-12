@@ -1,0 +1,4 @@
+WAITING_FOR_AUDIT_LOCK go test ./internal/jsondoc
+AUDIT_LOCK_ACQUIRED 2026-10-12T08:19:51Z
+ok  	github.com/skosovsky/guardy/internal/jsondoc	0.207s
+AUDIT_LOCK_RELEASED 0

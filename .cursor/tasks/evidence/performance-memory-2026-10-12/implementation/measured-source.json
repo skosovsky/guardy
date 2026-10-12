@@ -1,0 +1,11 @@
+{
+  "baseline_sha": "0a99ffbd296c281b25da7a34acaeb3a029936f0a",
+  "candidate_source_sha256": {
+    "pipeline.go": "80629beac94a91a19d02f1cc4db0e8feb434748814341a24671537ac9df0f368",
+    "pipeline_performance_test.go": "4c9d313e552ad691b736b9352d7401c0adbb22c2247a3084bddd0c21d15943b8",
+    "internal/jsondoc/decode.go": "3f648a6c83ad61d59132550f95477b68793338f9101c0f851d00a128cfc3ace5",
+    "internal/jsondoc/bind_test.go": "a03697620d09fd8a122632c9c7dd64205b579f27b87cb134f230c5fb7dde137e",
+    "internal/jsondoc/bind_performance_test.go": "89870edbc779dc002ebb274dd7a05115f1bcb20b6ed8233181de777e25f094bc"
+  },
+  "association": "Final source bytes used for repeated race gates and round2 Bind benchmarks; F1 bytes unchanged across pipeline main/follow-up and stream measurements. Exact final commit recorded after evidence commit."
+}

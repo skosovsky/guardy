@@ -1,0 +1,9 @@
+cwd=/Users/skosovsky/Library/Mobile Documents/com~apple~CloudDocs/Загрузки/Projects/ai/guardy
+$ go test -race -count=1 ./...
+2026-10-12T08:20:33Z
+ok  	github.com/skosovsky/guardy	5.848s
+ok  	github.com/skosovsky/guardy/ext	1.431s
+ok  	github.com/skosovsky/guardy/guardytest	1.420s
+ok  	github.com/skosovsky/guardy/internal/jsondoc	1.504s
+
+exit=0

@@ -1,0 +1,6 @@
+cwd=/Users/skosovsky/Library/Mobile Documents/com~apple~CloudDocs/Загрузки/Projects/ai/guardy/integration
+$ go test -race -count=1 ./...
+2026-10-12T08:20:53Z
+ok  	github.com/skosovsky/guardy/integration	1.428s
+
+exit=0

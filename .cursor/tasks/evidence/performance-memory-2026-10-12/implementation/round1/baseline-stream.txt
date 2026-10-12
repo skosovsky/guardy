@@ -1,0 +1,41 @@
+cwd=/tmp/guardy-performance-baseline-20261012-final
+$ go test -run ^$ -bench ^BenchmarkStreamComponents$ -benchmem -benchtime=300ms -count=10
+2026-10-12T08:23:47Z
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy
+cpu: Apple M1 Max
+BenchmarkStreamComponents/scope-10         	10423993	        33.08 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	12879470	       105.2 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	 3254454	       112.4 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	 4660924	        67.36 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	 7407914	        70.93 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	 6484242	        50.27 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	 7836716	        57.37 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	10697768	        48.89 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	13949928	        29.26 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/scope-10         	12722346	        50.03 ns/op	      48 B/op	       1 allocs/op
+BenchmarkStreamComponents/validation-10    	  552242	       882.2 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  657038	       704.1 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  827142	       666.3 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  264688	      1932 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  690729	      1251 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  794972	       510.3 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  872938	       505.4 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  683516	       510.9 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  856921	       443.0 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/validation-10    	  891824	       789.3 ns/op	     616 B/op	      13 allocs/op
+BenchmarkStreamComponents/writer-10        	117112195	         3.076 ns/op	332879.22 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	100000000	         3.095 ns/op	330877.20 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	100000000	         3.104 ns/op	329887.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	100000000	         3.151 ns/op	325007.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	100000000	         3.063 ns/op	334356.16 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	100000000	         3.963 ns/op	258370.90 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	51175300	         5.897 ns/op	173656.44 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	64202778	        17.33 ns/op	59072.12 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	97847144	         8.446 ns/op	121244.30 MB/s	       0 B/op	       0 allocs/op
+BenchmarkStreamComponents/writer-10        	92197636	         4.086 ns/op	250634.63 MB/s	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/skosovsky/guardy	17.878s
+
+exit=0

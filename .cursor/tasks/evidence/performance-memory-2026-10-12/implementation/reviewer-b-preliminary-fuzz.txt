@@ -1,0 +1,20 @@
+Reviewer B preliminary differential fuzz (before final candidate commit).
+Source reviewed: working-tree pipeline.go and internal/jsondoc/decode.go optimization.
+Command: python3 .cursor/tasks/evidence/performance-memory-2026-10-12/audit-run.py go test ./internal/jsondoc -run '^$' -fuzz '^FuzzBindSyntaxContract$' -fuzztime=20s -parallel=4
+Output reconstructed verbatim from tool output below; final-candidate approval is separate.
+
+WAITING_FOR_AUDIT_LOCK go test ./internal/jsondoc -run ^$ -fuzz ^FuzzBindSyntaxContract$ -fuzztime=20s -parallel=4
+AUDIT_LOCK_ACQUIRED 2026-10-12T08:19:28Z
+fuzz: elapsed: 0s, gathering baseline coverage: 0/351 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 351/351 completed, now fuzzing with 4 workers
+fuzz: elapsed: 3s, execs: 83064 (27678/sec), new interesting: 13 (total: 364)
+fuzz: elapsed: 6s, execs: 102949 (6628/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 9s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 12s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 15s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 18s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 21s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+fuzz: elapsed: 21s, execs: 102949 (0/sec), new interesting: 18 (total: 369)
+PASS
+ok  github.com/skosovsky/guardy/internal/jsondoc 21.203s
+AUDIT_LOCK_RELEASED 0

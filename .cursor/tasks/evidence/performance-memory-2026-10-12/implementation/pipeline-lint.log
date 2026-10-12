@@ -1,0 +1,4 @@
+WAITING_FOR_AUDIT_LOCK golangci-lint run --allow-serial-runners ./...
+AUDIT_LOCK_ACQUIRED 2026-10-12T08:19:23Z
+0 issues.
+AUDIT_LOCK_RELEASED 0

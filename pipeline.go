@@ -420,8 +420,11 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	var reports []Report
 
 	// Phase 1: sequential checks (cached wrapped chain when middleware applied)
-	fastCtx := withValidationPhase(ctx, ValidationPhaseSequential)
+	fastCtx := ctx
 	fastToRun := p.sequentialChain()
+	if len(fastToRun) != 0 {
+		fastCtx = withValidationPhase(ctx, ValidationPhaseSequential)
+	}
 	current := input
 	for _, v := range fastToRun {
 		if err := fastCtx.Err(); err != nil {
@@ -449,13 +452,28 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 	}
 
 	// Phase 2: sequential, scope-aware policy
-	policyCtx := withValidationPhase(ctx, ValidationPhasePolicy)
-	policyToRun := p.policyChain(scope)
-	for _, v := range policyToRun {
+	policyCtx := ctx
+	var policyToRun []Validator[T]
+	if len(p.policyValidators) != 0 {
+		policyCtx = withValidationPhase(ctx, ValidationPhasePolicy)
+		if len(p.middlewares) != 0 {
+			// Scoped middleware factories remain invocation-local. Construct the
+			// complete chain before running rules, preserving factory ordering.
+			policyToRun = p.policyChain(scope)
+		}
+	}
+	for i, policy := range p.policyValidators {
 		if err := policyCtx.Err(); err != nil {
 			return p.validatorFaultResult(current, reports, err)
 		}
-		out, rep, err := validateSafely(policyCtx, v, current)
+		var out T
+		var rep *Report
+		var err error
+		if len(p.middlewares) == 0 {
+			out, rep, err = validatePolicySafely(policyCtx, policy, current, scope)
+		} else {
+			out, rep, err = validateSafely(policyCtx, policyToRun[i], current)
+		}
 		if ctxErr := policyCtx.Err(); ctxErr != nil {
 			err = errors.Join(err, ctxErr)
 		}
@@ -565,4 +583,28 @@ func (p *Pipeline[T]) Run(ctx context.Context, scope ExecutionScope, input T) (R
 		return p.validatorFaultResult(current, reports, err)
 	}
 	return partial, nil
+}
+
+// validatePolicySafely invokes an already construction-checked rule directly.
+// Keeping scope as an argument avoids allocating and boxing one invocation
+// adapter per policy when middleware is absent.
+//
+//nolint:nonamedreturns // Recovery must replace named results before returning.
+func validatePolicySafely[T any](
+	ctx context.Context,
+	policy PolicyValidator[T],
+	input T,
+	scope ExecutionScope,
+) (out T, rep *Report, err error) {
+	completed := false
+	defer func() {
+		if !completed {
+			value := recover()
+			var zero T
+			out, rep, err = zero, nil, &ValidatorPanicError{value: value}
+		}
+	}()
+	out, rep, err = policy.Validate(ctx, input, scope)
+	completed = true
+	return out, rep, err
 }

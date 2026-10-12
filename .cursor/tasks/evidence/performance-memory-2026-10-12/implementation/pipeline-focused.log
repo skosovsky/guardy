@@ -1,0 +1,7 @@
+WAITING_FOR_AUDIT_LOCK go test -run TestPipeline|TestScopedRuntime|TestValidatorPanic ./...
+AUDIT_LOCK_ACQUIRED 2026-10-12T08:19:50Z
+ok  	github.com/skosovsky/guardy	0.204s
+ok  	github.com/skosovsky/guardy/ext	0.407s [no tests to run]
+ok  	github.com/skosovsky/guardy/guardytest	0.406s
+ok  	github.com/skosovsky/guardy/internal/jsondoc	0.179s [no tests to run]
+AUDIT_LOCK_RELEASED 0

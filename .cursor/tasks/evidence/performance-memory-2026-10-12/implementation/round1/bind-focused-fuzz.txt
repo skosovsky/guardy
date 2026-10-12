@@ -1,0 +1,11 @@
+WAITING_FOR_AUDIT_LOCK go test ./internal/jsondoc -run ^$ -fuzz ^FuzzBindSyntaxContract$ -fuzztime=10s
+AUDIT_LOCK_ACQUIRED 2026-10-12T08:19:54Z
+fuzz: elapsed: 0s, gathering baseline coverage: 0/369 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 369/369 completed, now fuzzing with 10 workers
+fuzz: elapsed: 3s, execs: 156254 (52067/sec), new interesting: 28 (total: 397)
+fuzz: elapsed: 6s, execs: 156254 (0/sec), new interesting: 28 (total: 397)
+fuzz: elapsed: 9s, execs: 249145 (30964/sec), new interesting: 32 (total: 401)
+fuzz: elapsed: 11s, execs: 249145 (0/sec), new interesting: 32 (total: 401)
+PASS
+ok  	github.com/skosovsky/guardy/internal/jsondoc	11.245s
+AUDIT_LOCK_RELEASED 0

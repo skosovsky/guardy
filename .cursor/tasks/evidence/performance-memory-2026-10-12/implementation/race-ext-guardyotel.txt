@@ -1,0 +1,6 @@
+cwd=/Users/skosovsky/Library/Mobile Documents/com~apple~CloudDocs/Загрузки/Projects/ai/guardy/ext/guardyotel
+$ go test -race -count=1 ./...
+2026-10-12T08:35:17Z
+ok  	github.com/skosovsky/guardy/ext/guardyotel	1.449s
+
+exit=0

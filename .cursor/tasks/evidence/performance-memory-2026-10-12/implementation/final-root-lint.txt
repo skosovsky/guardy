@@ -1,0 +1,6 @@
+cwd=/Users/skosovsky/Library/Mobile Documents/com~apple~CloudDocs/Загрузки/Projects/ai/guardy
+$ golangci-lint run --allow-serial-runners ./...
+2026-10-12T08:36:31Z
+0 issues.
+
+exit=0

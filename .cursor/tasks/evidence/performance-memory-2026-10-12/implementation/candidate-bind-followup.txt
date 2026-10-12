@@ -1,0 +1,180 @@
+# ABBA round 1 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  304867	      1392 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5980144	        58.82 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 1 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  303832	      1243 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5391464	        68.07 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 2 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  274333	      1232 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5849967	        60.60 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 2 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/trailing-10         	 5723168	        66.62 ns/op	      40 B/op	       2 allocs/op
+BenchmarkBindAdmission/malformed-10        	  285466	      1230 ns/op	    1312 B/op	      30 allocs/op
+PASS
+# ABBA round 3 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  306164	      1647 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 4980397	       103.8 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 3 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	   56907	      5497 ns/op	    1313 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 1733563	       294.0 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 4 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  127022	      4903 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 1000000	       389.6 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 4 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  213176	      6832 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 1778100	       190.1 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 5 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  313825	      2986 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 3464808	       127.4 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 5 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/trailing-10         	 5157622	        79.13 ns/op	      40 B/op	       2 allocs/op
+BenchmarkBindAdmission/malformed-10        	  282973	      1512 ns/op	    1312 B/op	      30 allocs/op
+PASS
+# ABBA round 6 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  319958	      1640 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 1261897	       318.5 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 6 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  321618	      4118 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 2436613	       125.8 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 7 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  279678	      1416 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 2834856	       139.5 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 7 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  305116	      2031 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 3793974	        87.06 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 8 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  322430	      1245 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5378880	        62.55 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 8 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  340562	      1153 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 6223824	        58.86 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 9 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/trailing-10         	 6027339	        60.02 ns/op	      40 B/op	       2 allocs/op
+BenchmarkBindAdmission/malformed-10        	  310504	      1187 ns/op	    1312 B/op	      30 allocs/op
+PASS
+# ABBA round 9 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  314025	      1148 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5912870	        62.82 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 10 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  319443	      1138 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 5878890	        59.69 ns/op	      40 B/op	       2 allocs/op
+PASS
+# ABBA round 10 candidate
+$ /tmp/guardy-performance-bind-candidate.test -test.run=^$ -test.bench=^BenchmarkBindAdmission$/^(malformed|trailing)$ -test.benchmem -test.benchtime=300ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindAdmission/malformed-10         	  319573	      1074 ns/op	    1312 B/op	      30 allocs/op
+BenchmarkBindAdmission/trailing-10          	 6309678	        57.83 ns/op	      40 B/op	       2 allocs/op
+PASS

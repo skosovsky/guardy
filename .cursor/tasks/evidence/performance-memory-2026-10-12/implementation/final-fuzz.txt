@@ -1,0 +1,20 @@
+cwd=/Users/skosovsky/Library/Mobile Documents/com~apple~CloudDocs/Загрузки/Projects/ai/guardy
+$ go test ./internal/jsondoc -run ^$ -fuzz ^FuzzBindSyntaxContract$ -fuzztime=30s -parallel=4
+2026-10-12T08:41:41Z
+fuzz: elapsed: 0s, gathering baseline coverage: 0/570 completed
+fuzz: elapsed: 1s, gathering baseline coverage: 570/570 completed, now fuzzing with 4 workers
+fuzz: elapsed: 3s, execs: 52000 (17325/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 6s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 9s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 12s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 15s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 18s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 21s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 24s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 27s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 30s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+fuzz: elapsed: 31s, execs: 52000 (0/sec), new interesting: 6 (total: 576)
+PASS
+ok  	github.com/skosovsky/guardy/internal/jsondoc	31.582s
+
+exit=0

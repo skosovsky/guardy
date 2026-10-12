@@ -1,0 +1,11 @@
+{
+  "baseline_sha": "0a99ffbd296c281b25da7a34acaeb3a029936f0a",
+  "candidate_source_sha256": {
+    "pipeline.go": "80629beac94a91a19d02f1cc4db0e8feb434748814341a24671537ac9df0f368",
+    "pipeline_performance_test.go": "4c9d313e552ad691b736b9352d7401c0adbb22c2247a3084bddd0c21d15943b8",
+    "internal/jsondoc/decode.go": "e27a64c4a513563b4a797f3b3c2a4803dbb7079ee6483b48571e3d3a9c4a12c8",
+    "internal/jsondoc/bind_test.go": "0f17b2045fd9cb11c7f149c7d6cf6497cb0fdd252d37e4af14fb4fd840b3b2ad",
+    "internal/jsondoc/bind_performance_test.go": "89870edbc779dc002ebb274dd7a05115f1bcb20b6ed8233181de777e25f094bc"
+  },
+  "association": "Race gates and candidate benchmarks use these source bytes. Final candidate commit will contain the same source files; exact final SHA is recorded in final-candidate.txt after evidence commit."
+}

@@ -1,0 +1,160 @@
+# ABBA round 1 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	   51639	     11078 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 1 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  126216	     10754 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 2 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  127627	     11079 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 2 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  138744	      9106 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 3 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  154459	      3708 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 3 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  122680	      8929 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 4 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  113323	      7203 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 4 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  187071	      3460 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 5 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  189913	      3076 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 5 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  181696	      3112 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 6 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  176910	      3092 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 6 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  126139	      8090 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 7 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  148512	      6151 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 7 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  172978	      5394 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 8 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  146528	      4812 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 8 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  142198	      5010 ns/op	    3011 B/op	      59 allocs/op
+PASS
+# ABBA round 9 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  172900	      6459 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 9 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  197202	      4712 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 10 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  162554	      5481 ns/op	    3012 B/op	      59 allocs/op
+PASS
+# ABBA round 10 baseline
+$ /tmp/guardy-performance-bind-baseline.test -test.run=^$ -test.bench=^BenchmarkBindDocuments$/^mixed$ -test.benchmem -test.benchtime=500ms -test.count=1
+goos: darwin
+goarch: arm64
+pkg: github.com/skosovsky/guardy/internal/jsondoc
+cpu: Apple M1 Max
+BenchmarkBindDocuments/mixed-10         	  190574	      4571 ns/op	    3011 B/op	      59 allocs/op
+PASS

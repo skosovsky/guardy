@@ -1,0 +1,22 @@
+Baseline SHA: 0a99ffbd296c281b25da7a34acaeb3a029936f0a
+GOWORK=off
+GOCACHE=/tmp/library-performance-gocache-20261012
+GOMAXPROCS=10
+Serialized with /tmp/library-performance-audit-20261012.lock
+Timing is local; unrelated host load is not controlled.
+$ go version
+go version go1.27.1 darwin/arm64
+$ go env GOVERSION GOOS GOARCH GOTOOLCHAIN
+go1.27.1
+darwin
+arm64
+auto
+$ sysctl -n machdep.cpu.brand_string
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+$ sysctl -n hw.ncpu
+sysctl: sysctl fmt -1 1024 1: Operation not permitted
+
+Hardware verified with read-only sysctl outside sandbox:
+CPU: Apple M1 Max
+logical CPUs: 10
+benchstat: golang.org/x/perf v0.0.0-20261009192801-be2c69fb417e (installed under /tmp; library dependencies unchanged)
