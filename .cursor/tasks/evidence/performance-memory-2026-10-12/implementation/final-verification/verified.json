@@ -1,0 +1,8 @@
+{
+  "candidate_sha": "06b20d14a7c7c18a77b178e3662f659128d3cde5",
+  "race_modules": 7,
+  "race_status": "PASS",
+  "strict_fuzz": "PASS",
+  "source_hashes_match": true,
+  "tracked_worktree_clean": true
+}
